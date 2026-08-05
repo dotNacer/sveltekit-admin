@@ -3,14 +3,27 @@
  * Zero files needed in routes - everything handled via hook
  */
 
-import { parsePrismaSchema, type PrismaSchema } from './introspection/parser.js';
+import { parsePrismaSchema, type PrismaSchema, type PrismaModel } from './introspection/parser.js';
+import { parseRoute } from './router.js';
+import {
+  primaryKeyOf,
+  toPrismaModel,
+  formDataToPrisma,
+  paginate,
+  listRecords,
+  getRecord,
+  createRecord,
+  updateRecord,
+  deleteRecord
+} from './data.js';
 import { escapeHtml, toLabel } from './views/html.js';
 import { baseLayout } from './views/layout.js';
 import { dashboardView } from './views/dashboard.js';
 import { listView } from './views/list.js';
 import { createView, editView } from './views/form.js';
 import { notFoundView } from './views/notFound.js';
-import { parseRoute } from './router.js';
+
+const PER_PAGE = 20;
 
 export interface AdminHandlerConfig {
   /** Prisma client instance */
@@ -39,10 +52,6 @@ export interface AdminHandlerConfig {
   };
 }
 
-function toPrismaModel(name: string): string {
-  return name.charAt(0).toLowerCase() + name.slice(1);
-}
-
 // ============================================
 // Main Handler
 // ============================================
@@ -54,8 +63,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     basePath = '/admin',
     authCheck,
     exclude = [],
-    models: modelsConfig = {},
-    branding = {}
+    models: modelsConfig = {}
   } = config;
 
   // Parse schema once at startup
@@ -66,12 +74,22 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     console.warn('[sveltekit-admin] Could not parse Prisma schema:', e);
   }
 
-  const filteredModels = schema?.models.filter(m => !exclude.includes(m.name)) || [];
-  
-  const modelList = filteredModels.map(m => ({
+  const filteredModels = schema?.models.filter((m) => !exclude.includes(m.name)) || [];
+  const labelOf = (m: PrismaModel) => modelsConfig[m.name]?.label || toLabel(m.name);
+  const modelList = filteredModels.map((m) => ({ name: m.name, label: labelOf(m) }));
+  const findModel = (name?: string) =>
+    filteredModels.find((m) => m.name.toLowerCase() === name?.toLowerCase());
+  const viewModel = (m: PrismaModel) => ({
     name: m.name,
-    label: modelsConfig[m.name]?.label || toLabel(m.name)
-  }));
+    label: labelOf(m),
+    fields: m.fields,
+    primaryKey: primaryKeyOf(m)
+  });
+  const redirectToList = (model: string) =>
+    new Response(null, {
+      status: 303,
+      headers: { Location: `${basePath}/${model.toLowerCase()}` }
+    });
 
   return async ({ event, resolve }: { event: any; resolve: Function }) => {
     const { pathname } = event.url;
@@ -94,87 +112,33 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     let currentModel: string | undefined;
 
     try {
-      // Handle POST requests (create, update, delete)
+      // Handle POST requests (create, update, delete). Unrecognised actions fall
+      // through to the GET rendering below, as they always have.
       if (event.request.method === 'POST') {
         const formData = await event.request.formData();
         const action = formData.get('_action');
-        
+
         if (route.model) {
-          const schemaModel = filteredModels.find(m => m.name.toLowerCase() === route.model?.toLowerCase());
-          if (!schemaModel) {
+          const model = findModel(route.model);
+          if (!model) {
             throw new Error(`Model "${route.model}" not found`);
           }
-          
-          const prismaModelName = toPrismaModel(schemaModel.name);
-          const primaryKey = schemaModel.fields.find(f => f.isId)?.name || 'id';
-          
+
           if (action === 'delete' && route.id) {
-            const parsedId = /^\d+$/.test(route.id) ? parseInt(route.id) : route.id;
-            await prisma[prismaModelName].delete({
-              where: { [primaryKey]: parsedId }
-            });
-            
-            return new Response(null, {
-              status: 303,
-              headers: { Location: `${basePath}/${route.model.toLowerCase()}` }
-            });
+            await deleteRecord(prisma, model, route.id);
+            return redirectToList(route.model);
           }
-          
+
           if (action === 'create' || action === 'update') {
-            const data: Record<string, any> = {};
-            
-            for (const field of schemaModel.fields) {
-              if (field.isId || field.isUpdatedAt || field.isCreatedAt || field.relation) continue;
-              
-              const value = formData.get(field.name);
-              if (value === null) {
-                if (field.type === 'Boolean') {
-                  data[field.name] = false;
-                }
-                continue;
-              }
-              
-              switch (field.type) {
-                case 'Int':
-                case 'BigInt':
-                  data[field.name] = value ? parseInt(value.toString()) : null;
-                  break;
-                case 'Float':
-                case 'Decimal':
-                  data[field.name] = value ? parseFloat(value.toString()) : null;
-                  break;
-                case 'Boolean':
-                  data[field.name] = value === 'on' || value === 'true' || value === '1';
-                  break;
-                case 'DateTime':
-                  data[field.name] = value ? new Date(value.toString()) : null;
-                  break;
-                case 'Json':
-                  try {
-                    data[field.name] = value ? JSON.parse(value.toString()) : null;
-                  } catch {
-                    data[field.name] = null;
-                  }
-                  break;
-                default:
-                  data[field.name] = value.toString();
-              }
-            }
-            
+            const data = formDataToPrisma(formData, model);
+
             if (action === 'create') {
-              await prisma[prismaModelName].create({ data });
+              await createRecord(prisma, model, data);
             } else if (route.id) {
-              const parsedId = /^\d+$/.test(route.id) ? parseInt(route.id) : route.id;
-              await prisma[prismaModelName].update({
-                where: { [primaryKey]: parsedId },
-                data
-              });
+              await updateRecord(prisma, model, route.id, data);
             }
-            
-            return new Response(null, {
-              status: 303,
-              headers: { Location: `${basePath}/${route.model.toLowerCase()}` }
-            });
+
+            return redirectToList(route.model);
           }
         }
       }
@@ -182,124 +146,56 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       // GET requests - render views
       if (route.view === 'dashboard') {
         const modelsWithCounts = await Promise.all(
-          filteredModels.map(async m => {
-            const prismaModelName = toPrismaModel(m.name);
+          filteredModels.map(async (m) => {
             let count = 0;
             try {
-              count = await prisma[prismaModelName].count();
-            } catch (e) {}
-            return {
-              name: m.name,
-              label: modelsConfig[m.name]?.label || toLabel(m.name),
-              count
-            };
+              count = await prisma[toPrismaModel(m.name)].count();
+            } catch (e) {
+              // model absent from the database
+            }
+            return { name: m.name, label: labelOf(m), count };
           })
         );
-        
-        const totalRecords = modelsWithCounts.reduce((sum, m) => sum + m.count, 0);
-        
-        content = dashboardView(modelsWithCounts, { total: totalRecords, models: modelsWithCounts.length }, basePath);
-      }
-      
-      else if (route.view === 'list' && route.model) {
-        currentModel = route.model;
-        const schemaModel = filteredModels.find(m => m.name.toLowerCase() === route.model?.toLowerCase());
-        
-        if (!schemaModel) {
-          content = notFoundView(`Model "${route.model}" not found`);
-        } else {
-          const prismaModelName = toPrismaModel(schemaModel.name);
-          const primaryKey = schemaModel.fields.find(f => f.isId)?.name || 'id';
-          
-          const page = parseInt(event.url.searchParams.get('page') || '1');
-          const perPage = 20;
-          
-          const [items, total] = await Promise.all([
-            prisma[prismaModelName].findMany({
-              skip: (page - 1) * perPage,
-              take: perPage,
-              orderBy: { [primaryKey]: 'desc' }
-            }),
-            prisma[prismaModelName].count()
-          ]);
-          
-          content = listView(
-            {
-              name: schemaModel.name,
-              label: modelsConfig[schemaModel.name]?.label || toLabel(schemaModel.name),
-              fields: schemaModel.fields,
-              primaryKey
-            },
-            items,
-            { page, perPage, total },
-            basePath,
-            config
-          );
-        }
-      }
-      
-      else if (route.view === 'create' && route.model) {
-        currentModel = route.model;
-        const schemaModel = filteredModels.find(m => m.name.toLowerCase() === route.model?.toLowerCase());
-        
-        if (!schemaModel) {
-          content = notFoundView(`Model "${route.model}" not found`);
-        } else {
-          const primaryKey = schemaModel.fields.find(f => f.isId)?.name || 'id';
-          
-          content = createView(
-            {
-              name: schemaModel.name,
-              label: modelsConfig[schemaModel.name]?.label || toLabel(schemaModel.name),
-              fields: schemaModel.fields,
-              primaryKey
-            },
-            basePath,
-            config
-          );
-        }
-      }
-      
-      else if (route.view === 'edit' && route.model && route.id) {
-        currentModel = route.model;
-        const schemaModel = filteredModels.find(m => m.name.toLowerCase() === route.model?.toLowerCase());
-        
-        if (!schemaModel) {
-          content = notFoundView(`Model "${route.model}" not found`);
-        } else {
-          const prismaModelName = toPrismaModel(schemaModel.name);
-          const primaryKey = schemaModel.fields.find(f => f.isId)?.name || 'id';
-          const parsedId = /^\d+$/.test(route.id) ? parseInt(route.id) : route.id;
-          
-          const item = await prisma[prismaModelName].findUnique({
-            where: { [primaryKey]: parsedId }
-          });
-          
-          if (!item) {
-            content = notFoundView(`${schemaModel.name} with ID "${route.id}" not found`);
-          } else {
-            content = editView(
-              {
-                name: schemaModel.name,
-                label: modelsConfig[schemaModel.name]?.label || toLabel(schemaModel.name),
-                fields: schemaModel.fields,
-                primaryKey
-              },
-              item,
-              basePath,
-              config
-            );
-          }
-        }
-      }
 
+        const totalRecords = modelsWithCounts.reduce((sum, m) => sum + m.count, 0);
+
+        content = dashboardView(
+          modelsWithCounts,
+          { total: totalRecords, models: modelsWithCounts.length },
+          basePath
+        );
+      } else if (route.model) {
+        currentModel = route.model;
+        const model = findModel(route.model);
+
+        if (!model) {
+          content = notFoundView(`Model "${route.model}" not found`);
+        } else if (route.view === 'list') {
+          const { page } = paginate(event.url.searchParams.get('page'), PER_PAGE);
+          const { items, total } = await listRecords(prisma, model, page, PER_PAGE);
+          content = listView(
+            viewModel(model),
+            items,
+            { page, perPage: PER_PAGE, total },
+            basePath,
+            config
+          );
+        } else if (route.view === 'create') {
+          content = createView(viewModel(model), basePath, config);
+        } else {
+          const item = await getRecord(prisma, model, route.id!);
+          content = item
+            ? editView(viewModel(model), item, basePath, config)
+            : notFoundView(`${model.name} with ID "${route.id}" not found`);
+        }
+      }
     } catch (e: any) {
       console.error('[sveltekit-admin] Error:', e);
       content = `<div class="ska-alert ska-alert--error">Error: ${escapeHtml(e.message || 'Unknown error')}</div>`;
     }
 
     const html = baseLayout(content, config, modelList, currentModel);
-    
+
     return new Response(html, {
       headers: {
         'Content-Type': 'text/html; charset=utf-8'

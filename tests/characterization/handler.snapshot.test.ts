@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { createAdminHandler } from '../../src/lib/server/handler.js';
 import { createPrismaMock, FULL_SCHEMA_PATH } from '../fixtures/prismaMock.js';
 import { createEvent } from '../fixtures/events.js';
@@ -62,6 +62,8 @@ async function html(res: Response) {
 }
 
 describe('caractérisation du handler', () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it('01 dashboard', async () => expect(await html(await run('/admin'))).toMatchSnapshot());
   it('02 dashboard avec slash final', async () => expect(await html(await run('/admin/'))).toMatchSnapshot());
   it('03 liste page 1', async () => expect(await html(await run('/admin/user'))).toMatchSnapshot());
@@ -89,6 +91,9 @@ describe('caractérisation du handler', () => {
   });
 
   it('14 erreur prisma rendue en alerte', async () => {
+    // Le handler journalise l'erreur via console.error — comportement voulu, mais
+    // dont la stack trace polluerait la sortie de chaque exécution du suite.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     const prisma = createPrismaMock({ user: USERS }, { user: { findMany: () => { throw new Error('DB is down <b>'); } } });
     expect(await html(await run('/admin/user', { prisma }))).toMatchSnapshot();
   });

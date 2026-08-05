@@ -4,7 +4,7 @@
  */
 
 export { createAdminHandler, type AdminHandlerConfig } from './server/handler.js';
-export { defaultAdminCheck } from './server/auth/guard.js';
+export { defaultAdminCheck } from './server/auth.js';
 export {
   parsePrismaSchema,
   parseSchemaContent,
