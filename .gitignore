@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+.svelte-kit/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test coverage
+coverage/
+
+# Example app specific
+example/node_modules/
+example/.svelte-kit/
+example/prisma/*.db
+example/prisma/*.db-journal
+
+# Lock files (keep one)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
