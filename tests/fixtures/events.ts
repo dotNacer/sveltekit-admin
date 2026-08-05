@@ -28,11 +28,13 @@ export function createEvent(opts: {
     init.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
   }
 
-  const resolve = (async () => {
-    resolve.called = true;
-    return new Response('resolved-by-sveltekit');
-  }) as ResolveSpy;
-  resolve.called = false;
+  const resolve: ResolveSpy = Object.assign(
+    async () => {
+      resolve.called = true;
+      return new Response('resolved-by-sveltekit');
+    },
+    { called: false }
+  );
 
   return {
     event: { url, request: new Request(url, init), locals: opts.locals ?? {} },
