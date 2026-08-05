@@ -674,7 +674,7 @@ function editView(
   return `
     <a href="${basePath}/${model.name.toLowerCase()}" class="ska-back">← Back to list</a>
     <h1>Edit ${model.label}</h1>
-    <p class="ska-subtitle">ID: ${id}</p>
+    <p class="ska-subtitle">ID: ${escapeHtml(String(id))}</p>
     
     ${error ? `<div class="ska-alert ska-alert--error">${error}</div>` : ''}
     
@@ -726,7 +726,7 @@ function fieldInput(field: any, value: any, isReadonly: boolean): string {
       return `
         <div class="ska-field">
           <label class="ska-label">${label}${required ? ' *' : ''}</label>
-          <textarea name="${field.name}" class="ska-input" rows="4" ${isReadonly ? 'readonly' : ''} ${required ? 'required' : ''}>${value ? JSON.stringify(value, null, 2) : ''}</textarea>
+          <textarea name="${field.name}" class="ska-input" rows="4" ${isReadonly ? 'readonly' : ''} ${required ? 'required' : ''}>${value ? escapeHtml(JSON.stringify(value, null, 2)) : ''}</textarea>
         </div>
       `;
   }
@@ -736,7 +736,7 @@ function fieldInput(field: any, value: any, isReadonly: boolean): string {
     return `
       <div class="ska-field">
         <label class="ska-label">${label}${required ? ' *' : ''}</label>
-        <textarea name="${field.name}" class="ska-input" rows="4" ${isReadonly ? 'readonly' : ''} ${required ? 'required' : ''}>${inputValue}</textarea>
+        <textarea name="${field.name}" class="ska-input" rows="4" ${isReadonly ? 'readonly' : ''} ${required ? 'required' : ''}>${escapeHtml(String(inputValue))}</textarea>
       </div>
     `;
   }
@@ -773,13 +773,14 @@ function escapeHtml(str: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function notFoundView(message: string): string {
   return `
     <h1>Not Found</h1>
-    <p class="ska-subtitle">${message}</p>
+    <p class="ska-subtitle">${escapeHtml(message)}</p>
     <a href="" class="ska-btn ska-btn--secondary">← Back to Dashboard</a>
   `;
 }
@@ -947,7 +948,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
         const schemaModel = filteredModels.find(m => m.name.toLowerCase() === route.model?.toLowerCase());
         
         if (!schemaModel) {
-          content = notFoundView(`Model "${route.model}" not found`);
+          content = notFoundView(`Model "${decodeURIComponent(route.model)}" not found`);
         } else {
           const prismaModelName = toPrismaModel(schemaModel.name);
           const primaryKey = schemaModel.fields.find(f => f.isId)?.name || 'id';
@@ -984,7 +985,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
         const schemaModel = filteredModels.find(m => m.name.toLowerCase() === route.model?.toLowerCase());
         
         if (!schemaModel) {
-          content = notFoundView(`Model "${route.model}" not found`);
+          content = notFoundView(`Model "${decodeURIComponent(route.model)}" not found`);
         } else {
           const primaryKey = schemaModel.fields.find(f => f.isId)?.name || 'id';
           
@@ -1006,7 +1007,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
         const schemaModel = filteredModels.find(m => m.name.toLowerCase() === route.model?.toLowerCase());
         
         if (!schemaModel) {
-          content = notFoundView(`Model "${route.model}" not found`);
+          content = notFoundView(`Model "${decodeURIComponent(route.model)}" not found`);
         } else {
           const prismaModelName = toPrismaModel(schemaModel.name);
           const primaryKey = schemaModel.fields.find(f => f.isId)?.name || 'id';
@@ -1017,7 +1018,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           });
           
           if (!item) {
-            content = notFoundView(`${schemaModel.name} with ID "${route.id}" not found`);
+            content = notFoundView(`${schemaModel.name} with ID "${decodeURIComponent(route.id)}" not found`);
           } else {
             content = editView(
               {
