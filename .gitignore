@@ -26,6 +26,9 @@ npm-debug.log*
 
 # Test coverage
 coverage/
+tests/fixtures/prisma/client/
+tests/fixtures/prisma/*.db
+docs/superpowers/
 
 # Example app specific
 example/node_modules/

@@ -1,0 +1,8 @@
+model Broken {
+  id Int @id
+  this line has too many words and no type
+  @@map("broken")
+}
+
+model Empty {
+}
