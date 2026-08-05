@@ -1,6 +1,6 @@
 {
   "name": "sveltekit-admin",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Django-like admin panel for SvelteKit + Prisma + better-auth",
   "type": "module",
   "svelte": "./dist/index.js",
