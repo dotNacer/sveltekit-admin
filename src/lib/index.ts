@@ -3,7 +3,13 @@
  * Django-like admin panel for SvelteKit + Prisma
  */
 
-// Core admin factory and loaders
+// Standalone handler (recommended - zero config!)
+export {
+  createAdminHandler,
+  type AdminHandlerConfig
+} from './server/handler.js';
+
+// Core admin factory and loaders (legacy)
 export {
   createAdmin,
   createLayoutLoad,

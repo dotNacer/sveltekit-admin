@@ -1,6 +1,6 @@
 # sveltekit-admin
 
-🎛️ A Django-like admin panel for SvelteKit applications with Prisma and better-auth.
+🎛️ A Django-like admin panel for SvelteKit applications with Prisma.
 
 ![Version](https://img.shields.io/npm/v/sveltekit-admin)
 ![License](https://img.shields.io/npm/l/sveltekit-admin)
@@ -9,9 +9,9 @@
 
 - 🔍 **Auto-introspection** of Prisma schema
 - 📝 **CRUD operations** auto-generated for all models
-- 🔐 **better-auth integration** for admin authentication
-- 🎨 **Standalone UI** - no Tailwind or other CSS framework required
-- ⚡ **Zero-config** - just add the plugin and you're ready
+- 🎨 **Standalone UI** - no external CSS required
+- ⚡ **Zero routes** - everything handled via a single hook
+- 🪶 **3 lines of code** to setup
 - 🔧 **Customizable** - hide fields, set readonly, custom labels
 
 ## Installation
@@ -24,95 +24,48 @@ bun add sveltekit-admin
 pnpm add sveltekit-admin
 ```
 
-## Quick Start
-
-### 1. Add the Vite plugin
-
-```typescript
-// vite.config.ts
-import { sveltekit } from '@sveltejs/kit/vite';
-import { svelteKitAdmin } from 'sveltekit-admin/plugin';
-import { defineConfig } from 'vite';
-
-export default defineConfig({
-  plugins: [
-    sveltekit(),
-    svelteKitAdmin({
-      prismaSchemaPath: './prisma/schema.prisma',
-      basePath: '/admin',
-      auth: {
-        provider: 'better-auth',
-        adminRole: 'admin'
-      }
-    })
-  ]
-});
-```
-
-### 2. Add the auth hook (optional, for protected admin)
+## Quick Start (3 lines!)
 
 ```typescript
 // src/hooks.server.ts
-import { createAdminHandle } from 'sveltekit-admin';
-import { sequence } from '@sveltejs/kit/hooks';
+import { createAdminHandler } from 'sveltekit-admin';
+import { prisma } from '$lib/server/prisma';
 
-const adminHandle = createAdminHandle({
-  basePath: '/admin',
-  auth: {
-    provider: 'better-auth',
-    adminRole: 'admin'
-  }
-});
-
-export const handle = sequence(
-  // your auth handle first
-  adminHandle
-);
+export const handle = createAdminHandler({ prisma });
 ```
 
-### 3. Access your admin panel
-
-Navigate to `/admin` and you'll see:
-- Dashboard with model statistics
-- List views with pagination, search, and sorting
+That's it! Navigate to `/admin` and you'll see:
+- Dashboard with model statistics  
+- List views with pagination
 - Create/Edit forms auto-generated from your Prisma schema
 - Delete with confirmation
 
 ## Configuration
 
 ```typescript
-svelteKitAdmin({
+createAdminHandler({
+  // Required: your Prisma client
+  prisma,
+  
   // Path to your Prisma schema (default: './prisma/schema.prisma')
   prismaSchemaPath: './prisma/schema.prisma',
   
   // Base path for admin routes (default: '/admin')
   basePath: '/admin',
   
-  // Authentication configuration
-  auth: {
-    provider: 'better-auth',
-    adminRole: 'admin', // Role required to access admin
-    // Or custom check function:
-    adminCheck: async (user) => user.isAdmin === true
+  // Authentication check (optional)
+  authCheck: async (event) => {
+    const session = event.locals.session;
+    return session?.user?.role === 'admin';
   },
   
   // Per-model configuration
   models: {
     User: {
-      // Fields to hide from all views
       hidden: ['password', 'hashedPassword'],
-      // Fields that cannot be edited
       readonly: ['id', 'createdAt', 'updatedAt'],
-      // Fields to show in list view (default: auto-detect)
       listFields: ['email', 'name', 'role', 'createdAt'],
-      // Custom label for the model
-      label: 'Users',
-      // Icon name (Lucide icon)
-      icon: 'users'
-    },
-    Session: {
-      // Completely exclude this model from admin
-      hidden: true
+      label: 'Users'
     }
   },
   
@@ -125,29 +78,66 @@ svelteKitAdmin({
     logo: '/logo.svg',
     primaryColor: '#6366f1'
   }
-})
+});
 ```
 
-## Components
+## With Authentication
 
-You can also use the admin components directly in your own pages:
+If you already have an auth handler, use `sequence`:
 
-```svelte
-<script>
-  import { AdminLayout, DataTable, AdminForm } from 'sveltekit-admin/components';
-</script>
+```typescript
+import { createAdminHandler } from 'sveltekit-admin';
+import { sequence } from '@sveltejs/kit/hooks';
+import { prisma } from '$lib/server/prisma';
 
-<AdminLayout title="Custom Admin" models={[...]}>
-  <DataTable 
-    data={users}
-    columns={[
-      { key: 'email', label: 'Email', sortable: true },
-      { key: 'name', label: 'Name', sortable: true }
-    ]}
-    basePath="/admin"
-    modelName="User"
-  />
-</AdminLayout>
+const authHandle = async ({ event, resolve }) => {
+  // Your auth logic here
+  event.locals.session = await getSession(event);
+  return resolve(event);
+};
+
+const adminHandle = createAdminHandler({
+  prisma,
+  authCheck: (event) => {
+    return event.locals.session?.user?.role === 'admin';
+  }
+});
+
+export const handle = sequence(authHandle, adminHandle);
+```
+
+## How It Works
+
+The admin handler intercepts all requests to `/admin/*` and:
+
+1. Parses your Prisma schema to discover models
+2. Generates HTML pages on-the-fly (no Svelte routing needed)
+3. Handles all CRUD operations via form submissions
+
+Routes handled:
+- `/admin` → Dashboard
+- `/admin/user` → List all users  
+- `/admin/user/new` → Create user form
+- `/admin/user/123` → Edit user form
+
+## Model Configuration
+
+```typescript
+models: {
+  User: {
+    // Fields to hide from all views
+    hidden: ['password', 'hashedPassword', 'twoFactorSecret'],
+    
+    // Fields that cannot be edited (shown as readonly)
+    readonly: ['id', 'createdAt', 'updatedAt', 'emailVerified'],
+    
+    // Fields to show in list view (default: first 6 non-hidden fields)
+    listFields: ['email', 'name', 'role', 'createdAt'],
+    
+    // Custom display name for the model
+    label: 'Users'
+  }
+}
 ```
 
 ## Prisma Schema Introspection
@@ -156,16 +146,24 @@ The admin automatically parses your Prisma schema and:
 
 - Extracts all models and their fields
 - Detects field types and generates appropriate form inputs
-- Handles relations (1-1, 1-N, N-N)
+- Handles relations (excluded from forms for now)
 - Respects field attributes (@id, @unique, @default, @updatedAt)
-- Hides sensitive fields by name pattern (password, hash, secret)
+- Auto-hides common sensitive fields (password, hash, secret, token)
+
+## Supported Field Types
+
+| Prisma Type | Form Input |
+|-------------|------------|
+| String | text input (textarea for description/content/body) |
+| Int, Float, Decimal, BigInt | number input |
+| Boolean | checkbox |
+| DateTime | datetime-local input |
+| Json | textarea with JSON |
 
 ## Requirements
 
 - SvelteKit 2.x
-- Svelte 5.x
 - Prisma 5.x or 6.x
-- better-auth 1.x (for authentication)
 
 ## License
 

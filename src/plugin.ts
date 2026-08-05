@@ -148,14 +148,51 @@ export function svelteKitAdmin(config: SvelteKitAdminConfig = {}): Plugin {
 }
 
 /**
- * SvelteKit handle hook for admin auth
+ * SvelteKit handle hook for admin auth and config injection
  */
 export function createAdminHandle(config: SvelteKitAdminConfig = {}) {
-  const basePath = config.basePath || '/admin';
-  const adminRole = config.auth?.adminRole || 'admin';
+  const {
+    prismaSchemaPath = './prisma/schema.prisma',
+    basePath = '/admin',
+    auth = { provider: 'better-auth' },
+    models = {},
+    exclude = [],
+    branding = {}
+  } = config;
+
+  const adminRole = auth?.adminRole || 'admin';
+
+  // Parse schema once at startup
+  let schema: PrismaSchema | null = null;
+  try {
+    schema = parsePrismaSchema(prismaSchemaPath);
+  } catch (e) {
+    console.warn('[sveltekit-admin] Could not parse Prisma schema:', e);
+  }
 
   return async ({ event, resolve }: { event: any; resolve: Function }) => {
-    // Only check admin routes
+    // Inject admin config and schema into locals for all admin routes
+    if (event.url.pathname.startsWith(basePath)) {
+      const filteredModels = schema?.models.filter(m => !exclude.includes(m.name)) || [];
+      
+      event.locals.adminConfig = {
+        basePath,
+        auth,
+        models,
+        branding: {
+          title: branding.title || 'Admin',
+          logo: branding.logo,
+          primaryColor: branding.primaryColor || '#6366f1'
+        }
+      };
+      
+      event.locals.adminSchema = {
+        models: filteredModels,
+        enums: schema?.enums ? Object.fromEntries(schema.enums) : {}
+      };
+    }
+
+    // Skip auth check for non-admin routes
     if (!event.url.pathname.startsWith(basePath)) {
       return resolve(event);
     }
@@ -177,8 +214,8 @@ export function createAdminHandle(config: SvelteKitAdminConfig = {}) {
     }
 
     // Check admin role
-    const isAdmin = config.auth?.adminCheck
-      ? await config.auth.adminCheck(user)
+    const isAdmin = auth?.adminCheck
+      ? await auth.adminCheck(user)
       : user.role === adminRole || user.isAdmin === true;
 
     if (!isAdmin) {
