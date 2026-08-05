@@ -81,4 +81,9 @@ describe('caractérisation du handler', () => {
     const res = await run('/admin', { config: { authCheck: () => false } });
     expect({ status: res.status, body: await res.text() }).toMatchSnapshot();
   });
+
+  it('16 liste avec une colonne date', async () => {
+    const config = { models: { User: { label: 'Utilisateurs', listFields: ['email', 'createdAt'] } } };
+    expect(await html(await run('/admin/user', { config }))).toMatchSnapshot();
+  });
 });
