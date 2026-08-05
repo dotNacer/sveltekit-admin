@@ -10,6 +10,7 @@ import { dashboardView } from './views/dashboard.js';
 import { listView } from './views/list.js';
 import { createView, editView } from './views/form.js';
 import { notFoundView } from './views/notFound.js';
+import { parseRoute } from './router.js';
 
 export interface AdminHandlerConfig {
   /** Prisma client instance */
@@ -36,35 +37,6 @@ export interface AdminHandlerConfig {
     logo?: string;
     primaryColor?: string;
   };
-}
-
-interface ParsedRoute {
-  view: 'dashboard' | 'list' | 'create' | 'edit';
-  model?: string;
-  id?: string;
-}
-
-function parseRoute(pathname: string, basePath: string): ParsedRoute {
-  const path = pathname.slice(basePath.length).replace(/^\/+|\/+$/g, '');
-  
-  if (!path) {
-    return { view: 'dashboard' };
-  }
-
-  const segments = path.split('/').filter(Boolean);
-
-  if (segments.length === 1) {
-    return { view: 'list', model: segments[0] };
-  }
-
-  if (segments.length === 2) {
-    if (segments[1] === 'new') {
-      return { view: 'create', model: segments[0] };
-    }
-    return { view: 'edit', model: segments[0], id: segments[1] };
-  }
-
-  return { view: 'dashboard' };
 }
 
 function toPrismaModel(name: string): string {
