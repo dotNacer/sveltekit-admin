@@ -497,7 +497,7 @@ function adjustColor(hex: string, percent: number): string {
   return `#${(0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1)}`;
 }
 
-function dashboardView(models: Array<{ name: string; label: string; count: number }>, stats: { total: number; models: number }): string {
+function dashboardView(models: Array<{ name: string; label: string; count: number }>, stats: { total: number; models: number }, basePath: string): string {
   return `
     <h1>Dashboard</h1>
     <p class="ska-subtitle">Welcome to your admin panel</p>
@@ -526,7 +526,7 @@ function dashboardView(models: Array<{ name: string; label: string; count: numbe
     <h2>Models</h2>
     <div class="ska-models">
       ${models.map(m => `
-        <a href="/${m.name.toLowerCase()}" class="ska-model-card">
+        <a href="${basePath}/${m.name.toLowerCase()}" class="ska-model-card">
           <div>
             <div class="ska-model-card__name">${m.label}</div>
             <div class="ska-model-card__count">${m.count} records</div>
@@ -939,7 +939,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
         
         const totalRecords = modelsWithCounts.reduce((sum, m) => sum + m.count, 0);
         
-        content = dashboardView(modelsWithCounts, { total: totalRecords, models: modelsWithCounts.length });
+        content = dashboardView(modelsWithCounts, { total: totalRecords, models: modelsWithCounts.length }, basePath);
       }
       
       else if (route.view === 'list' && route.model) {
