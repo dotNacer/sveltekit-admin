@@ -20,6 +20,7 @@ model User {
   visits    BigInt   @default(0)
   rating    Float?
   metadata  Json?
+  avatar    Bytes?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   posts     Post[]
@@ -49,6 +50,6 @@ model Category {
 enum Role {
   USER
   ADMIN
-  // commented value, must be ignored
+  // a floating comment inside the enum body, must be filtered out
   MODERATOR
 }

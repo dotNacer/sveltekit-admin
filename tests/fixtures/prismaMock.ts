@@ -44,7 +44,9 @@ export function createPrismaMock(
         return Promise.resolve(records.slice(skip, skip + take));
       }),
       findUnique: wrap('findUnique', (args: any) => {
-        const [[key, value]] = Object.entries(args?.where ?? {});
+        const entries = Object.entries(args?.where ?? {});
+        if (entries.length === 0) return Promise.resolve(null);
+        const [[key, value]] = entries;
         return Promise.resolve(records.find((r: any) => r[key] === value) ?? null);
       }),
       count: wrap('count', () => Promise.resolve(records.length)),

@@ -16,6 +16,12 @@ describe('fixtures', () => {
     expect(await prisma.user.findUnique({ where: { id: 2 } })).toEqual({ id: 2 });
   });
 
+  it('findUnique renvoie null sans throw quand where est absent ou vide', async () => {
+    const prisma = createPrismaMock({ user: [{ id: 1 }] });
+    expect(await prisma.user.findUnique({})).toBeNull();
+    expect(await prisma.user.findUnique({ where: {} })).toBeNull();
+  });
+
   it('permet de forcer une erreur', async () => {
     const prisma = createPrismaMock({ user: [] }, { user: { count: () => { throw new Error('boom'); } } });
     await expect(async () => prisma.user.count()).rejects.toThrow('boom');
