@@ -948,7 +948,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
         const schemaModel = filteredModels.find(m => m.name.toLowerCase() === route.model?.toLowerCase());
         
         if (!schemaModel) {
-          content = notFoundView(`Model "${decodeURIComponent(route.model)}" not found`);
+          content = notFoundView(`Model "${route.model}" not found`);
         } else {
           const prismaModelName = toPrismaModel(schemaModel.name);
           const primaryKey = schemaModel.fields.find(f => f.isId)?.name || 'id';
@@ -985,7 +985,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
         const schemaModel = filteredModels.find(m => m.name.toLowerCase() === route.model?.toLowerCase());
         
         if (!schemaModel) {
-          content = notFoundView(`Model "${decodeURIComponent(route.model)}" not found`);
+          content = notFoundView(`Model "${route.model}" not found`);
         } else {
           const primaryKey = schemaModel.fields.find(f => f.isId)?.name || 'id';
           
@@ -1007,7 +1007,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
         const schemaModel = filteredModels.find(m => m.name.toLowerCase() === route.model?.toLowerCase());
         
         if (!schemaModel) {
-          content = notFoundView(`Model "${decodeURIComponent(route.model)}" not found`);
+          content = notFoundView(`Model "${route.model}" not found`);
         } else {
           const prismaModelName = toPrismaModel(schemaModel.name);
           const primaryKey = schemaModel.fields.find(f => f.isId)?.name || 'id';
@@ -1018,7 +1018,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           });
           
           if (!item) {
-            content = notFoundView(`${schemaModel.name} with ID "${decodeURIComponent(route.id)}" not found`);
+            content = notFoundView(`${schemaModel.name} with ID "${route.id}" not found`);
           } else {
             content = editView(
               {
