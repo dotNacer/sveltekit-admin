@@ -41,8 +41,16 @@ function run(url: string, opts: { body?: Record<string, string>; prisma?: any; c
 //   directement par les tests de `formatValue` en Task 12 ; ici il est neutralisé.
 const DATE_LIKE = /\d{1,4}[/\-.]\d{1,2}[/\-.]\d{1,4},?\s+\d{1,2}:\d{2}(:\d{2})?(\s?[AP]M)?/g;
 
+// Le bloc <style> est un template statique de ~300 lignes ne contenant que deux
+// valeurs interpolées — la couleur primaire de branding et sa teinte de survol dérivée
+// par `adjustColor` — toutes deux couvertes directement par les tests de layout et
+// `adjustColor` en tâche ultérieure. Le garder en entier dans 13 snapshots ne teste
+// rien de plus et rend le fichier illisible ; on le remplace par un repère fixe.
 async function html(res: Response) {
-  return (await res.text()).replace(/\s+$/gm, '').replace(DATE_LIKE, '<DATE>');
+  return (await res.text())
+    .replace(/\s+$/gm, '')
+    .replace(DATE_LIKE, '<DATE>')
+    .replace(/(<style>)[\s\S]*?(<\/style>)/, '$1/* stripped: static CSS, see note */$2');
 }
 
 describe('caractérisation du handler', () => {
