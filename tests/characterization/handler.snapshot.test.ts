@@ -39,18 +39,26 @@ function run(url: string, opts: { body?: Record<string, string>; prisma?: any; c
 // - les dates, que `formatValue` rend via `toLocaleString()` — donc dépendantes du
 //   fuseau ET de la locale de la machine. Le rendu des dates est couvert
 //   directement par les tests de `formatValue` en Task 12 ; ici il est neutralisé.
-const DATE_LIKE = /\d{1,4}[/\-.]\d{1,2}[/\-.]\d{1,4},?\s+\d{1,2}:\d{2}(:\d{2})?(\s?[AP]M)?/g;
+// La classe de chiffres couvre l'ASCII, l'arabe-indic (٠-٩) et l'arabe-indic étendu /
+// persan (۰-۹) : `toLocaleString('ar-SA')` ou `('fa-IR')` rendent leurs propres
+// chiffres, et TZ est figé mais pas la locale par défaut de la machine CI.
+const DIGIT = '[0-9\\u0660-\\u0669\\u06F0-\\u06F9]';
+const DATE_LIKE = new RegExp(
+  `${DIGIT}{1,4}[/\\-.]${DIGIT}{1,2}[/\\-.]${DIGIT}{1,4},?\\s+${DIGIT}{1,2}:${DIGIT}{2}(:${DIGIT}{2})?(\\s?[AP]M)?`,
+  'g'
+);
 
-// Le bloc <style> est un template statique de ~300 lignes ne contenant que deux
-// valeurs interpolées — la couleur primaire de branding et sa teinte de survol dérivée
-// par `adjustColor` — toutes deux couvertes directement par les tests de layout et
-// `adjustColor` en tâche ultérieure. Le garder en entier dans 13 snapshots ne teste
-// rien de plus et rend le fichier illisible ; on le remplace par un repère fixe.
+// Le bloc <style> est un template statique de ~300 lignes, sauf les deux lignes
+// `:root { --ska-primary / --ska-primary-hover }` qui interpolent la couleur de
+// branding et sa teinte de survol via `adjustColor` — c'est justement ce que Task 5
+// extrait. On garde ces deux valeurs concrètes visibles dans le snapshot (couvertes
+// aussi, plus tard, par les tests unitaires de layout et `adjustColor`), et on ne
+// remplace que le reste, statique, du bloc.
 async function html(res: Response) {
   return (await res.text())
     .replace(/\s+$/gm, '')
     .replace(DATE_LIKE, '<DATE>')
-    .replace(/(<style>)[\s\S]*?(<\/style>)/, '$1/* stripped: static CSS, see note */$2');
+    .replace(/(<style>\s*:root\s*\{[^}]*\})[\s\S]*?(<\/style>)/, '$1/* stripped: static CSS, see note */$2');
 }
 
 describe('caractérisation du handler', () => {
@@ -93,5 +101,15 @@ describe('caractérisation du handler', () => {
   it('16 liste avec une colonne date', async () => {
     const config = { models: { User: { label: 'Utilisateurs', listFields: ['email', 'createdAt'] } } };
     expect(await html(await run('/admin/user', { config }))).toMatchSnapshot();
+  });
+
+  it('17 hors basePath délègue à resolve', async () => {
+    const { event, resolve } = createEvent({ url: '/public/page' });
+    const handler = createAdminHandler({
+      prisma: createPrismaMock({ user: [], post: [], category: [] }),
+      prismaSchemaPath: FULL_SCHEMA_PATH
+    });
+    const res = await handler({ event, resolve } as any);
+    expect({ resolveCalled: resolve.called, body: await res.text() }).toMatchSnapshot();
   });
 });
