@@ -89,7 +89,13 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       headers: { Location: `${basePath}/${model.toLowerCase()}` }
     });
 
-  return async ({ event, resolve }: { event: any; resolve: Function }) => {
+  return async ({
+    event,
+    resolve
+  }: {
+    event: any;
+    resolve: (event: any) => Response | Promise<Response>;
+  }) => {
     const { pathname } = event.url;
 
     // Only handle admin routes
@@ -150,7 +156,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
             let count = 0;
             try {
               count = await prisma[toPrismaModel(m.name)].count();
-            } catch (e) {
+            } catch {
               // model absent from the database
             }
             return { name: m.name, label: labelOf(m), count };
