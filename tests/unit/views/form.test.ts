@@ -53,8 +53,8 @@ describe('fieldInput', () => {
     expect(fieldInput(f('metadata'), null, false)).toContain('></textarea>');
   });
 
-  // L'heuristique est désormais insensible à la casse et inclut 'bio', ce qui
-  // aligne fieldInput sur getInputType() du parser.
+  // L'heuristique de fieldInput est insensible à la casse et inclut 'bio' ;
+  // depuis la suppression de getInputType, c'est la seule source de vérité.
   it('rend un textarea pour un champ bio', () => {
     expect(fieldInput(f('bio'), 'texte', false)).toContain('<textarea');
   });
