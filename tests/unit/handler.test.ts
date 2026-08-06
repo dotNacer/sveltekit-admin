@@ -165,7 +165,7 @@ describe('réponses GET', () => {
     const { handler } = build();
     const { event, resolve } = createEvent({ url: '/admin/user/999' });
     const html = await (await handler({ event, resolve } as any)).text();
-    expect(html).toContain('with ID');
+    expect(html).toContain('User with ID &quot;999&quot; not found');
   });
 
   it('applique le label configuré du modèle', async () => {
@@ -206,6 +206,7 @@ describe('actions POST', () => {
     const { event, resolve } = createEvent({ url: '/admin/user/1', body: { _action: 'delete' } });
     expect((await handler({ event, resolve } as any)).status).toBe(303);
     expect(callsTo(prisma, 'user', 'delete')).toHaveLength(1);
+    expect((callsTo(prisma, 'user', 'delete')[0].args as any).where).toEqual({ id: 1 });
   });
 
   it('retombe sur le rendu sans _action reconnue', async () => {
@@ -214,6 +215,10 @@ describe('actions POST', () => {
     const res = await handler({ event, resolve } as any);
     expect(res.status).toBe(200);
     expect(callsTo(prisma, 'user', 'update')).toHaveLength(0);
+    // l'action non reconnue retombe sur le rendu GET : c'est le formulaire d'édition
+    const html = await res.text();
+    expect(html).toContain('value="update"');
+    expect(html).toContain('a@b.c');
   });
 
   it('retombe sur la liste pour un delete sans id', async () => {
@@ -303,10 +308,17 @@ describe('gestion des erreurs', () => {
     const { event, resolve } = createEvent({ url: '/admin' });
     const html = await (await handler({ event, resolve } as any)).text();
     expect(warn).toHaveBeenCalled();
-    expect(html).toContain('>0</div>');
+    // état propre à un schéma non parsé : aucun modèle, donc aucun lien de navigation
+    expect(html).not.toContain('href="/admin/user"');
+    expect(html).toContain('<div class="ska-stat__value">0</div>');
   });
 
   it('avertit aussi quand aucun chemin de schéma n’est fourni', async () => {
+    // La couverture de branche du paramètre par défaut `= './prisma/schema.prisma'` vient
+    // de l'omission de l'argument et ne dépend pas de l'existence du fichier. Seule
+    // l'assertion `warn` ci-dessous dépend de l'absence d'un dossier `prisma/` à la racine
+    // du dépôt : si un vrai schéma y est ajouté un jour, le parse réussit et c'est cette
+    // seule assertion qui échoue.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const handler = createAdminHandler({ prisma: createPrismaMock({}) });
     const { event, resolve } = createEvent({ url: '/admin' });
