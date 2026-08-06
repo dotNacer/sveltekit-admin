@@ -26,6 +26,14 @@ jobs:
         with:
           bun-version: 1.3.3
       - run: bun install --frozen-lockfile
+      # The Prisma client used by tests/integration/handler.db.test.ts is generated
+      # into tests/fixtures/prisma/client/, which is gitignored. `check` type-checks
+      # that import, so the client must exist before `check` runs — otherwise
+      # svelte-check reports "Cannot find module '../fixtures/prisma/client/index.js'".
+      # Generating it explicitly here keeps every step below independent of any other
+      # step's side effects (`check` and the test scripts each run `svelte-kit sync`
+      # themselves, and the test scripts re-run `test:gen` idempotently).
+      - run: bun run test:gen
       - run: bun run check
       # `bun run lint` is deliberately not run here: the package's `lint` script calls
       # eslint, but eslint is neither a declared dependency nor configured in this
