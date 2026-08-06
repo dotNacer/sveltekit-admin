@@ -42,6 +42,19 @@ describe('listView', () => {
     expect(columns(html)).toEqual(['email', 'password', 'Actions']);
   });
 
+  it('garde `hidden` prioritaire sur un listFields explicite', () => {
+    // La précédence documentée : `listFields` court-circuite le filtre par nom
+    // sensible, mais jamais `hidden`, qui est un refus explicite. Sans cette
+    // assertion, inverser les deux conditions du prédicat laissait passer la
+    // colonne `password` avec la suite entière au vert.
+    const config = {
+      prisma: {},
+      models: { User: { hidden: ['password'], listFields: ['email', 'password'] } }
+    } as any;
+    const html = listView(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', config);
+    expect(columns(html)).toEqual(['email', 'Actions']);
+  });
+
   it('affiche un nom anodin attrapé par la sous-chaîne quand il est listé', () => {
     // `hashtag` contient 'hash' : sans échappatoire, la colonne serait
     // définitivement invisible et l'utilisateur n'aurait aucun moyen de le voir.
