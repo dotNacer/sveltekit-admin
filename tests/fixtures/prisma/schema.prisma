@@ -1,0 +1,27 @@
+// Schéma dédié aux tests d'intégration : SQLite, sans `enum` (non supporté).
+datasource db {
+  provider = "sqlite"
+  url      = env("TEST_DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "./client"
+}
+
+model Widget {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  quantity  Int      @default(0)
+  price     Float?
+  active    Boolean  @default(true)
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Doc {
+  id      String  @id @default(cuid())
+  title   String
+  summary String?
+}

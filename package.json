@@ -24,9 +24,10 @@
     "prepublishOnly": "npm run package",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "test:gen": "prisma generate --schema tests/fixtures/prisma/schema.prisma",
+    "test": "npm run test:gen && vitest run",
+    "test:watch": "npm run test:gen && vitest",
+    "test:coverage": "npm run test:gen && vitest run --coverage",
     "lint": "eslint .",
     "format": "prettier --write ."
   },

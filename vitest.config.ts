@@ -5,6 +5,7 @@ export default defineConfig({
     environment: 'node',
     env: { TZ: 'UTC' },
     include: ['tests/**/*.test.ts'],
+    globalSetup: ['tests/integration/setup.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
