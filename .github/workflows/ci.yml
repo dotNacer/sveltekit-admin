@@ -35,9 +35,9 @@ jobs:
       # themselves, and the test scripts re-run `test:gen` idempotently).
       - run: bun run test:gen
       - run: bun run check
-      # `bun run lint` is deliberately not run here: the package's `lint` script calls
-      # eslint, but eslint is neither a declared dependency nor configured in this
-      # repo — the script exits 127 on every machine, CI included. To be restored in a
-      # dedicated change that adds the dependency and the configuration.
+      # `no-explicit-any` is a warning on purpose (see eslint.config.js), so this step
+      # fails only on errors. The script runs `svelte-kit sync` itself: the type-aware
+      # rule needs tsconfig.json's generated base config.
+      - run: bun run lint
       - run: bun run test:coverage
       - run: bun run package
