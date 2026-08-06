@@ -143,16 +143,14 @@ describe('createView', () => {
     expect(html).toContain('name="email"');
   });
 
+  it('échappe le libellé fourni par la configuration', () => {
+    const html = createView({ ...viewModel, label: '<b>U' }, '/admin', config);
+    expect(html).toContain('<h1>Create &lt;b&gt;U</h1>');
+    expect(html).not.toContain('<b>U');
+  });
+
   it('porte l’action create', () => {
     expect(createView(viewModel, '/admin', config)).toContain('value="create"');
-  });
-
-  it('affiche une alerte quand une erreur est fournie', () => {
-    expect(createView(viewModel, '/admin', config, 'boom')).toContain('ska-alert--error');
-  });
-
-  it('n’affiche pas d’alerte sans erreur', () => {
-    expect(createView(viewModel, '/admin', config)).not.toContain('ska-alert--error');
   });
 
   it('fonctionne sans config.models déclaré', () => {
@@ -171,6 +169,12 @@ describe('editView', () => {
     const html = editView(viewModel, { ...item, id: '<b>' }, '/admin', { prisma: {} } as any);
     expect(html).toContain('value="update"');
     expect(html).toContain('ID: &lt;b&gt;');
+  });
+
+  it('échappe le libellé fourni par la configuration', () => {
+    const html = editView({ ...viewModel, label: '<b>U' }, item, '/admin', { prisma: {} } as any);
+    expect(html).toContain('<h1>Edit &lt;b&gt;U</h1>');
+    expect(html).not.toContain('<b>U');
   });
 
   it('rend en lecture seule les champs auto-générés (createdAt)', () => {
@@ -196,9 +200,5 @@ describe('editView', () => {
   it('masque les champs cachés', () => {
     const config = { prisma: {}, models: { User: { hidden: ['password'] } } } as any;
     expect(editView(viewModel, item, '/admin', config)).not.toContain('name="password"');
-  });
-
-  it('affiche une alerte quand une erreur est fournie', () => {
-    expect(editView(viewModel, item, '/admin', { prisma: {} } as any, 'boom')).toContain('ska-alert--error');
   });
 });

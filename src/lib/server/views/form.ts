@@ -44,7 +44,8 @@ export function fieldInput(field: PrismaField, value: any, isReadonly: boolean):
   }
 
   // Handle String fields that might be long. La comparaison est faite en
-  // minuscules et inclut `bio`, pour coller à `getInputType()` du parser.
+  // minuscules et inclut `bio`. C'est ici la seule source de vérité pour
+  // l'heuristique textarea.
   const lower = field.name.toLowerCase();
   if (
     field.type === 'String' &&
@@ -69,12 +70,11 @@ export function fieldInput(field: PrismaField, value: any, isReadonly: boolean):
 export function createView(
   model: ViewModel,
   basePath: string,
-  config: AdminHandlerConfig,
-  error?: string
+  config: AdminHandlerConfig
 ): string {
   const modelConfig = config.models?.[model.name] || {};
   const hidden = modelConfig.hidden || [];
-  
+
   const formFields = model.fields.filter(f => 
     !hidden.includes(f.name) &&
     !f.isId &&
@@ -86,10 +86,8 @@ export function createView(
 
   return `
     <a href="${basePath}/${model.name.toLowerCase()}" class="ska-back">← Back to list</a>
-    <h1>Create ${model.label}</h1>
-    
-    ${error ? `<div class="ska-alert ska-alert--error">${error}</div>` : ''}
-    
+    <h1>Create ${escapeHtml(model.label)}</h1>
+
     <div class="ska-card">
       <form method="POST" class="ska-form">
         <input type="hidden" name="_action" value="create">
@@ -107,8 +105,7 @@ export function editView(
   model: ViewModel,
   item: any,
   basePath: string,
-  config: AdminHandlerConfig,
-  error?: string
+  config: AdminHandlerConfig
 ): string {
   const modelConfig = config.models?.[model.name] || {};
   const hidden = modelConfig.hidden || [];
@@ -123,11 +120,9 @@ export function editView(
 
   return `
     <a href="${basePath}/${model.name.toLowerCase()}" class="ska-back">← Back to list</a>
-    <h1>Edit ${model.label}</h1>
+    <h1>Edit ${escapeHtml(model.label)}</h1>
     <p class="ska-subtitle">ID: ${escapeHtml(String(id))}</p>
-    
-    ${error ? `<div class="ska-alert ska-alert--error">${error}</div>` : ''}
-    
+
     <div class="ska-card">
       <form method="POST" class="ska-form">
         <input type="hidden" name="_action" value="update">
