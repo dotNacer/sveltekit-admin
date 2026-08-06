@@ -7,24 +7,24 @@
 
 ## 0.3.0 — Breaking changes
 
-- Suppression de l'API à base de loaders (`createAdmin`, `createLayoutLoad`, `createDashboardLoad`,
+- Removed the loader-based API (`createAdmin`, `createLayoutLoad`, `createDashboardLoad`,
   `createModelListLoad`, `createModelNewLoad`, `createModelNewAction`, `createModelEditLoad`,
-  `createModelEditAction`, `createModelDeleteAction`, `createAdminGuard`). Utilisez `createAdminHandler`.
-- Suppression des composants Svelte exportés (`sveltekit-admin/components`) et de l'export `sveltekit-admin/admin`.
-- Suppression des utilitaires CRUD exportés (`createListOperation`, `buildSearchWhere`, …) et de `createAuthGuard`.
-- Retrait des options de configuration jamais implémentées : `branding.logo` et `models[].icon`.
-- Correction de sécurité : les valeurs issues de l'URL et de la base sont désormais échappées dans le HTML rendu.
-- Correction de comportement :
-  - la coercion de l'identifiant consulte le type de la clé primaire (une PK `String`
-    entièrement numérique n'est plus envoyée à Prisma comme un `Int`) ;
-  - `?page=` invalide (`abc`, `0`, valeur négative ou hors des entiers sûrs) retombe sur la
-    première page au lieu d'envoyer un `skip` `NaN` ou négatif ;
-  - une URL de trois segments ou plus rend une page « not found » au lieu du dashboard ;
-  - le lien « Back to Dashboard » des pages « not found » pointe désormais sur `basePath` ;
-  - l'heuristique de textarea des formulaires est insensible à la casse et couvre `bio` ;
-  - une couleur de branding invalide retombe sur la couleur par défaut au lieu de rendre du noir ;
-  - les valeurs par défaut du schéma exposées par `PrismaField.defaultValue` ne sont plus
-    tronquées (`@default(now())` donne `now()` et non `now(`).
+  `createModelEditAction`, `createModelDeleteAction`, `createAdminGuard`). Use `createAdminHandler`.
+- Removed the exported Svelte components (`sveltekit-admin/components`) and the `sveltekit-admin/admin` export.
+- Removed the exported CRUD utilities (`createListOperation`, `buildSearchWhere`, …) and `createAuthGuard`.
+- Removed the configuration options that were never implemented: `branding.logo` and `models[].icon`.
+- Security fix: values coming from the URL and from the database are now escaped in the rendered HTML.
+- Behaviour fixes:
+  - id coercion consults the primary key's type (a fully numeric `String` PK is no longer
+    sent to Prisma as an `Int`);
+  - an invalid `?page=` (`abc`, `0`, a negative value, or one outside the safe integer range)
+    falls back to the first page instead of sending a `NaN` or negative `skip`;
+  - a URL of three or more segments renders a "not found" page instead of the dashboard;
+  - the "Back to Dashboard" link on "not found" pages now points at `basePath`;
+  - the form textarea heuristic is case-insensitive and covers `bio`;
+  - an invalid branding colour falls back to the default colour instead of rendering black;
+  - the schema default values exposed by `PrismaField.defaultValue` are no longer
+    truncated (`@default(now())` yields `now()`, not `now(`).
 
 ## Features
 

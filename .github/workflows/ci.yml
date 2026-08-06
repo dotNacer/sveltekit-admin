@@ -13,18 +13,23 @@ jobs:
         node: [20, 22]
     steps:
       - uses: actions/checkout@v4
-      # Le dépôt est géré avec bun (bun.lock, pas de package-lock.json) : `npm ci`
-      # échouerait faute de lockfile npm. setup-node reste utile pour fixer la
-      # version de Node sur laquelle bun exécute les scripts.
+      # This repo is managed with bun (bun.lock, no package-lock.json), so `npm ci`
+      # would fail for want of an npm lockfile. setup-node is still useful to fix the
+      # Node version that bun runs the scripts under.
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+      # Pinned on purpose: an unpinned setup-bun floats to whatever bun release is
+      # current, so CI behaviour could change without a commit. 1.3.3 is the version
+      # this branch was developed and verified against.
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.3
       - run: bun install --frozen-lockfile
       - run: bun run check
-      # `bun run lint` n'est pas exécuté ici : le script `lint` du package appelle
-      # `eslint`, mais eslint n'est ni une dépendance déclarée ni configuré dans le
-      # dépôt — le script échoue en 127 sur toute machine, CI comprise. À rétablir
-      # dans un changement dédié qui ajoute la dépendance et la configuration.
+      # `bun run lint` is deliberately not run here: the package's `lint` script calls
+      # eslint, but eslint is neither a declared dependency nor configured in this
+      # repo — the script exits 127 on every machine, CI included. To be restored in a
+      # dedicated change that adds the dependency and the configuration.
       - run: bun run test:coverage
       - run: bun run package
