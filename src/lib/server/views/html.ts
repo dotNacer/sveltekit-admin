@@ -13,7 +13,14 @@ export function toLabel(name: string): string {
   return name.replace(/([A-Z])/g, ' $1').trim();
 }
 
+/** Couleur de repli, alignée sur le `primaryColor` par défaut du layout. */
+const DEFAULT_PRIMARY = '#6366f1';
+
 export function adjustColor(hex: string, percent: number): string {
+  // Sans ce garde-fou, un hex invalide part en `parseInt(…, 16)` → NaN, que les
+  // décalages de bits ramènent à 0 : la fonction rendait '#000000' sans rien signaler.
+  if (!/^#?[0-9a-f]{6}$/i.test(hex)) return DEFAULT_PRIMARY;
+
   const num = parseInt(hex.replace('#', ''), 16);
   const amt = Math.round(2.55 * percent);
   const R = Math.max(0, Math.min(255, (num >> 16) + amt));

@@ -96,6 +96,15 @@ describe('handler sur une vraie base SQLite', () => {
     expect(html).toContain('value="doc"');
   });
 
+  it('édite un enregistrement à PK String dont la valeur est entièrement numérique', async () => {
+    // Défaut n° 4 : avant correction, coerceId convertissait "12345" en nombre sans
+    // consulter le type de la PK, et le vrai client Prisma rejetait la requête.
+    const d = await prisma.doc.create({ data: { id: '12345', title: 'numeric id' } });
+    const html = await (await call(`/admin/doc/${d.id}`)).text();
+    expect(html).toContain('value="numeric id"');
+    expect(html).not.toContain(ERROR_ALERT);
+  });
+
   it('met à jour un enregistrement à PK String', async () => {
     const d = await prisma.doc.create({ data: { title: 'old' } });
     await call(`/admin/doc/${d.id}`, { _action: 'update', title: 'new' });

@@ -43,8 +43,13 @@ export function fieldInput(field: PrismaField, value: any, isReadonly: boolean):
       `;
   }
 
-  // Handle String fields that might be long
-  if (field.type === 'String' && (field.name.includes('description') || field.name.includes('content') || field.name.includes('body'))) {
+  // Handle String fields that might be long. La comparaison est faite en
+  // minuscules et inclut `bio`, pour coller à `getInputType()` du parser.
+  const lower = field.name.toLowerCase();
+  if (
+    field.type === 'String' &&
+    ['description', 'content', 'body', 'bio'].some((k) => lower.includes(k))
+  ) {
     return `
       <div class="ska-field">
         <label class="ska-label">${label}${required ? ' *' : ''}</label>

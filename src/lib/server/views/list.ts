@@ -1,6 +1,6 @@
 import type { AdminHandlerConfig } from '../handler.js';
 import type { ViewModel } from './types.js';
-import { toLabel, formatValue } from './html.js';
+import { escapeHtml, toLabel, formatValue } from './html.js';
 
 export function listView(
   model: ViewModel,
@@ -51,18 +51,22 @@ export function listView(
           <tbody>
             ${items.length === 0 ? `
               <tr><td colspan="${displayFields.length + 1}" style="text-align: center; color: #64748b; padding: 2rem;">No records found</td></tr>
-            ` : items.map(item => `
+            ` : items.map(item => {
+              // La PK vient de la base : elle est échappée avant d'entrer dans un attribut.
+              const pk = escapeHtml(String(item[model.primaryKey]));
+              return `
               <tr>
                 ${displayFields.map(f => `<td>${formatValue(item[f.name], f.type)}</td>`).join('')}
                 <td class="ska-table__actions">
-                  <a href="${basePath}/${model.name.toLowerCase()}/${item[model.primaryKey]}" class="ska-btn ska-btn--secondary ska-btn--sm">Edit</a>
-                  <form method="POST" action="${basePath}/${model.name.toLowerCase()}/${item[model.primaryKey]}" style="display:inline" onsubmit="return confirm('Delete this item?')">
+                  <a href="${basePath}/${model.name.toLowerCase()}/${pk}" class="ska-btn ska-btn--secondary ska-btn--sm">Edit</a>
+                  <form method="POST" action="${basePath}/${model.name.toLowerCase()}/${pk}" style="display:inline" onsubmit="return confirm('Delete this item?')">
                     <input type="hidden" name="_action" value="delete">
                     <button type="submit" class="ska-btn ska-btn--danger ska-btn--sm">Delete</button>
                   </form>
                 </td>
               </tr>
-            `).join('')}
+            `;
+            }).join('')}
           </tbody>
         </table>
       </div>

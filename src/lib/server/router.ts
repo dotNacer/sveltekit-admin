@@ -1,12 +1,15 @@
 export interface ParsedRoute {
-  view: 'dashboard' | 'list' | 'create' | 'edit';
+  view: 'dashboard' | 'list' | 'create' | 'edit' | 'notFound';
   model?: string;
   id?: string;
 }
 
 export function parseRoute(pathname: string, basePath: string): ParsedRoute {
+  // Le `replace` n'est PAS redondant avec le `filter(Boolean)` plus bas : il est ce
+  // qui fait que `/admin/` et `/admin///` donnent un `path` vide, donc le dashboard.
+  // Sans lui, `path` vaudrait '/' — truthy — et le chemin tomberait sur `notFound`.
   const path = pathname.slice(basePath.length).replace(/^\/+|\/+$/g, '');
-  
+
   if (!path) {
     return { view: 'dashboard' };
   }
@@ -24,5 +27,6 @@ export function parseRoute(pathname: string, basePath: string): ParsedRoute {
     return { view: 'edit', model: segments[0], id: segments[1] };
   }
 
-  return { view: 'dashboard' };
+  // 3 segments ou plus : aucune vue ne correspond.
+  return { view: 'notFound' };
 }

@@ -168,6 +168,15 @@ describe('réponses GET', () => {
     expect(html).toContain('User with ID &quot;999&quot; not found');
   });
 
+  it('rend not found sur une URL trop profonde', async () => {
+    const { handler, prisma } = build();
+    const { event, resolve } = createEvent({ url: '/admin/user/1/edit' });
+    const html = await (await handler({ event, resolve } as any)).text();
+    expect(html).toContain('Page not found');
+    // ni dashboard ni liste : aucune requête ne part vers Prisma
+    expect(prisma.calls).toHaveLength(0);
+  });
+
   it('applique le label configuré du modèle', async () => {
     const { handler } = build({ models: { User: { label: 'Comptes' } } });
     const { event, resolve } = createEvent({ url: '/admin' });

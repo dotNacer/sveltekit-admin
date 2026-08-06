@@ -29,10 +29,36 @@ describe('primaryKeyOf', () => {
 });
 
 describe('coerceId', () => {
-  it.each([
-    ['1', 1], ['42', 42], ['007', 7], ['ckabc123', 'ckabc123'], ['', ''], ['1a', '1a'], ['-1', '-1']
+  // User a une PK Int : tout passe par parseInt, y compris les entrées que
+  // l'ancienne heuristique /^\d+$/ laissait en chaîne.
+  it.each<[string, string | number]>([
+    ['1', 1], ['42', 42], ['007', 7], ['-1', -1]
   ])('%s → %s', (input, expected) => {
     expect(coerceId(input, User)).toBe(expected);
+  });
+
+  it('tronque au préfixe numérique, comme parseInt', () => {
+    expect(coerceId('1a', User)).toBe(1);
+  });
+
+  it.each(['ckabc123', ''])(
+    'donne NaN pour %s sur une PK Int, comme parseInt', (input) => {
+      expect(coerceId(input, User)).toBeNaN();
+    }
+  );
+});
+
+describe('coerceId — type de la clé primaire', () => {
+  it('convertit en nombre pour une PK Int', () => {
+    expect(coerceId('12345', User)).toBe(12345);
+  });
+
+  it('laisse une chaîne pour une PK String, même toute numérique', () => {
+    expect(coerceId('12345', Post)).toBe('12345');
+  });
+
+  it('laisse une chaîne pour un modèle sans @id', () => {
+    expect(coerceId('7', Category)).toBe('7');
   });
 });
 
@@ -131,8 +157,13 @@ describe('paginate', () => {
   });
 });
 
-// Les entrées non numériques (`?page=abc`, `?page=0`, `?page=-5`) sont traitées
-// en Task 15, défaut n° 10 : aujourd'hui elles produisent un skip NaN ou négatif.
+describe('paginate — entrées invalides', () => {
+  it.each(['abc', '0', '-5', '99999999999999999999'])(
+    'retombe sur la première page pour %s', (param) => {
+      expect(paginate(param, 20)).toEqual({ page: 1, skip: 0, take: 20 });
+    }
+  );
+});
 
 describe('opérations Prisma', () => {
   const records = Array.from({ length: 5 }, (_, i) => ({ id: i + 1, email: `u${i}@x.y` }));

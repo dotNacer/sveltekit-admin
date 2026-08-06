@@ -14,12 +14,18 @@ export function primaryKeyOf(model: PrismaModel): string {
 }
 
 /**
- * Comportement conservé à l'identique de l'ancien handler : la coercion ne
- * consulte pas le type de la clé primaire, d'où le paramètre `_model` inutilisé.
- * Corrigé en Task 15 (défaut n° 4).
+ * Coerce l'id issu de l'URL vers le type de la clé primaire du modèle.
+ *
+ * L'ancienne implémentation appliquait `/^\d+$/.test(id) ? parseInt(id) : id`
+ * sans consulter le schéma : une PK String dont la valeur est entièrement
+ * numérique partait donc en nombre, et le vrai client Prisma rejetait la requête
+ * (`Argument \`id\`: Invalid value provided. Expected String, provided Int.`).
+ * Le mock, lui, acceptait n'importe quel type — d'où le test de régression
+ * côté intégration.
  */
-export function coerceId(id: string, _model: PrismaModel): string | number {
-  return /^\d+$/.test(id) ? parseInt(id) : id;
+export function coerceId(id: string, model: PrismaModel): string | number {
+  const pkField = model.fields.find((f) => f.name === primaryKeyOf(model));
+  return pkField?.type === 'Int' ? parseInt(id) : id;
 }
 
 /** Convertit un FormData en payload Prisma, en ignorant les champs auto-gérés. */
@@ -66,15 +72,16 @@ export function formDataToPrisma(formData: FormData, model: PrismaModel): Record
 }
 
 /**
- * Comportement conservé à l'identique de l'ancien handler : aucune validation.
- * `parseInt('abc')` donne `NaN` et la page `0` un `skip` négatif ; les deux
- * atteignent Prisma. Corrigé plus tard.
+ * Traduit le paramètre `?page=` en fenêtre Prisma. Toute entrée qui n'est pas un
+ * entier sûr >= 1 retombe sur la première page : sans ce garde-fou, `?page=abc`
+ * envoyait `skip: NaN` et `?page=0` un `skip` négatif directement au client.
  */
 export function paginate(
   pageParam: string | null,
   perPage: number
 ): { page: number; skip: number; take: number } {
-  const page = parseInt(pageParam || '1');
+  const parsed = parseInt(pageParam || '1');
+  const page = Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : 1;
   return { page, skip: (page - 1) * perPage, take: perPage };
 }
 
@@ -87,6 +94,11 @@ export async function listRecords(
   const key = toPrismaModel(model.name);
   const primaryKey = primaryKeyOf(model);
 
+  // Le calcul `(page - 1) * perPage` est dupliqué avec `paginate` DÉLIBÉRÉMENT.
+  // Router `listRecords` vers `paginate(String(page), perPage)` serait lossy : la
+  // conversion aller-retour passe par `parseInt`, et `String(1e24)` donne
+  // `'1e+24'`, que `parseInt` ramène à `1`. `listRecords` reçoit un `number` déjà
+  // validé par l'appelant ; ne pas « simplifier » en réintroduisant un parse.
   const [items, total] = await Promise.all([
     prisma[key].findMany({
       skip: (page - 1) * perPage,

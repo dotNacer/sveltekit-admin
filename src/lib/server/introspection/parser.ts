@@ -143,7 +143,11 @@ function parseFieldLine(
   
   // Parse default value
   let defaultValue: string | undefined;
-  const defaultMatch = attributes.match(/@default\s*\(([^)]+)\)/);
+  // Le motif accepte un niveau d'imbrication : sans lui, `[^)]+` s'arrêtait à la
+  // première parenthèse fermante et tronquait tout défaut sous forme d'appel
+  // (`autoincrement()` → 'autoincrement('). Couvre autoincrement/now/cuid/uuid et
+  // dbgenerated("…") sans appel imbriqué dans la chaîne.
+  const defaultMatch = attributes.match(/@default\s*\(((?:[^()]|\([^)]*\))*)\)/);
   if (defaultMatch) {
     defaultValue = defaultMatch[1].trim();
   }

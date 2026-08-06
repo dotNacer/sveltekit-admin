@@ -40,14 +40,12 @@ export interface AdminHandlerConfig {
     readonly?: string[];
     listFields?: string[];
     label?: string;
-    icon?: string;
   }>;
   /** Models to exclude from admin */
   exclude?: string[];
   /** Custom branding */
   branding?: {
     title?: string;
-    logo?: string;
     primaryColor?: string;
   };
 }
@@ -144,7 +142,9 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       }
 
       // GET requests - render views
-      if (route.view === 'dashboard') {
+      if (route.view === 'notFound') {
+        content = notFoundView('Page not found', basePath);
+      } else if (route.view === 'dashboard') {
         const modelsWithCounts = await Promise.all(
           filteredModels.map(async (m) => {
             let count = 0;
@@ -169,7 +169,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
         const model = findModel(route.model);
 
         if (!model) {
-          content = notFoundView(`Model "${route.model}" not found`);
+          content = notFoundView(`Model "${route.model}" not found`, basePath);
         } else if (route.view === 'list') {
           const { page } = paginate(event.url.searchParams.get('page'), PER_PAGE);
           const { items, total } = await listRecords(prisma, model, page, PER_PAGE);
@@ -183,10 +183,15 @@ export function createAdminHandler(config: AdminHandlerConfig) {
         } else if (route.view === 'create') {
           content = createView(viewModel(model), basePath, config);
         } else {
+          // `route.id!` s'appuie sur un invariant de `parseRoute` : les seules vues
+          // qui portent un `model` sont 'list', 'create' et 'edit', et seule 'edit'
+          // atteint ce `else` — or 'edit' est la branche à 2 segments, donc `id` y est
+          // toujours défini. La variante 'notFound' ne porte pas de `model` : elle est
+          // interceptée en amont et ne peut pas arriver ici.
           const item = await getRecord(prisma, model, route.id!);
           content = item
             ? editView(viewModel(model), item, basePath, config)
-            : notFoundView(`${model.name} with ID "${route.id}" not found`);
+            : notFoundView(`${model.name} with ID "${route.id}" not found`, basePath);
         }
       }
     } catch (e: any) {

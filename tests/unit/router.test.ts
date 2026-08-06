@@ -11,15 +11,18 @@ describe('parseRoute avec basePath /admin', () => {
     ['/admin/User', { view: 'list', model: 'User' }],
     ['/admin/user/new', { view: 'create', model: 'user' }],
     ['/admin/user/1', { view: 'edit', model: 'user', id: '1' }],
-    ['/admin/post/ckabc123', { view: 'edit', model: 'post', id: 'ckabc123' }],
-    // Known defect (Task 15 will add a 'notFound' view): any path with 3+
-    // segments silently falls through to the dashboard branch instead of
-    // a 404. Asserted here on purpose to characterize current behaviour.
-    ['/admin/user/1/edit', { view: 'dashboard' }],
-    ['/admin/a/b/c/d', { view: 'dashboard' }]
+    ['/admin/post/ckabc123', { view: 'edit', model: 'post', id: 'ckabc123' }]
   ])('%s', (pathname, expected) => {
     expect(parseRoute(pathname, '/admin')).toEqual(expected);
   });
+
+  // Un chemin de 3 segments ou plus ne correspond à aucune vue : il rendait
+  // silencieusement le dashboard avant la variante 'notFound'.
+  it.each(['/admin/user/1/edit', '/admin/a/b/c/d', '/admin/user/1/edit/'])(
+    'renvoie notFound pour %s', (pathname) => {
+      expect(parseRoute(pathname, '/admin')).toEqual({ view: 'notFound' });
+    }
+  );
 });
 
 describe('parseRoute avec basePath personnalisé', () => {

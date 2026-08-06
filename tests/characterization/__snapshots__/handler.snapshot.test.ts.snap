@@ -752,10 +752,10 @@ exports[`caractérisation du handler > 06 formulaire de création 1`] = `
       <label class="ska-label">name</label>
       <input type="text" name="name" value="" class="ska-input"  >
     </div>
-    <div class="ska-field">
-      <label class="ska-label">bio</label>
-      <input type="text" name="bio" value="" class="ska-input"  >
-    </div>
+      <div class="ska-field">
+        <label class="ska-label">bio</label>
+        <textarea name="bio" class="ska-input" rows="4"  ></textarea>
+      </div>
     <div class="ska-field">
       <label class="ska-label">rating</label>
       <input type="number" name="rating" value="" class="ska-input"  >
@@ -845,10 +845,10 @@ exports[`caractérisation du handler > 07 formulaire d’édition, PK Int 1`] = 
       <label class="ska-label">name</label>
       <input type="text" name="name" value="User 1" class="ska-input"  >
     </div>
-    <div class="ska-field">
-      <label class="ska-label">bio</label>
-      <input type="text" name="bio" value="Long bio with an apostrophe: o&#39;brien" class="ska-input"  >
-    </div>
+      <div class="ska-field">
+        <label class="ska-label">bio</label>
+        <textarea name="bio" class="ska-input" rows="4"  >Long bio with an apostrophe: o&#39;brien</textarea>
+      </div>
     <div class="ska-field">
       <label class="ska-label">role</label>
       <input type="text" name="role" value="USER" class="ska-input"  >
@@ -1041,7 +1041,7 @@ exports[`caractérisation du handler > 09 modèle inconnu 1`] = `
     <main class="ska-main">
     <h1>Not Found</h1>
     <p class="ska-subtitle">Model &quot;nope&quot; not found</p>
-    <a href="" class="ska-btn ska-btn--secondary">← Back to Dashboard</a>
+    <a href="/admin" class="ska-btn ska-btn--secondary">← Back to Dashboard</a>
     </main>
   </div>
 </body>
@@ -1097,7 +1097,7 @@ exports[`caractérisation du handler > 10 id inexistant 1`] = `
     <main class="ska-main">
     <h1>Not Found</h1>
     <p class="ska-subtitle">User with ID &quot;999&quot; not found</p>
-    <a href="" class="ska-btn ska-btn--secondary">← Back to Dashboard</a>
+    <a href="/admin" class="ska-btn ska-btn--secondary">← Back to Dashboard</a>
     </main>
   </div>
 </body>

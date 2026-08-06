@@ -102,11 +102,26 @@ describe('parseSchemaContent — drapeaux de champ', () => {
 
   it('capture la valeur par défaut', () => {
     expect(field('User', 'role').defaultValue).toBe('USER');
-    // La regex @default\s*\(([^)]+)\) s'arrête à la première parenthèse fermante
-    // rencontrée : pour "autoincrement()" elle capture donc "autoincrement(" et
-    // non "autoincrement()". Comportement réel du parser, pas corrigé ici.
-    expect(field('User', 'id').defaultValue).toBe('autoincrement(');
     expect(field('User', 'name').defaultValue).toBeUndefined();
+  });
+
+  it('capture un défaut sous forme d’appel sans le tronquer', () => {
+    // Avant correction, la regex /@default\s*\(([^)]+)\)/ s'arrêtait à la première
+    // parenthèse fermante et capturait 'autoincrement(' ou 'now('.
+    expect(field('User', 'id').defaultValue).toBe('autoincrement()');
+    expect(field('User', 'createdAt').defaultValue).toBe('now()');
+    expect(field('Post', 'id').defaultValue).toBe('cuid()');
+  });
+
+  it.each([
+    ['a String @default("texte")', '"texte"'],
+    ['a Int @default(0)', '0'],
+    ['a Boolean @default(true)', 'true'],
+    ['a String @default(uuid())', 'uuid()'],
+    ['a String @default(dbgenerated("now"))', 'dbgenerated("now")']
+  ])('capture %s', (line, expected) => {
+    const parsed = parseSchemaContent(`model T {\n  ${line}\n}`);
+    expect(parsed.models[0].fields[0].defaultValue).toBe(expected);
   });
 
   it('capture la doc /// du champ', () => {

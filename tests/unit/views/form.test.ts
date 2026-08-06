@@ -53,14 +53,18 @@ describe('fieldInput', () => {
     expect(fieldInput(f('metadata'), null, false)).toContain('></textarea>');
   });
 
-  // Défaut connu (corrigé en tâche 15) : l'heuristique de fieldInput est
-  // sensible à la casse et ne teste que 'description'/'content'/'body' comme
-  // sous-chaînes du nom de champ — contrairement à getInputType() du parser,
-  // qui traite spécifiquement 'bio' comme un textarea. 'bio' ne contient
-  // aucune de ces trois sous-chaînes : il ne doit PAS produire de textarea.
-  it('ne rend pas un textarea pour un champ bio (défaut connu, corrigé en tâche 15)', () => {
-    expect(fieldInput(f('bio'), 'texte', false)).not.toContain('<textarea');
+  // L'heuristique est désormais insensible à la casse et inclut 'bio', ce qui
+  // aligne fieldInput sur getInputType() du parser.
+  it('rend un textarea pour un champ bio', () => {
+    expect(fieldInput(f('bio'), 'texte', false)).toContain('<textarea');
   });
+
+  it.each(['Description', 'CONTENT', 'postBody', 'Bio'])(
+    'rend un textarea quelle que soit la casse du nom (%s)', (name) => {
+      const field = { name, type: 'String', isRequired: false, hasDefault: false } as any;
+      expect(fieldInput(field, 'x', false)).toContain('<textarea');
+    }
+  );
 
   it('rend un textarea pour un champ content', () => {
     const contentField = Post.fields.find((x) => x.name === 'content')!;

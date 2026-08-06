@@ -32,6 +32,18 @@ describe('adjustColor', () => {
   it('borne à 255', () => expect(adjustColor('#ffffff', 50)).toBe('#ffffff'));
   it('borne à 0', () => expect(adjustColor('#000000', -50)).toBe('#000000'));
   it('accepte un hex sans dièse', () => expect(adjustColor('000000', 0)).toBe('#000000'));
+
+  // Sans validation, `parseInt('xyz', 16)` donne NaN — mais les décalages de bits
+  // coercent NaN en 0, donc le résultat n'était pas visiblement cassé : un hex
+  // invalide rendait silencieusement '#000000', et '#12345' parsait comme 0x12345
+  // pour rendre '#00001f'. Des couleurs fausses mais plausibles, donc invisibles.
+  it.each(['#xyz', 'nope', '', '#12345', '#1234567'])(
+    'retombe sur la couleur par défaut pour %s', (input) => {
+      expect(adjustColor(input, -15)).toBe('#6366f1');
+    }
+  );
+
+  it('accepte le hex en majuscules', () => expect(adjustColor('#FFFFFF', -50)).toBe('#808080'));
 });
 
 describe('formatValue', () => {

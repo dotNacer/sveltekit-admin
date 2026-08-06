@@ -76,4 +76,19 @@ describe('listView', () => {
     expect(html).toContain('href="/admin/user/1"');
     expect(html).toContain('value="delete"');
   });
+
+  it('échappe la PK dans le lien de ligne et l’action de suppression', () => {
+    // La PK vient de la base : un guillemet y ferme l'attribut et laisse injecter
+    // du HTML dans le lien comme dans l'action du formulaire de suppression.
+    const html = listView(
+      viewModel,
+      [{ id: 'a"b', email: 'x@y.z' }],
+      { page: 1, perPage: 20, total: 1 },
+      '/admin',
+      empty
+    );
+    expect(html).not.toContain('"/admin/user/a"b"');
+    expect(html).toContain('href="/admin/user/a&quot;b"');
+    expect(html).toContain('action="/admin/user/a&quot;b"');
+  });
 });
