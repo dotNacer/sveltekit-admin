@@ -16,11 +16,12 @@
 - Security fix: values coming from the URL and from the database are now escaped in the rendered HTML.
   Labels and titles coming from your configuration are escaped too.
 - Security fix: the list view now really auto-hides sensitive fields, as documented below.
-  Any column whose name contains `password`, `hash`, `secret` or `token` is dropped even
-  when it is not listed in `models[].hidden`, and even when it *is* listed in
-  `models[].listFields`. Previously the filter existed but was never called, so a project
-  that did not declare `hidden: ['password']` rendered its password column in the list.
-  If you were relying on displaying such a column, rename the field.
+  Any column whose name contains `password`, `hash`, `secret` or `token` is dropped by
+  default, without needing an entry in `models[].hidden`. Previously the filter existed
+  but was never called, so a project that did not declare `hidden: ['password']` rendered
+  its password column in the list. Naming a field in `models[].listFields` overrides the
+  filter for that field, which is also the escape hatch for an ordinary name the
+  substring match catches (`hashtag`, `tokenCount`, `secretariat`).
 - Behaviour fixes:
   - id coercion consults the primary key's type (a fully numeric `String` PK is no longer
     sent to Prisma as an `Int`);
@@ -177,9 +178,14 @@ The admin automatically parses your Prisma schema and:
 - Respects field attributes (@id, @unique, @default, @updatedAt)
 - Auto-hides common sensitive fields from the list view: any field whose name
   contains `password`, `hash`, `secret` or `token` (case-insensitive), so
-  `hashedPassword`, `passwordHash` and `refreshToken` are all covered. This is
-  unconditional — naming such a field in `listFields` does not bring it back.
-  Edit forms still render these fields, so you can set a value.
+  `hashedPassword`, `passwordHash` and `refreshToken` are all covered. Two things
+  to know about it:
+  - The match is on substrings, so it also catches ordinary names such as
+    `hashtag`, `tokenCount` or `secretariat`. Listing a field in
+    `models[].listFields` shows it regardless — that is the explicit override,
+    and the way to display a column the heuristic gets wrong.
+  - It only applies to the list view. Edit forms still render these fields, so
+    you can set a value; use `models[].hidden` to remove one everywhere.
 
 ## Supported Field Types
 

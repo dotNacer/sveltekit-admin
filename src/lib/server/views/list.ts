@@ -16,10 +16,19 @@ export function listView(
   
   // `getDisplayFields` retire les champs au nom sensible (password/hash/secret/token),
   // comme le README l'annonce : sans cet appel, un projet qui ne déclare pas
-  // `hidden: ['password']` publiait ses empreintes de mot de passe en colonne. Le
-  // filtrage est inconditionnel — `listFields` restreint, il ne peut pas rétablir
-  // un champ sensible.
-  let displayFields = getDisplayFields(model).filter(f =>
+  // `hidden: ['password']` publiait ses empreintes de mot de passe en colonne.
+  //
+  // Le filtre ne s'applique qu'aux champs NON nommés dans `listFields` : la
+  // correspondance se fait par sous-chaîne, donc elle attrape aussi des noms
+  // anodins (`hashtag`, `tokenCount`, `secretariat`). Sans cette échappatoire, ces
+  // colonnes deviendraient impossibles à afficher, et surtout impossibles à
+  // déboguer. Nommer un champ dans `listFields` est une intention explicite, et
+  // elle gagne ; l'absence de configuration reste protégée par défaut.
+  const explicit = new Set(listFields ?? []);
+  const safeNames = new Set(getDisplayFields(model).map(f => f.name));
+
+  let displayFields = model.fields.filter(f =>
+    (explicit.has(f.name) || safeNames.has(f.name)) &&
     !hidden.includes(f.name) &&
     !f.relation &&
     !['Json', 'Bytes'].includes(f.type)

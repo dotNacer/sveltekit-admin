@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { listView } from '../../../src/lib/server/views/list.js';
-import { parsePrismaSchema } from '../../../src/lib/server/introspection/parser.js';
+import { parsePrismaSchema, parseSchemaContent } from '../../../src/lib/server/introspection/parser.js';
 import { FULL_SCHEMA_PATH } from '../../fixtures/prismaMock.js';
 
 const schema = parsePrismaSchema(FULL_SCHEMA_PATH);
@@ -33,10 +33,36 @@ describe('listView', () => {
     expect(columns(html)).not.toContain('password');
   });
 
-  it('masque un champ sensible même listé dans listFields', () => {
+  it('affiche un champ sensible nommé explicitement dans listFields', () => {
+    // L'échappatoire : nommer le champ est une intention explicite, elle gagne.
+    // C'est aussi le seul recours pour un nom anodin attrapé par la
+    // correspondance en sous-chaîne — voir le test `hashtag` ci-dessous.
     const config = { prisma: {}, models: { User: { listFields: ['email', 'password'] } } } as any;
     const html = listView(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', config);
-    expect(columns(html)).toEqual(['email', 'Actions']);
+    expect(columns(html)).toEqual(['email', 'password', 'Actions']);
+  });
+
+  it('affiche un nom anodin attrapé par la sous-chaîne quand il est listé', () => {
+    // `hashtag` contient 'hash' : sans échappatoire, la colonne serait
+    // définitivement invisible et l'utilisateur n'aurait aucun moyen de le voir.
+    // Schéma local : la fixture est partagée par une dizaine de fichiers de test.
+    const local = parseSchemaContent(
+      'model Note {\n  id Int @id\n  email String\n  hashtag String?\n}'
+    ).models[0];
+    const noteModel = { name: 'Note', label: 'Notes', fields: local.fields, primaryKey: 'id' };
+    const config = { prisma: {}, models: { Note: { listFields: ['email', 'hashtag'] } } } as any;
+    const html = listView(noteModel, [{ id: 1 }], { page: 1, perPage: 20, total: 1 }, '/admin', config);
+    expect(columns(html)).toEqual(['email', 'hashtag', 'Actions']);
+  });
+
+  it('masque un nom anodin attrapé par la sous-chaîne sans listFields', () => {
+    // Le défaut reste protégé : sans configuration, le filtre s'applique.
+    const local = parseSchemaContent(
+      'model Note {\n  id Int @id\n  email String\n  hashtag String?\n}'
+    ).models[0];
+    const noteModel = { name: 'Note', label: 'Notes', fields: local.fields, primaryKey: 'id' };
+    const html = listView(noteModel, [{ id: 1 }], { page: 1, perPage: 20, total: 1 }, '/admin', empty);
+    expect(columns(html)).toEqual(['id', 'email', 'Actions']);
   });
 
   it('exclut les champs cachés', () => {
