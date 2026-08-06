@@ -198,68 +198,21 @@ function parseFieldLine(
 }
 
 /**
+ * Nom de champ considéré comme sensible : la comparaison est une inclusion en
+ * minuscules, donc 'password' couvre `hashedPassword`, 'hash' couvre
+ * `passwordHash` et 'token' couvre `apiToken`/`accessToken`/`refreshToken`.
+ */
+const SENSITIVE_FIELD_NAMES = ['password', 'hash', 'secret', 'token'];
+
+/**
  * Get display fields for a model (fields suitable for list view)
  */
-export function getDisplayFields(model: PrismaModel): PrismaField[] {
-  return model.fields.filter(f => 
+export function getDisplayFields(model: Pick<PrismaModel, 'fields'>): PrismaField[] {
+  return model.fields.filter(f =>
     !f.relation?.fields && // Skip relation foreign keys shown separately
     !f.isList && // Skip array fields
-    !['password', 'hashedPassword', 'hash', 'secret'].some(
+    !SENSITIVE_FIELD_NAMES.some(
       hidden => f.name.toLowerCase().includes(hidden)
     )
   );
-}
-
-/**
- * Get editable fields for a model (fields that can be edited in forms)
- */
-export function getEditableFields(model: PrismaModel): PrismaField[] {
-  return model.fields.filter(f =>
-    !f.isId &&
-    !f.isCreatedAt &&
-    !f.isUpdatedAt &&
-    !f.isList &&
-    !f.relation?.references // Skip the "other side" of relations
-  );
-}
-
-/**
- * Get a human-readable label from a field name
- */
-export function fieldToLabel(fieldName: string): string {
-  return fieldName
-    .replace(/([A-Z])/g, ' $1')
-    .replace(/^./, str => str.toUpperCase())
-    .trim();
-}
-
-/**
- * Determine the input type for a Prisma field
- */
-export function getInputType(field: PrismaField): string {
-  if (field.relation) return 'relation';
-  
-  switch (field.type) {
-    case 'String':
-      if (field.name.toLowerCase().includes('email')) return 'email';
-      if (field.name.toLowerCase().includes('password')) return 'password';
-      if (field.name.toLowerCase().includes('url')) return 'url';
-      if (field.name.toLowerCase().includes('description') || 
-          field.name.toLowerCase().includes('content') ||
-          field.name.toLowerCase().includes('bio')) return 'textarea';
-      return 'text';
-    case 'Int':
-    case 'Float':
-    case 'Decimal':
-    case 'BigInt':
-      return 'number';
-    case 'Boolean':
-      return 'checkbox';
-    case 'DateTime':
-      return 'datetime';
-    case 'Json':
-      return 'json';
-    default:
-      return 'text';
-  }
 }

@@ -1,5 +1,6 @@
 import type { AdminHandlerConfig } from '../handler.js';
 import type { ViewModel } from './types.js';
+import { getDisplayFields } from '../introspection/parser.js';
 import { escapeHtml, toLabel, formatValue } from './html.js';
 
 export function listView(
@@ -13,8 +14,13 @@ export function listView(
   const hidden = modelConfig.hidden || [];
   const listFields = modelConfig.listFields;
   
-  let displayFields = model.fields.filter(f => 
-    !hidden.includes(f.name) && 
+  // `getDisplayFields` retire les champs au nom sensible (password/hash/secret/token),
+  // comme le README l'annonce : sans cet appel, un projet qui ne déclare pas
+  // `hidden: ['password']` publiait ses empreintes de mot de passe en colonne. Le
+  // filtrage est inconditionnel — `listFields` restreint, il ne peut pas rétablir
+  // un champ sensible.
+  let displayFields = getDisplayFields(model).filter(f =>
+    !hidden.includes(f.name) &&
     !f.relation &&
     !['Json', 'Bytes'].includes(f.type)
   );
@@ -30,12 +36,12 @@ export function listView(
   return `
     <div class="ska-header">
       <div>
-        <h1>${model.label}</h1>
+        <h1>${escapeHtml(model.label)}</h1>
         <p class="ska-subtitle">${pagination.total} records</p>
       </div>
       <a href="${basePath}/${model.name.toLowerCase()}/new" class="ska-btn ska-btn--primary">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-        Add ${model.label}
+        Add ${escapeHtml(model.label)}
       </a>
     </div>
     

@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  parseSchemaContent, parsePrismaSchema, getDisplayFields,
-  getEditableFields, fieldToLabel, getInputType
+  parseSchemaContent, parsePrismaSchema, getDisplayFields
 } from '../../src/lib/server/introspection/parser.js';
 import { FULL_SCHEMA_PATH, MALFORMED_SCHEMA_PATH } from '../fixtures/prismaMock.js';
 
@@ -188,7 +187,17 @@ describe('getDisplayFields', () => {
     expect(names).not.toContain('password');
   });
 
-  it.each(['hashedPassword', 'passwordHash', 'apiSecret', 'tokenHash'])('exclut %s', (name) => {
+  it.each([
+    'hashedPassword',
+    'passwordHash',
+    'apiSecret',
+    'tokenHash',
+    // 'token' seul : le README annonce ce filtre, et ces trois noms sont les
+    // porteurs habituels d'un identifiant de session réutilisable.
+    'apiToken',
+    'accessToken',
+    'refreshToken'
+  ])('exclut %s', (name) => {
     const parsed = parseSchemaContent(`model T {\n  id Int @id\n  ${name} String\n}`);
     expect(getDisplayFields(parsed.models[0]).map((f) => f.name)).toEqual(['id']);
   });
@@ -207,58 +216,3 @@ describe('getDisplayFields', () => {
   });
 });
 
-describe('getEditableFields', () => {
-  const names = getEditableFields(model('User')).map((f) => f.name);
-
-  it.each(['id', 'createdAt', 'updatedAt', 'posts'])('exclut %s', (name) => {
-    expect(names).not.toContain(name);
-  });
-
-  it('conserve les champs saisissables', () => {
-    expect(names).toEqual(expect.arrayContaining(['email', 'name', 'password', 'role', 'isActive']));
-  });
-
-  it('exclut le côté inverse d’une relation', () => {
-    expect(getEditableFields(model('Post')).map((f) => f.name)).not.toContain('author');
-  });
-});
-
-describe('fieldToLabel', () => {
-  it.each([
-    ['email', 'Email'],
-    ['createdAt', 'Created At'],
-    ['isActive', 'Is Active'],
-    ['authorId', 'Author Id'],
-    ['URL', 'U R L'],
-    ['a', 'A']
-  ])('%s → %s', (input, expected) => {
-    expect(fieldToLabel(input)).toBe(expected);
-  });
-});
-
-describe('getInputType', () => {
-  const f = (over: Record<string, unknown>) => ({ name: 'x', type: 'String', ...over }) as any;
-
-  it.each([
-    ['relation', f({ type: 'User', relation: { model: 'User' } })],
-    ['email', f({ name: 'email' })],
-    ['email', f({ name: 'contactEmail' })],
-    ['password', f({ name: 'password' })],
-    ['url', f({ name: 'avatarUrl' })],
-    ['textarea', f({ name: 'description' })],
-    ['textarea', f({ name: 'content' })],
-    ['textarea', f({ name: 'bio' })],
-    ['text', f({ name: 'title' })],
-    ['number', f({ type: 'Int' })],
-    ['number', f({ type: 'Float' })],
-    ['number', f({ type: 'Decimal' })],
-    ['number', f({ type: 'BigInt' })],
-    ['checkbox', f({ type: 'Boolean' })],
-    ['datetime', f({ type: 'DateTime' })],
-    ['json', f({ type: 'Json' })],
-    ['text', f({ type: 'Bytes' })],
-    ['text', f({ type: 'Role' })]
-  ])('rend %s', (expected, input) => {
-    expect(getInputType(input)).toBe(expected);
-  });
-});

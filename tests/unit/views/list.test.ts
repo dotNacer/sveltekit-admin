@@ -9,6 +9,10 @@ const viewModel = { name: 'User', label: 'Users', fields: User.fields, primaryKe
 const empty = { prisma: {} } as any;
 const items = [{ id: 1, email: 'a@b.c', name: 'A' }, { id: 2, email: 'c@d.e', name: null }];
 
+/** Les intitulés de colonnes rendus, dans l'ordre, `Actions` inclus. */
+const columns = (html: string) =>
+  [...html.matchAll(/<th>([^<]*)<\/th>/g)].map((m) => m[1]);
+
 describe('listView', () => {
   it('affiche le nombre total', () => {
     expect(listView(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', empty))
@@ -20,21 +24,31 @@ describe('listView', () => {
     expect(html).toContain('No records found');
   });
 
-  it('limite l’affichage à 6 colonnes', () => {
+  it('limite l’affichage à 6 colonnes et masque les champs sensibles', () => {
+    // Sans configuration, les 6 premières colonnes retenues sont les scalaires du
+    // modèle amputés de `password` : c'est le filtre annoncé par le README, sans
+    // lequel une empreinte de mot de passe se retrouvait en clair dans la liste.
     const html = listView(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', empty);
-    expect((html.match(/<th>/g) ?? []).length).toBe(7); // 6 colonnes + Actions
+    expect(columns(html)).toEqual(['id', 'email', 'name', 'bio', 'role', 'is Active', 'Actions']);
+    expect(columns(html)).not.toContain('password');
+  });
+
+  it('masque un champ sensible même listé dans listFields', () => {
+    const config = { prisma: {}, models: { User: { listFields: ['email', 'password'] } } } as any;
+    const html = listView(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', config);
+    expect(columns(html)).toEqual(['email', 'Actions']);
   });
 
   it('exclut les champs cachés', () => {
     const config = { prisma: {}, models: { User: { hidden: ['email'] } } } as any;
-    expect(listView(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', config))
-      .not.toContain('<th>email</th>');
+    const html = listView(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', config);
+    expect(columns(html)).not.toContain('email');
   });
 
   it('restreint aux listFields déclarés', () => {
     const config = { prisma: {}, models: { User: { listFields: ['email'] } } } as any;
     const html = listView(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', config);
-    expect((html.match(/<th>/g) ?? []).length).toBe(2);
+    expect(columns(html)).toEqual(['email', 'Actions']);
   });
 
   it('exclut les relations, Json et Bytes', () => {
@@ -43,7 +57,15 @@ describe('listView', () => {
     } as any;
     const html = listView(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', config);
     // seul `email` survit : metadata est Json, avatar est Bytes, posts est une relation
-    expect((html.match(/<th>/g) ?? []).length).toBe(2);
+    expect(columns(html)).toEqual(['email', 'Actions']);
+  });
+
+  it('échappe le libellé fourni par la configuration', () => {
+    const evil = { ...viewModel, label: '<b>U' };
+    const html = listView(evil, items, { page: 1, perPage: 20, total: 2 }, '/admin', empty);
+    expect(html).toContain('<h1>&lt;b&gt;U</h1>');
+    expect(html).toContain('Add &lt;b&gt;U');
+    expect(html).not.toContain('<b>U');
   });
 
   it('masque la pagination sur une seule page', () => {
