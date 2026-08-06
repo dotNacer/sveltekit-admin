@@ -1,3 +1,5 @@
+import { escapeHtml } from './html.js';
+
 export function dashboardView(models: Array<{ name: string; label: string; count: number }>, stats: { total: number; models: number }, basePath: string): string {
   return `
     <h1>Dashboard</h1>
@@ -29,7 +31,7 @@ export function dashboardView(models: Array<{ name: string; label: string; count
       ${models.map(m => `
         <a href="${basePath}/${m.name.toLowerCase()}" class="ska-model-card">
           <div>
-            <div class="ska-model-card__name">${m.label}</div>
+            <div class="ska-model-card__name">${escapeHtml(m.label)}</div>
             <div class="ska-model-card__count">${m.count} records</div>
           </div>
           <div class="ska-model-card__footer">Manage →</div>

@@ -3,6 +3,10 @@ import { baseLayout } from '../../../src/lib/server/views/layout.js';
 
 const models = [{ name: 'User', label: 'Users' }, { name: 'Post', label: 'Posts' }];
 
+/** Nombre d'items de nav rendus, item Dashboard statique inclus. */
+const navItems = (html: string) =>
+  (html.match(/<li class="ska-nav__item">/g) ?? []).length;
+
 describe('baseLayout', () => {
   it('applique le branding fourni', () => {
     const html = baseLayout('X', { prisma: {}, branding: { title: 'T', primaryColor: '#ff0000' } } as any, models);
@@ -43,7 +47,22 @@ describe('baseLayout', () => {
   });
 
   it('gère une liste de modèles vide', () => {
-    const html = baseLayout('X', { prisma: {} } as any, []);
-    expect(html).toContain('ska-nav');
+    // Seul l'item Dashboard, statique, subsiste : la boucle de modèles ne rend
+    // rien. L'ancienne assertion (`toContain('ska-nav')`) était vraie quoi qu'il
+    // arrive, `.ska-nav` étant déclaré dans le CSS inline du layout.
+    expect(navItems(baseLayout('X', { prisma: {} } as any, []))).toBe(1);
+  });
+
+  it('rend un item de nav par modèle', () => {
+    expect(navItems(baseLayout('X', { prisma: {} } as any, models))).toBe(3);
+  });
+
+  it('échappe les libellés fournis par la configuration', () => {
+    const html = baseLayout('X', { prisma: {}, branding: { title: '<b>T' } } as any, [
+      { name: 'User', label: '<i>U' }
+    ]);
+    expect(html).toContain('<title>&lt;b&gt;T</title>');
+    expect(html).toContain('&lt;i&gt;U');
+    expect(html).not.toContain('<i>U');
   });
 });

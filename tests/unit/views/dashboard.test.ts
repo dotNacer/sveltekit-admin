@@ -17,6 +17,12 @@ describe('dashboardView', () => {
     expect(html).toContain('0 records');
   });
 
+  it('échappe le libellé fourni par la configuration', () => {
+    const html = dashboardView([{ name: 'User', label: '<b>U', count: 1 }], { total: 1, models: 1 }, '/admin');
+    expect(html).toContain('>&lt;b&gt;U</div>');
+    expect(html).not.toContain('<b>U');
+  });
+
   it('gère l’absence de modèle', () => {
     const html = dashboardView([], { total: 0, models: 0 }, '/admin');
     expect(html).toContain('ska-models');

@@ -25,9 +25,9 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "test:gen": "prisma generate --schema tests/fixtures/prisma/schema.prisma",
-    "test": "npm run test:gen && vitest run",
-    "test:watch": "npm run test:gen && vitest",
-    "test:coverage": "npm run test:gen && vitest run --coverage",
+    "test": "svelte-kit sync && npm run test:gen && vitest run",
+    "test:watch": "svelte-kit sync && npm run test:gen && vitest",
+    "test:coverage": "svelte-kit sync && npm run test:gen && vitest run --coverage",
     "lint": "eslint .",
     "format": "prettier --write ."
   },
