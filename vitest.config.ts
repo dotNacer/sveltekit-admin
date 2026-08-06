@@ -9,8 +9,8 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
       include: ['src/lib/**'],
-      exclude: ['**/*.d.ts']
-      // thresholds activés en Task 13
+      exclude: ['**/*.d.ts'],
+      thresholds: { lines: 100, statements: 100, functions: 100, branches: 100 }
     }
   }
 });
