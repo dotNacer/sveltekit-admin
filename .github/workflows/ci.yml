@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      # Le dépôt est géré avec bun (bun.lock, pas de package-lock.json) : `npm ci`
+      # échouerait faute de lockfile npm. setup-node reste utile pour fixer la
+      # version de Node sur laquelle bun exécute les scripts.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      # `bun run lint` n'est pas exécuté ici : le script `lint` du package appelle
+      # `eslint`, mais eslint n'est ni une dépendance déclarée ni configuré dans le
+      # dépôt — le script échoue en 127 sur toute machine, CI comprise. À rétablir
+      # dans un changement dédié qui ajoute la dépendance et la configuration.
+      - run: bun run test:coverage
+      - run: bun run package

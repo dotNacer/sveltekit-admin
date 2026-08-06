@@ -1,7 +1,7 @@
 {
   "name": "sveltekit-admin",
   "version": "0.3.0",
-  "description": "Django-like admin panel for SvelteKit + Prisma + better-auth",
+  "description": "Django-like admin panel for SvelteKit + Prisma",
   "type": "module",
   "svelte": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -36,11 +36,6 @@
     "@sveltejs/kit": ">=2.0.0",
     "svelte": ">=5.0.0"
   },
-  "peerDependenciesMeta": {
-    "better-auth": {
-      "optional": true
-    }
-  },
   "devDependencies": {
     "@prisma/client": "^6.19.3",
     "@sveltejs/adapter-auto": "^7.0.1",
@@ -62,7 +57,6 @@
     "sveltekit",
     "admin",
     "prisma",
-    "better-auth",
     "crud",
     "dashboard",
     "admin-panel"

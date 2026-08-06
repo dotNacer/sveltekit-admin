@@ -5,6 +5,27 @@
 ![Version](https://img.shields.io/npm/v/sveltekit-admin)
 ![License](https://img.shields.io/npm/l/sveltekit-admin)
 
+## 0.3.0 — Breaking changes
+
+- Suppression de l'API à base de loaders (`createAdmin`, `createLayoutLoad`, `createDashboardLoad`,
+  `createModelListLoad`, `createModelNewLoad`, `createModelNewAction`, `createModelEditLoad`,
+  `createModelEditAction`, `createModelDeleteAction`, `createAdminGuard`). Utilisez `createAdminHandler`.
+- Suppression des composants Svelte exportés (`sveltekit-admin/components`) et de l'export `sveltekit-admin/admin`.
+- Suppression des utilitaires CRUD exportés (`createListOperation`, `buildSearchWhere`, …) et de `createAuthGuard`.
+- Retrait des options de configuration jamais implémentées : `branding.logo` et `models[].icon`.
+- Correction de sécurité : les valeurs issues de l'URL et de la base sont désormais échappées dans le HTML rendu.
+- Correction de comportement :
+  - la coercion de l'identifiant consulte le type de la clé primaire (une PK `String`
+    entièrement numérique n'est plus envoyée à Prisma comme un `Int`) ;
+  - `?page=` invalide (`abc`, `0`, valeur négative ou hors des entiers sûrs) retombe sur la
+    première page au lieu d'envoyer un `skip` `NaN` ou négatif ;
+  - une URL de trois segments ou plus rend une page « not found » au lieu du dashboard ;
+  - le lien « Back to Dashboard » des pages « not found » pointe désormais sur `basePath` ;
+  - l'heuristique de textarea des formulaires est insensible à la casse et couvre `bio` ;
+  - une couleur de branding invalide retombe sur la couleur par défaut au lieu de rendre du noir ;
+  - les valeurs par défaut du schéma exposées par `PrismaField.defaultValue` ne sont plus
+    tronquées (`@default(now())` donne `now()` et non `now(`).
+
 ## Features
 
 - 🔍 **Auto-introspection** of Prisma schema
@@ -75,7 +96,6 @@ createAdminHandler({
   // Custom branding
   branding: {
     title: 'My Admin',
-    logo: '/logo.svg',
     primaryColor: '#6366f1'
   }
 });
