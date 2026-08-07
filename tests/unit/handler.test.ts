@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createAdminHandler } from '../../src/lib/server/handler.js';
-import { createPrismaMock, callsTo, FULL_SCHEMA_PATH } from '../fixtures/prismaMock.js';
+import { createPrismaMock, callsTo, FULL_SCHEMA_PATH, PIVOT_SCHEMA_PATH } from '../fixtures/prismaMock.js';
 import { createEvent } from '../fixtures/events.js';
 
 const USERS = [{ id: 1, email: 'a@b.c', password: 'x' }];
@@ -338,19 +338,26 @@ describe('gestion des erreurs', () => {
 
 describe('hidePivotTables', () => {
   it('masque les pivot tables par défaut', async () => {
-    // Le schema full.prisma n'a pas de pivot tables, donc on teste avec un schema custom
-    const { handler } = build();
+    const prisma = createPrismaMock({ user: [], team: [], userTeam: [], _RoleToUser: [] });
+    const handler = createAdminHandler({ prisma, prismaSchemaPath: PIVOT_SCHEMA_PATH });
     const { event, resolve } = createEvent({ url: '/admin' });
     const html = await (await handler({ event, resolve } as any)).text();
     // Les modèles normaux sont visibles
     expect(html).toContain('User');
-    expect(html).toContain('Post');
+    expect(html).toContain('Team');
+    // Les pivot tables sont masquées (UserTeam et _RoleToUser)
+    expect(html).not.toContain('User Team');
+    expect(html).not.toContain('UserTeam');
+    expect(html).not.toContain('_RoleToUser');
+    expect(html).not.toContain('Role To User');
   });
 
-  it('peut désactiver le masquage des pivot tables avec hidePivotTables: false', async () => {
-    const { handler } = build({ hidePivotTables: false });
+  it('affiche les pivot tables avec hidePivotTables: false', async () => {
+    const prisma = createPrismaMock({ user: [], team: [], userTeam: [], _RoleToUser: [] });
+    const handler = createAdminHandler({ prisma, prismaSchemaPath: PIVOT_SCHEMA_PATH, hidePivotTables: false });
     const { event, resolve } = createEvent({ url: '/admin' });
-    const res = await handler({ event, resolve } as any);
-    expect(res.status).toBe(200);
+    const html = await (await handler({ event, resolve } as any)).text();
+    // Les pivot tables sont visibles
+    expect(html).toContain('User Team');
   });
 });

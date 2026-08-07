@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 
 export const FULL_SCHEMA_PATH = resolve('tests/fixtures/schemas/full.prisma');
 export const MALFORMED_SCHEMA_PATH = resolve('tests/fixtures/schemas/malformed.prisma');
+export const PIVOT_SCHEMA_PATH = resolve('tests/fixtures/schemas/pivot.prisma');
 
 export interface PrismaCall {
   model: string;
