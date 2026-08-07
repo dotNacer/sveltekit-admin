@@ -43,6 +43,8 @@ export interface AdminHandlerConfig {
   }>;
   /** Models to exclude from admin */
   exclude?: string[];
+  /** Hide pivot/junction tables automatically (default: true) */
+  hidePivotTables?: boolean;
   /** Custom branding */
   branding?: {
     title?: string;
@@ -61,6 +63,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     basePath = '/admin',
     authCheck,
     exclude = [],
+    hidePivotTables = true,
     models: modelsConfig = {}
   } = config;
 
@@ -72,7 +75,13 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     console.warn('[sveltekit-admin] Could not parse Prisma schema:', e);
   }
 
-  const filteredModels = schema?.models.filter((m) => !exclude.includes(m.name)) || [];
+  const filteredModels = schema?.models.filter((m) => {
+    // Exclude explicitly excluded models
+    if (exclude.includes(m.name)) return false;
+    // Exclude pivot tables if option is enabled
+    if (hidePivotTables && m.isPivotTable) return false;
+    return true;
+  }) || [];
   const labelOf = (m: PrismaModel) => modelsConfig[m.name]?.label || toLabel(m.name);
   const modelList = filteredModels.map((m) => ({ name: m.name, label: labelOf(m) }));
   const findModel = (name?: string) =>

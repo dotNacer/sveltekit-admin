@@ -30,6 +30,7 @@ export interface PrismaModel {
   fields: PrismaField[];
   documentation?: string;
   primaryKey?: string;
+  isPivotTable?: boolean;
 }
 
 export interface PrismaSchema {
@@ -38,6 +39,44 @@ export interface PrismaSchema {
 }
 
 const SCALAR_TYPES = ['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Json', 'Bytes', 'Decimal', 'BigInt'];
+
+/**
+ * Detect if a model is a pivot/junction table for many-to-many relations.
+ * A pivot table typically:
+ * - Has a name starting with _ (Prisma implicit)
+ * - Has mostly foreign key fields (relations)
+ * - Has few or no "business" fields beyond IDs and timestamps
+ */
+function detectPivotTable(modelName: string, fields: PrismaField[]): boolean {
+  // Prisma implicit many-to-many tables start with _
+  if (modelName.startsWith('_')) {
+    return true;
+  }
+
+  // Count different field types
+  const relationFields = fields.filter(f => f.relation);
+  const idFields = fields.filter(f => f.isId);
+  const timestampFields = fields.filter(f => f.isCreatedAt || f.isUpdatedAt);
+  const fkFields = fields.filter(f =>
+    f.name.toLowerCase().endsWith('id') &&
+    !f.isId &&
+    SCALAR_TYPES.includes(f.type)
+  );
+
+  // Total "structural" fields (not business data)
+  const structuralFields = idFields.length + timestampFields.length + fkFields.length + relationFields.length;
+
+  // If almost all fields are structural (IDs, FKs, relations, timestamps)
+  // and we have at least 2 FK/relation fields, it's likely a pivot table
+  const totalFields = fields.length;
+  const businessFields = totalFields - structuralFields;
+
+  // Pivot table: has 2+ relations/FKs and 0-1 business fields
+  const hasMultipleRelations = (relationFields.length + fkFields.length) >= 2;
+  const hasMinimalBusinessFields = businessFields <= 1;
+
+  return hasMultipleRelations && hasMinimalBusinessFields;
+}
 
 export function parsePrismaSchema(schemaPath: string): PrismaSchema {
   const content = readFileSync(schemaPath, 'utf-8');
@@ -71,12 +110,14 @@ export function parseSchemaContent(content: string): PrismaSchema {
     
     const fields = parseModelFields(modelBody, enums);
     const primaryKey = fields.find(f => f.isId)?.name || 'id';
+    const isPivotTable = detectPivotTable(modelName, fields);
     
     models.push({
       name: modelName,
       fields,
       documentation,
-      primaryKey
+      primaryKey,
+      isPivotTable
     });
   }
 

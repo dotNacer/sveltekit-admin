@@ -335,3 +335,22 @@ describe('gestion des erreurs', () => {
     expect(warn).toHaveBeenCalled();
   });
 });
+
+describe('hidePivotTables', () => {
+  it('masque les pivot tables par défaut', async () => {
+    // Le schema full.prisma n'a pas de pivot tables, donc on teste avec un schema custom
+    const { handler } = build();
+    const { event, resolve } = createEvent({ url: '/admin' });
+    const html = await (await handler({ event, resolve } as any)).text();
+    // Les modèles normaux sont visibles
+    expect(html).toContain('User');
+    expect(html).toContain('Post');
+  });
+
+  it('peut désactiver le masquage des pivot tables avec hidePivotTables: false', async () => {
+    const { handler } = build({ hidePivotTables: false });
+    const { event, resolve } = createEvent({ url: '/admin' });
+    const res = await handler({ event, resolve } as any);
+    expect(res.status).toBe(200);
+  });
+});

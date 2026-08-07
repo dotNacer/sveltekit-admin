@@ -216,3 +216,95 @@ describe('getDisplayFields', () => {
   });
 });
 
+describe('detectPivotTable', () => {
+  it('détecte les tables implicites Prisma (préfixe _)', () => {
+    const parsed = parseSchemaContent(`
+      model _UserToRole {
+        A Int
+        B Int
+      }
+    `);
+    expect(parsed.models[0].isPivotTable).toBe(true);
+  });
+
+  it('détecte les tables de liaison explicites avec FK uniquement', () => {
+    const parsed = parseSchemaContent(`
+      model UserRole {
+        id     Int  @id @default(autoincrement())
+        userId Int
+        roleId Int
+        user   User @relation(fields: [userId], references: [id])
+        role   Role @relation(fields: [roleId], references: [id])
+      }
+      model User { id Int @id }
+      model Role { id Int @id }
+    `);
+    expect(parsed.models.find(m => m.name === 'UserRole')?.isPivotTable).toBe(true);
+  });
+
+  it('détecte les tables de liaison avec timestamps', () => {
+    const parsed = parseSchemaContent(`
+      model ProjectMember {
+        id        Int      @id @default(autoincrement())
+        projectId Int
+        userId    Int
+        project   Project  @relation(fields: [projectId], references: [id])
+        user      User     @relation(fields: [userId], references: [id])
+        createdAt DateTime @default(now())
+      }
+      model Project { id Int @id }
+      model User { id Int @id }
+    `);
+    expect(parsed.models.find(m => m.name === 'ProjectMember')?.isPivotTable).toBe(true);
+  });
+
+  it('ne détecte PAS les modèles normaux comme pivot tables', () => {
+    const parsed = parseSchemaContent(`
+      model User {
+        id        Int      @id @default(autoincrement())
+        email     String   @unique
+        name      String
+        bio       String?
+        createdAt DateTime @default(now())
+        updatedAt DateTime @updatedAt
+      }
+    `);
+    expect(parsed.models[0].isPivotTable).toBe(false);
+  });
+
+  it('ne détecte PAS les modèles avec des champs métier comme pivot tables', () => {
+    const parsed = parseSchemaContent(`
+      model Membership {
+        id        Int      @id @default(autoincrement())
+        userId    Int
+        teamId    Int
+        role      String
+        status    String
+        user      User     @relation(fields: [userId], references: [id])
+        team      Team     @relation(fields: [teamId], references: [id])
+      }
+      model User { id Int @id }
+      model Team { id Int @id }
+    `);
+    // Has role and status business fields, so NOT a pivot table
+    expect(parsed.models.find(m => m.name === 'Membership')?.isPivotTable).toBe(false);
+  });
+
+  it('détecte les pivot tables avec un seul champ metadata supplémentaire', () => {
+    const parsed = parseSchemaContent(`
+      model TeamUser {
+        id        Int      @id @default(autoincrement())
+        userId    Int
+        teamId    Int
+        joinedAt  DateTime @default(now())
+        user      User     @relation(fields: [userId], references: [id])
+        team      Team     @relation(fields: [teamId], references: [id])
+      }
+      model User { id Int @id }
+      model Team { id Int @id }
+    `);
+    // joinedAt is a timestamp, only 1 "extra" field is allowed
+    expect(parsed.models.find(m => m.name === 'TeamUser')?.isPivotTable).toBe(true);
+  });
+});
+
