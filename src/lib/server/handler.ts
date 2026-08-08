@@ -18,11 +18,11 @@ import {
   deleteRecord
 } from './data.js';
 import { escapeHtml, toLabel } from './views/html.js';
-import { dashboardView } from './views/dashboard.js';
 import { listView } from './views/list.js';
 import { createView, editView } from './views/form.js';
 import NotFound from './views/NotFound.svelte';
 import Layout from './views/Layout.svelte';
+import Dashboard from './views/Dashboard.svelte';
 
 const PER_PAGE = 20;
 
@@ -175,11 +175,13 @@ export function createAdminHandler(config: AdminHandlerConfig) {
 
         const totalRecords = modelsWithCounts.reduce((sum, m) => sum + m.count, 0);
 
-        content = dashboardView(
-          modelsWithCounts,
-          { total: totalRecords, models: modelsWithCounts.length },
-          basePath
-        );
+        content = render(Dashboard, {
+          props: {
+            models: modelsWithCounts,
+            stats: { total: totalRecords, models: modelsWithCounts.length },
+            basePath
+          }
+        }).body;
       } else if (route.model) {
         currentModel = route.model;
         const model = findModel(route.model);
