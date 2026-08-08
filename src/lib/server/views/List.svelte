@@ -18,9 +18,9 @@
     config: AdminHandlerConfig;
   } = $props();
 
-  const modelConfig = config.models?.[model.name] || {};
-  const hidden = modelConfig.hidden || [];
-  const listFields = modelConfig.listFields;
+  const modelConfig = $derived(config.models?.[model.name] || {});
+  const hidden = $derived(modelConfig.hidden || []);
+  const listFields = $derived(modelConfig.listFields);
 
   const displayFields = $derived.by(() => {
     const explicit = new Set(listFields ?? []);
@@ -41,7 +41,7 @@
     return fields.slice(0, 6);
   });
 
-  const listPath = `${basePath}/${model.name.toLowerCase()}`;
+  const listPath = $derived(`${basePath}/${model.name.toLowerCase()}`);
   const totalPages = $derived(Math.ceil(pagination.total / pagination.perPage));
 </script>
 

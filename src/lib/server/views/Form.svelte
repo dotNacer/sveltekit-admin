@@ -17,10 +17,10 @@
     item?: any;
   } = $props();
 
-  const modelConfig = config.models?.[model.name] || {};
-  const hidden = modelConfig.hidden || [];
-  const readonly = modelConfig.readonly || [];
-  const listPath = `${basePath}/${model.name.toLowerCase()}`;
+  const modelConfig = $derived(config.models?.[model.name] || {});
+  const hidden = $derived(modelConfig.hidden || []);
+  const readonly = $derived(modelConfig.readonly || []);
+  const listPath = $derived(`${basePath}/${model.name.toLowerCase()}`);
 
   const formFields = $derived(
     mode === 'create'
