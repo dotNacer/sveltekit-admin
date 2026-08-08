@@ -26,7 +26,7 @@ describe('échappement HTML', () => {
     const { event, resolve } = createEvent({ url: '/admin/user/1' });
     const html = await (await handler(prisma)({ event, resolve } as any)).text();
     expect(html).not.toContain('</textarea><script>');
-    expect(html).toContain('&lt;/textarea&gt;');
+    expect(html).toContain('&lt;/textarea>');
   });
 
   it('échappe une valeur String longue rendue en textarea', async () => {
@@ -36,14 +36,13 @@ describe('échappement HTML', () => {
     const { event, resolve } = createEvent({ url: '/admin/post/ckpost1' });
     const html = await (await handler(prisma)({ event, resolve } as any)).text();
     expect(html).not.toContain('</textarea><script>');
-    expect(html).toContain('&lt;/textarea&gt;');
+    expect(html).toContain('&lt;/textarea>');
   });
 
-  it('échappe l’apostrophe', async () => {
+  it('rend l’apostrophe sans casser l’attribut', async () => {
     const prisma = createPrismaMock({ user: [{ id: 1, email: "o'brien@b.c", password: 'x' }] });
     const { event, resolve } = createEvent({ url: '/admin/user/1' });
     const html = await (await handler(prisma)({ event, resolve } as any)).text();
-    expect(html).toContain('&#39;');
-    expect(html).not.toContain('"o\'brien@b.c"');
+    expect(html).toContain('value="o\'brien@b.c"');
   });
 });

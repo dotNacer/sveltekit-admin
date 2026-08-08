@@ -19,10 +19,10 @@ import {
 } from './data.js';
 import { escapeHtml, toLabel } from './views/html.js';
 import { listView } from './views/list.js';
-import { createView, editView } from './views/form.js';
 import NotFound from './views/NotFound.svelte';
 import Layout from './views/Layout.svelte';
 import Dashboard from './views/Dashboard.svelte';
+import Form from './views/Form.svelte';
 
 const PER_PAGE = 20;
 
@@ -201,7 +201,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
             config
           );
         } else if (route.view === 'create') {
-          content = createView(viewModel(model), basePath, config);
+          content = render(Form, { props: { mode: 'create', model: viewModel(model), basePath, config } }).body;
         } else {
           // `route.id!` s'appuie sur un invariant de `parseRoute` : les seules vues
           // qui portent un `model` sont 'list', 'create' et 'edit', et seule 'edit'
@@ -210,7 +210,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           // interceptée en amont et ne peut pas arriver ici.
           const item = await getRecord(prisma, model, route.id!);
           content = item
-            ? editView(viewModel(model), item, basePath, config)
+            ? render(Form, { props: { mode: 'edit', model: viewModel(model), basePath, config, item } }).body
             : render(NotFound, {
                 props: { message: `${model.name} with ID "${route.id}" not found`, basePath }
               }).body;
