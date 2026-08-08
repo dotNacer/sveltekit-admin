@@ -22,12 +22,15 @@
 
 <!doctype html>
 <html lang="en">
+<!-- eslint-disable-next-line svelte/no-raw-special-elements -- server-only full-document template, never mounted client-side -->
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{title}</title>
+  <!-- eslint-disable-next-line svelte/no-at-html-tags -- CSS injected as raw text; a literal <style> block can't take a dynamic value -->
   {@html `<style>${styles(primaryColor)}</style>`}
 </head>
+<!-- eslint-disable-next-line svelte/no-raw-special-elements -- server-only full-document template, never mounted client-side -->
 <body>
   <div class="ska-layout">
     <aside class="ska-sidebar">
@@ -40,7 +43,7 @@
               Dashboard
             </a>
           </li>
-          {#each modelList as m}
+          {#each modelList as m (m.name)}
           <li class="ska-nav__item">
             <a
               href="{basePath}/{m.name.toLowerCase()}"
@@ -56,6 +59,7 @@
       </nav>
     </aside>
     <main class="ska-main">
+      <!-- eslint-disable-next-line svelte/no-at-html-tags -- content is pre-rendered HTML from sibling view components / the handler's own escaped error string -->
       {@html content}
     </main>
   </div>
