@@ -18,11 +18,11 @@ import {
   deleteRecord
 } from './data.js';
 import { escapeHtml, toLabel } from './views/html.js';
-import { baseLayout } from './views/layout.js';
 import { dashboardView } from './views/dashboard.js';
 import { listView } from './views/list.js';
 import { createView, editView } from './views/form.js';
 import NotFound from './views/NotFound.svelte';
+import Layout from './views/Layout.svelte';
 
 const PER_PAGE = 20;
 
@@ -219,7 +219,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       content = `<div class="ska-alert ska-alert--error">Error: ${escapeHtml(e.message || 'Unknown error')}</div>`;
     }
 
-    const html = baseLayout(content, config, modelList, currentModel);
+    const html = render(Layout, { props: { content, config, modelList, currentModel } }).body;
 
     return new Response(html, {
       headers: {
