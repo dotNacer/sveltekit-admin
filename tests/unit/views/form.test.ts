@@ -97,12 +97,12 @@ describe('FieldInput.svelte', () => {
   });
 
   it('désactive un textarea Json en lecture seule', () => {
-    expect(renderField(f('metadata'), null, true)).toMatch(/<textarea name="metadata"[^>]*readonly/);
+    expect(renderField(f('metadata'), null, true)).toMatch(/<textarea[^>]*name="metadata"[^>]*readonly/);
   });
 
   it('désactive un textarea de contenu en lecture seule', () => {
     const contentField = Post.fields.find((x) => x.name === 'content')!;
-    expect(renderField(contentField, 'texte', true)).toMatch(/<textarea name="content"[^>]*readonly/);
+    expect(renderField(contentField, 'texte', true)).toMatch(/<textarea[^>]*name="content"[^>]*readonly/);
   });
 
   it('rend un input text pour un String ordinaire', () => {

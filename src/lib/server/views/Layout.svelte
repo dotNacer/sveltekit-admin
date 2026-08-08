@@ -14,10 +14,10 @@
     currentModel?: string;
   } = $props();
 
-  const branding = config.branding ?? {};
-  const title = branding.title || 'Admin';
-  const primaryColor = branding.primaryColor || '#6366f1';
-  const basePath = config.basePath || '/admin';
+  const branding = $derived(config.branding ?? {});
+  const title = $derived(branding.title || 'Admin');
+  const primaryColor = $derived(branding.primaryColor || '#6366f1');
+  const basePath = $derived(config.basePath || '/admin');
 </script>
 
 <!doctype html>
