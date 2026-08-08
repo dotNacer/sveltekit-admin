@@ -18,11 +18,11 @@ import {
   deleteRecord
 } from './data.js';
 import { escapeHtml, toLabel } from './views/html.js';
-import { listView } from './views/list.js';
 import NotFound from './views/NotFound.svelte';
 import Layout from './views/Layout.svelte';
 import Dashboard from './views/Dashboard.svelte';
 import Form from './views/Form.svelte';
+import List from './views/List.svelte';
 
 const PER_PAGE = 20;
 
@@ -193,13 +193,15 @@ export function createAdminHandler(config: AdminHandlerConfig) {
         } else if (route.view === 'list') {
           const { page } = paginate(event.url.searchParams.get('page'), PER_PAGE);
           const { items, total } = await listRecords(prisma, model, page, PER_PAGE);
-          content = listView(
-            viewModel(model),
-            items,
-            { page, perPage: PER_PAGE, total },
-            basePath,
-            config
-          );
+          content = render(List, {
+            props: {
+              model: viewModel(model),
+              items,
+              pagination: { page, perPage: PER_PAGE, total },
+              basePath,
+              config
+            }
+          }).body;
         } else if (route.view === 'create') {
           content = render(Form, { props: { mode: 'create', model: viewModel(model), basePath, config } }).body;
         } else {

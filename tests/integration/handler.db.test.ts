@@ -87,7 +87,10 @@ describe('handler sur une vraie base SQLite', () => {
     const html = await (await call('/admin/widget')).text();
     expect(html).not.toContain(ERROR_ALERT);
     // orderBy { id: 'desc' } : le dernier créé sort en premier.
-    expect(html.indexOf('<td>b</td>')).toBeLessThan(html.indexOf('<td>a</td>'));
+    // Svelte encadre chaque texte dynamique de commentaires de marquage
+    // (`<!--id-->valeur<!---->`), d'où la recherche sur ce motif plutôt que
+    // sur `<td>b</td>` littéral.
+    expect(html.indexOf('>b<!----></td>')).toBeLessThan(html.indexOf('>a<!----></td>'));
   });
 
   it('gère une PK String', async () => {
