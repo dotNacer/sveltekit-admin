@@ -32,14 +32,12 @@
 
   const isFieldReadonly = (f: (typeof formFields)[number]) =>
     mode === 'edit' && (f.isId || f.isCreatedAt || f.isUpdatedAt || readonly.includes(f.name));
-
-  const id = $derived(item ? item[model.primaryKey] : undefined);
 </script>
 
 <a href={listPath} class="ska-back">← Back to list</a>
 <h1>{mode === 'create' ? 'Create' : 'Edit'} {model.label}</h1>
 {#if mode === 'edit'}
-  <p class="ska-subtitle">ID: {id}</p>
+  <p class="ska-subtitle">ID: {item[model.primaryKey]}</p>
 {/if}
 
 <div class="ska-card">

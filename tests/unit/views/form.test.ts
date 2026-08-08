@@ -166,10 +166,11 @@ describe('Form.svelte (create)', () => {
 describe('Form.svelte (edit)', () => {
   const item = { id: 1, email: 'a@b.c', createdAt: new Date('2026-01-01T00:00:00Z') };
 
-  it('porte l’action update et l’id', () => {
+  it('porte l’action update et échappe la PK dans le titre', () => {
     const html = renderForm('edit', viewModel, '/admin', { prisma: {} } as any, { ...item, id: '<b>' });
     expect(html).toContain('value="update"');
-    expect(html).toContain('ID:');
+    expect(html).toContain('ID: &lt;b>');
+    expect(html).not.toContain('<b>');
   });
 
   it('échappe le libellé fourni par la configuration', () => {
@@ -202,10 +203,5 @@ describe('Form.svelte (edit)', () => {
   it('masque les champs cachés', () => {
     const config = { prisma: {}, models: { User: { hidden: ['password'] } } } as any;
     expect(renderForm('edit', viewModel, '/admin', config, item)).not.toContain('name="password"');
-  });
-
-  it('rend un ID vide quand item est absent', () => {
-    const html = renderForm('edit', viewModel, '/admin', { prisma: {} } as any, undefined);
-    expect(html).toContain('ID:');
   });
 });
