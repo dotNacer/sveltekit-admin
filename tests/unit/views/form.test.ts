@@ -33,6 +33,8 @@ describe('FieldInput.svelte', () => {
   });
 
   it('rend un input number pour un champ Int', () => {
+    // couvre spécifiquement le "case 'Int':" du switch, non exercé par
+    // visits/rating/balance (BigInt/Float/Decimal).
     expect(renderField(f('id'), 1, false)).toContain('type="number"');
   });
 
@@ -56,6 +58,8 @@ describe('FieldInput.svelte', () => {
     expect(renderField(f('metadata'), null, false)).toContain('></textarea>');
   });
 
+  // L'heuristique de fieldInput est insensible à la casse et inclut 'bio' ;
+  // depuis la suppression de getInputType, c'est la seule source de vérité.
   it('rend un textarea pour un champ bio', () => {
     expect(renderField(f('bio'), 'texte', false)).toContain('<textarea');
   });
@@ -118,6 +122,8 @@ describe('FieldInput.svelte', () => {
   });
 
   it('ne marque pas requis un champ optionnel', () => {
+    // name est String? : isRequired est déjà faux, donc required doit rester
+    // faux indépendamment de hasDefault/isReadonly.
     expect(renderField(f('name'), null, false)).not.toContain('required');
   });
 
@@ -147,8 +153,7 @@ describe('Form.svelte (create)', () => {
 
   it('échappe le libellé fourni par la configuration', () => {
     const html = renderForm('create', { ...viewModel, label: '<b>U' }, '/admin', config);
-    expect(html).toContain('Create');
-    expect(html).toContain('&lt;b>U');
+    expect(html).toContain('<h1>Create &lt;b>U</h1>');
     expect(html).not.toContain('<b>U');
   });
 
@@ -157,6 +162,8 @@ describe('Form.svelte (create)', () => {
   });
 
   it('fonctionne sans config.models déclaré', () => {
+    // Couvre les valeurs par défaut `config.models?.[model.name] || {}` et
+    // `modelConfig.hidden || []` quand aucun modèle n'est configuré.
     const html = renderForm('create', viewModel, '/admin', { prisma: {} } as any);
     expect(html).toContain('name="email"');
     expect(html).toContain('name="password"');
@@ -175,8 +182,7 @@ describe('Form.svelte (edit)', () => {
 
   it('échappe le libellé fourni par la configuration', () => {
     const html = renderForm('edit', { ...viewModel, label: '<b>U' }, '/admin', { prisma: {} } as any, item);
-    expect(html).toContain('Edit');
-    expect(html).toContain('&lt;b>U');
+    expect(html).toContain('<h1>Edit &lt;b>U</h1>');
     expect(html).not.toContain('<b>U');
   });
 

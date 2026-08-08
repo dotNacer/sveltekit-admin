@@ -54,6 +54,10 @@ describe('Layout.svelte', () => {
   });
 
   it('gère une liste de modèles vide', () => {
+    // Seul l'item Dashboard, statique, subsiste : la boucle de modèles ne rend
+    // rien. L'ancienne assertion (`toContain('ska-nav')`) était vraie quoi qu'il
+    // arrive, `.ska-nav` étant déclaré dans le CSS inline du layout — d'où le
+    // comptage explicite des `<li class="ska-nav__item">` via `navItems(...)`.
     expect(navItems(renderLayout('X', { prisma: {} }, []))).toBe(1);
   });
 

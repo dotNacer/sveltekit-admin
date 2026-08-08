@@ -28,18 +28,28 @@ describe('List.svelte', () => {
   });
 
   it('limite l’affichage à 6 colonnes et masque les champs sensibles', () => {
+    // Sans configuration, les 6 premières colonnes retenues sont les scalaires du
+    // modèle amputés de `password` : c'est le filtre annoncé par le README, sans
+    // lequel une empreinte de mot de passe se retrouvait en clair dans la liste.
     const html = renderList(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', empty);
     expect(columns(html)).toEqual(['id', 'email', 'name', 'bio', 'role', 'is Active', 'Actions']);
     expect(columns(html)).not.toContain('password');
   });
 
   it('affiche un champ sensible nommé explicitement dans listFields', () => {
+    // L'échappatoire : nommer le champ est une intention explicite, elle gagne.
+    // C'est aussi le seul recours pour un nom anodin attrapé par la
+    // correspondance en sous-chaîne — voir le test `hashtag` ci-dessous.
     const config = { prisma: {}, models: { User: { listFields: ['email', 'password'] } } } as any;
     const html = renderList(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', config);
     expect(columns(html)).toEqual(['email', 'password', 'Actions']);
   });
 
   it('garde `hidden` prioritaire sur un listFields explicite', () => {
+    // La précédence documentée : `listFields` court-circuite le filtre par nom
+    // sensible, mais jamais `hidden`, qui est un refus explicite. Sans cette
+    // assertion, inverser les deux conditions du prédicat laissait passer la
+    // colonne `password` avec la suite entière au vert.
     const config = {
       prisma: {},
       models: { User: { hidden: ['password'], listFields: ['email', 'password'] } }
@@ -49,6 +59,9 @@ describe('List.svelte', () => {
   });
 
   it('affiche un nom anodin attrapé par la sous-chaîne quand il est listé', () => {
+    // `hashtag` contient 'hash' : sans échappatoire, la colonne serait
+    // définitivement invisible et l'utilisateur n'aurait aucun moyen de le voir.
+    // Schéma local : la fixture est partagée par une dizaine de fichiers de test.
     const local = parseSchemaContent(
       'model Note {\n  id Int @id\n  email String\n  hashtag String?\n}'
     ).models[0];
@@ -59,6 +72,7 @@ describe('List.svelte', () => {
   });
 
   it('masque un nom anodin attrapé par la sous-chaîne sans listFields', () => {
+    // Le défaut reste protégé : sans configuration, le filtre s'applique.
     const local = parseSchemaContent(
       'model Note {\n  id Int @id\n  email String\n  hashtag String?\n}'
     ).models[0];
@@ -84,6 +98,7 @@ describe('List.svelte', () => {
       prisma: {}, models: { User: { listFields: ['metadata', 'avatar', 'posts', 'email'] } }
     } as any;
     const html = renderList(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', config);
+    // seul `email` survit : metadata est Json, avatar est Bytes, posts est une relation
     expect(columns(html)).toEqual(['email', 'Actions']);
   });
 
@@ -127,6 +142,8 @@ describe('List.svelte', () => {
   });
 
   it('échappe la PK dans le lien de ligne et l’action de suppression', () => {
+    // La PK vient de la base : un guillemet y ferme l'attribut et laisse injecter
+    // du HTML dans le lien comme dans l'action du formulaire de suppression.
     const html = renderList(
       viewModel,
       [{ id: 'a"b', email: 'x@y.z' }],

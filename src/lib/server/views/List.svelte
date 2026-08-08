@@ -75,7 +75,7 @@
               {#each displayFields as f (f.name)}<td>{@html formatValue(item[f.name], f.type)}</td>{/each}
               <td class="ska-table__actions">
                 <a href="{listPath}/{item[model.primaryKey]}" class="ska-btn ska-btn--secondary ska-btn--sm">Edit</a>
-                <!-- eslint-disable-next-line svelte/no-at-html-tags -- Svelte 5 rejects a literal onsubmit string as an event attribute; the PK is escaped manually here since it can't go through Svelte's native attribute escaping -->
+                <!-- eslint-disable-next-line svelte/no-at-html-tags -- Svelte 5 rejects a literal onsubmit string as an event attribute; the PK is escaped manually here since it can't go through Svelte's native attribute escaping; the whole form (not just onsubmit) is rendered as raw HTML because there's no native-Svelte way to attach a plain inline onsubmit="..." string attribute at all in Svelte 5 templates, so the whole element had to be raw text to preserve the exact prior confirm-dialog behavior in a page that's never hydrated by a Svelte runtime -->
                 {@html `<form method="POST" action="${listPath}/${escapeHtml(String(item[model.primaryKey]))}" style="display:inline" onsubmit="return confirm('Delete this item?')"><input type="hidden" name="_action" value="delete"><button type="submit" class="ska-btn ska-btn--danger ska-btn--sm">Delete</button></form>`}
               </td>
             </tr>

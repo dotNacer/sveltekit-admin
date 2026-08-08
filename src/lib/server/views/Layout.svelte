@@ -27,7 +27,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{title}</title>
-  <!-- eslint-disable-next-line svelte/no-at-html-tags -- CSS injected as raw text; a literal <style> block can't take a dynamic value -->
+  <!-- eslint-disable-next-line svelte/no-at-html-tags -- CSS injected as raw text; a literal <style> block can't take a dynamic value; primaryColor is developer-supplied config, not request/database data, and this raw interpolation is unchanged from the original layout.ts implementation, not a new injection point introduced by this migration -->
   {@html `<style>${styles(primaryColor)}</style>`}
 </head>
 <!-- eslint-disable-next-line svelte/no-raw-special-elements -- server-only full-document template, never mounted client-side -->
