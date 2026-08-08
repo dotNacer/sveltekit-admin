@@ -3,6 +3,7 @@
  * Zero files needed in routes - everything handled via hook
  */
 
+import { render } from 'svelte/server';
 import { parsePrismaSchema, type PrismaSchema, type PrismaModel } from './introspection/parser.js';
 import { parseRoute } from './router.js';
 import {
@@ -21,7 +22,7 @@ import { baseLayout } from './views/layout.js';
 import { dashboardView } from './views/dashboard.js';
 import { listView } from './views/list.js';
 import { createView, editView } from './views/form.js';
-import { notFoundView } from './views/notFound.js';
+import NotFound from './views/NotFound.svelte';
 
 const PER_PAGE = 20;
 
@@ -158,7 +159,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
 
       // GET requests - render views
       if (route.view === 'notFound') {
-        content = notFoundView('Page not found', basePath);
+        content = render(NotFound, { props: { message: 'Page not found', basePath } }).body;
       } else if (route.view === 'dashboard') {
         const modelsWithCounts = await Promise.all(
           filteredModels.map(async (m) => {
@@ -184,7 +185,9 @@ export function createAdminHandler(config: AdminHandlerConfig) {
         const model = findModel(route.model);
 
         if (!model) {
-          content = notFoundView(`Model "${route.model}" not found`, basePath);
+          content = render(NotFound, {
+            props: { message: `Model "${route.model}" not found`, basePath }
+          }).body;
         } else if (route.view === 'list') {
           const { page } = paginate(event.url.searchParams.get('page'), PER_PAGE);
           const { items, total } = await listRecords(prisma, model, page, PER_PAGE);
@@ -206,7 +209,9 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           const item = await getRecord(prisma, model, route.id!);
           content = item
             ? editView(viewModel(model), item, basePath, config)
-            : notFoundView(`${model.name} with ID "${route.id}" not found`, basePath);
+            : render(NotFound, {
+                props: { message: `${model.name} with ID "${route.id}" not found`, basePath }
+              }).body;
         }
       }
     } catch (e: any) {

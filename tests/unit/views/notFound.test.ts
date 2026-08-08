@@ -1,20 +1,24 @@
 import { describe, it, expect } from 'vitest';
-import { notFoundView } from '../../../src/lib/server/views/notFound.js';
+import { render } from 'svelte/server';
+import NotFound from '../../../src/lib/server/views/NotFound.svelte';
 
-describe('notFoundView', () => {
+const renderNotFound = (message: string, basePath: string) =>
+  render(NotFound, { props: { message, basePath } }).body;
+
+describe('NotFound.svelte', () => {
   it('affiche le message', () => {
-    expect(notFoundView('Model "x" not found', '/admin')).toContain('Model &quot;x&quot; not found');
+    expect(renderNotFound('Model "x" not found', '/admin')).toContain('Model "x" not found');
   });
 
   it('échappe le message', () => {
-    expect(notFoundView('<script>', '/admin')).not.toContain('<script>');
+    expect(renderNotFound('<script>', '/admin')).not.toContain('<script>');
   });
 
   it('renvoie vers le dashboard', () => {
-    expect(notFoundView('x', '/admin')).toContain('href="/admin"');
+    expect(renderNotFound('x', '/admin')).toContain('href="/admin"');
   });
 
   it('respecte un basePath personnalisé', () => {
-    expect(notFoundView('x', '/back/office')).toContain('href="/back/office"');
+    expect(renderNotFound('x', '/back/office')).toContain('href="/back/office"');
   });
 });

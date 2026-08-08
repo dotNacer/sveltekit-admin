@@ -165,7 +165,7 @@ describe('réponses GET', () => {
     const { handler } = build();
     const { event, resolve } = createEvent({ url: '/admin/user/999' });
     const html = await (await handler({ event, resolve } as any)).text();
-    expect(html).toContain('User with ID &quot;999&quot; not found');
+    expect(html).toContain('User with ID "999" not found');
   });
 
   it('rend not found sur une URL trop profonde', async () => {
