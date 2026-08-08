@@ -20,8 +20,9 @@
   "scripts": {
     "dev": "vite dev",
     "build": "npm run package",
-    "package": "svelte-kit sync && svelte-package -o dist",
+    "package": "svelte-kit sync && svelte-package -o dist && echo 'Package size:' && bun pm pack --dry-run 2>&1 | grep -E 'Total files|Unpacked size'",
     "prepublishOnly": "npm run package",
+    "size": "bun run package && node scripts/package-size.mjs",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "test:gen": "prisma generate --schema tests/fixtures/prisma/schema.prisma",
@@ -70,11 +71,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/pmusic-music/sveltekit-admin.git"
+    "url": "https://github.com/dotNacer/sveltekit-admin.git"
   },
-  "homepage": "https://github.com/pmusic-music/sveltekit-admin#readme",
+  "homepage": "https://github.com/dotNacer/sveltekit-admin#readme",
   "bugs": {
-    "url": "https://github.com/pmusic-music/sveltekit-admin/issues"
+    "url": "https://github.com/dotNacer/sveltekit-admin/issues"
   },
-  "author": "pMusic"
+  "author": "dotNacer"
 }
