@@ -137,6 +137,19 @@ describe('PR3 — filtre DateTime (presets, config explicite)', () => {
     expect(html).not.toContain('>Today<');
   });
 
+  it('un preset actif marque bien l\'entrée sidebar correspondante avec aria-current (bug trouvé en review)', async () => {
+    // Avant le fix : aucun raccourci DateTime actif n'était jamais marqué,
+    // "All" restait affiché comme actif quel que soit le filtre appliqué —
+    // régression a11y contre §3.4 (aria-current="page" sur l'entrée active).
+    const prisma = createPrismaMock(baseData());
+    const h = handler(prisma, { models: { Article: { listFilter: ['createdAt'] } } });
+    const { event, resolve } = createEvent({ url: '/admin/article?f.createdAt=year' });
+    const html = await (await h({ event, resolve } as any)).text();
+    expect(html).toMatch(/href="\/admin\/article\?f\.createdAt=year" class="ska-filters__link ska-filters__link--active" aria-current="page"/);
+    // "All" ne doit plus être marqué actif alors qu'un preset l'est.
+    expect(html).not.toMatch(/href="\/admin\/article" class="ska-filters__link ska-filters__link--active"/);
+  });
+
   it('?f.createdAt=year filtre réellement — A et B (2024) inclus, C (2020) exclu', async () => {
     // Preset volontairement grossier (année) pour éviter toute fragilité
     // liée à l'heure d'exécution du test (contrairement à `today`/`7d`).

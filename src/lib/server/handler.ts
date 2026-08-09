@@ -50,6 +50,19 @@ export interface AdminHandlerConfig {
     readonly?: string[];
     listFields?: string[];
     label?: string;
+    /**
+     * Scoping `where` appliqué à TOUTE requête sur la vue liste de ce
+     * modèle (recherche, filtres sidebar, FK, pagination) — composé en
+     * `AND` avec les filtres actifs, jamais en spread (docs/design
+     * §0.c/§5.2). Sans ce scope, un filtre FK de première classe rend
+     * l'énumération cross-tenant triviale : `?f.authorId=1..N` liste les
+     * lignes une par une même quand le label du chip reste protégé
+     * (§6.3.b). Ce scope ne couvre QUE la vue liste dans cette version —
+     * les vues détail/édition/suppression n'ont pas d'équivalent et
+     * restent hors périmètre de cette feature (nécessitent leur propre
+     * travail de scoping, non résolu ici).
+     */
+    where?: (ctx: { locals?: any }) => Record<string, unknown>;
     relations?: Record<string, {
       widget?: 'select' | 'raw-id' | 'hidden';
       labelTemplate?: string;
@@ -162,11 +175,14 @@ export function createAdminHandler(config: AdminHandlerConfig) {
   // ici plutôt que produire silencieusement un filtre mort à chaque rendu
   // de liste (docs/design §8, même politique que le groupe ambigu de
   // relations.ts).
+  const hiddenFieldsOf = (m: PrismaModel): Set<string> =>
+    new Set(modelsConfig[m.name]?.hidden ?? []);
+
   for (const m of filteredModels) {
     const entries = modelsConfig[m.name]?.listFilter;
     // Non-null par construction : `filteredModels` n'existe que si le schéma
     // a été parsé, et le graphe est construit dans la même branche de boot.
-    if (entries) validateListFilterConfig(m.name, entries, m, relationGraph!);
+    if (entries) validateListFilterConfig(m.name, entries, m, relationGraph!, hiddenFieldsOf(m));
   }
 
   const labelOf = (m: PrismaModel) => modelsConfig[m.name]?.label || toLabel(m.name);
@@ -209,15 +225,25 @@ export function createAdminHandler(config: AdminHandlerConfig) {
    * Champs qu'un `?f.<field>=` est autorisé à cibler pour ce modèle : tout
    * champ scalaire non-liste, non-relation, de type filtrable
    * (String/Int/Float/Decimal/BigInt/Boolean/DateTime/enum — donc pas
-   * Json/Bytes), et non sensible. Défense en profondeur : `listQuery.ts`
-   * revérifie lui-même la sensibilité, ce set n'est qu'une première passe.
+   * Json/Bytes), non sensible, et non listé dans `hidden` pour ce modèle.
+   * Sans ce dernier point, `hidden: ['internalNotes']` ne fait que masquer
+   * l'affichage : le champ reste un oracle de confirmation de valeur via
+   * `?f.internalNotes=...contains...`, exactement la faille §0.a fermée
+   * ailleurs pour les champs sensibles par nom — `hidden` et le prédicat
+   * de sensibilité sont deux sources distinctes, toutes deux doivent
+   * fermer l'oracle (docs/design §10, "deux sources, un seul prédicat
+   * partagé, sinon divergence garantie"). Défense en profondeur :
+   * `listQuery.ts` revérifie lui-même la sensibilité par nom, ce set est
+   * la première passe et la seule à connaître la config `hidden`.
    */
   const resolveFilterableFields = (model: PrismaModel): Set<string> => {
+    const hidden = hiddenFieldsOf(model);
     const out = new Set<string>();
     for (const f of model.fields) {
       if (f.relation || f.isList) continue;
       if (['Json', 'Bytes'].includes(f.type)) continue;
       if (isSensitiveFieldName(f.name)) continue;
+      if (hidden.has(f.name)) continue;
       out.add(f.name);
     }
     return out;
@@ -720,7 +746,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
         } else if (route.view === 'list') {
           const { page } = paginate(event.url.searchParams.get('page'), PER_PAGE);
           const modelSearchConfig = modelsConfig[model.name]?.searchFields;
-          const searchFields = resolveSearchFields(model, modelSearchConfig, labelFieldCandidates);
+          const searchFields = resolveSearchFields(model, modelSearchConfig, labelFieldCandidates, hiddenFieldsOf(model));
           const filterableFields = resolveFilterableFields(model);
           const listQuery = parseListQuery(
             event.url.searchParams,
@@ -729,14 +755,17 @@ export function createAdminHandler(config: AdminHandlerConfig) {
             searchFields,
             filterableFields
           );
-          const where = buildWhere(listQuery, undefined, caseInsensitiveSearch);
+          const listScope = modelsConfig[model.name]?.where?.({ locals: event.locals });
+          const where = buildWhere(listQuery, listScope, caseInsensitiveSearch, model);
           const { items, total } = await listRecords(prisma, model, page, PER_PAGE, where);
           const listFilters = resolveListFilters(
             model,
             schema!.enums,
             modelsConfig[model.name]?.listFilter,
             toLabel,
-            relationGraph!
+            relationGraph!,
+            hiddenFieldsOf(model),
+            config.listFilterDefaults?.autoDetect ?? true
           );
           const fkFilterMeta = new Map<string, import('./views/types.js').FkFilterMeta>();
           for (const filter of listFilters) {

@@ -64,6 +64,17 @@ describe('resolveListFilters — auto-détection (Boolean + enum)', () => {
     const published = filters.find((f) => f.field === 'published')!;
     expect(published.label).toBe(toLabel('published'));
   });
+
+  it('n\'auto-détecte jamais un champ listé dans `hidden` (bug §3.5 trouvé en review)', () => {
+    // Sans ce garde, `hidden: ['published']` masquerait le champ à l'écran
+    // mais le laisserait filtrable via `?f.published=...` — un oracle de
+    // confirmation de valeur exactement comme la faille §0.a sur les champs
+    // sensibles par nom, juste via une deuxième source (`hidden` au lieu de
+    // l'heuristique de nom).
+    const filters = resolveListFilters(Article, schema.enums, undefined, toLabel, undefined, new Set(['published']));
+    expect(filters.map((f) => f.field)).not.toContain('published');
+    expect(filters.map((f) => f.field)).toContain('status');
+  });
 });
 
 describe('resolveListFilters — config explicite listFilter', () => {
@@ -224,6 +235,18 @@ describe('validateListFilterConfig — fail loud au boot', () => {
   it('lève sur un champ sensible même s\'il est par ailleurs Boolean', () => {
     const s = parseSchemaContent('model T {\n  id Int @id\n  hasToken Boolean @default(false)\n}');
     expect(() => validateListFilterConfig('T', ['hasToken'], s.models[0])).toThrow(/sensitive/);
+  });
+
+  it('lève sur un champ explicitement listé dans `hidden`, même Boolean/enum (bug §3.5 trouvé en review)', () => {
+    // Deux sources indépendantes doivent fermer le même oracle : le
+    // prédicat de sensibilité par nom (déjà testé ci-dessus) ET la config
+    // `hidden`. Sans ce garde, un dev qui écrit `hidden: ['published']`
+    // pour retirer un champ de l'affichage pourrait ensuite (ou par erreur
+    // d'un autre dev) le configurer explicitement en listFilter et
+    // rouvrir l'oracle qu'il croyait avoir fermé.
+    expect(() =>
+      validateListFilterConfig('Article', ['published'], Article, undefined, new Set(['published']))
+    ).toThrow(/is listed in `hidden`/);
   });
 
   it('lève sur un champ String ou Int (type non supporté par la sidebar en v1)', () => {

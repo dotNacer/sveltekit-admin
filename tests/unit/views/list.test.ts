@@ -238,16 +238,35 @@ describe('List.svelte — recherche et filtres (query/currentUrl)', () => {
     expect(html).toContain('Clear all filters');
   });
 
-  it('un filtre non-equals (ex: gte sur DateTime) n\'active aucune entrée de la sidebar', () => {
-    // activeFilterValues ne retient que les filtres `equals` — un `gte`/`lte`
-    // ne correspond à aucune option de la sidebar Boolean/enum, donc il ne
-    // doit jamais y être ajouté par erreur.
+  it('un filtre gte EXPLICITE (date brute, pas un preset) n\'active aucune entrée de la sidebar', () => {
+    // activeFilterValues ne retient un `gte` que si son `raw` est un des 4
+    // presets DateTime connus (voir le test dédié ci-dessous) — un `gte`
+    // manuel comme `?f.createdAt__gte=2024-01-01` n'a pas d'équivalent dans
+    // la sidebar Boolean/enum/datetime-presets, donc il ne doit jamais y
+    // être ajouté par erreur.
     const query: ListQuery = {
       q: null, searchFields: [], ignored: [],
       filters: [{ field: 'createdAt', op: 'gte', value: new Date('2024-01-01'), raw: '2024-01-01' }]
     };
     const html = renderList(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', empty, query, url('http://localhost/admin/user?f.createdAt__gte=2024-01-01'));
     expect(html).toContain('Clear all filters');
+  });
+
+  it('un raccourci DateTime actif (preset) marque bien l\'entrée sidebar correspondante (bug trouvé en review)', () => {
+    // parseListQuery sort un raccourci DateTime avec op:'gte' mais raw
+    // reste le NOM du preset ('year'), jamais la date calculée — c'est ce
+    // qui permet à activeFilterValues de le distinguer d'un gte manuel et
+    // de marquer la bonne option comme active (aria-current, §3.4).
+    const query: ListQuery = {
+      q: null, searchFields: [], ignored: [],
+      filters: [{ field: 'createdAt', op: 'gte', value: { gte: new Date('2026-01-01'), lt: new Date('2027-01-01') }, raw: 'year' }]
+    };
+    const listFilters = [{ field: 'createdAt', label: 'Created', kind: 'datetime' as const, presets: ['today', 'year'] as const }];
+    const html = renderList(
+      viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', empty,
+      query, url('http://localhost/admin/user?f.createdAt=year'), listFilters as any
+    );
+    expect(html).toMatch(/href="\/admin\/user\?f\.createdAt=year" class="ska-filters__link ska-filters__link--active" aria-current="page"/);
   });
 
   it('sidebar rendue (listFilters non vide) sans query : activeFilterValues retombe sur une Map vide', () => {

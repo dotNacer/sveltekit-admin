@@ -54,9 +54,10 @@ export interface FkFilterSpec {
 }
 
 /** Whether a field is eligible for auto-detection: Boolean or enum, not sensitive/hidden/list/relation. */
-function isAutoDetectable(field: PrismaField): boolean {
+function isAutoDetectable(field: PrismaField, hidden: Set<string>): boolean {
   if (field.relation || field.isList) return false;
   if (isSensitiveFieldName(field.name)) return false;
+  if (hidden.has(field.name)) return false;
   return field.type === 'Boolean' || Boolean(field.isEnum);
 }
 
@@ -72,7 +73,8 @@ export function validateListFilterConfig(
   modelName: string,
   entries: ListFilterConfigEntry[],
   model: PrismaModel,
-  relationGraph?: RelationGraph
+  relationGraph?: RelationGraph,
+  hidden: Set<string> = new Set()
 ): void {
   for (const entry of entries) {
     const fieldName = typeof entry === 'string' ? entry : entry.field;
@@ -95,6 +97,11 @@ export function validateListFilterConfig(
     if (isSensitiveFieldName(fieldName)) {
       throw new Error(
         `[sveltekit-admin] listFilter: "${modelName}.${fieldName}" looks sensitive by name, refusing to expose it as a filter`
+      );
+    }
+    if (hidden.has(fieldName)) {
+      throw new Error(
+        `[sveltekit-admin] listFilter: "${modelName}.${fieldName}" is listed in \`hidden\`, refusing to expose it as a filter`
       );
     }
     const range = typeof entry !== 'string' && entry.range;
@@ -173,18 +180,25 @@ export function findFkEdge(
 /**
  * Resolve the filter sidebar entries for a model: explicit `listFilter`
  * config wins (already validated at boot by `validateListFilterConfig`),
- * otherwise the auto-detect heuristic (Boolean + enum fields).
+ * otherwise the auto-detect heuristic (Boolean + enum fields) — unless
+ * `autoDetect` is explicitly disabled, in which case a model with no
+ * explicit `listFilter` gets no sidebar at all rather than a heuristic
+ * one it didn't ask for.
  */
 export function resolveListFilters(
   model: PrismaModel,
   enums: Map<string, string[]>,
   configured: ListFilterConfigEntry[] | undefined,
   toLabel: (name: string) => string,
-  relationGraph?: RelationGraph
+  relationGraph?: RelationGraph,
+  hidden: Set<string> = new Set(),
+  autoDetect = true
 ): ResolvedFilterField[] {
   const fieldNames = configured
     ? configured.map((e) => (typeof e === 'string' ? e : e.field))
-    : model.fields.filter(isAutoDetectable).map((f) => f.name);
+    : autoDetect
+      ? model.fields.filter((f) => isAutoDetectable(f, hidden)).map((f) => f.name)
+      : [];
 
   const entryOf = (fieldName: string) =>
     configured?.find((e) => (typeof e === 'string' ? e : e.field) === fieldName);

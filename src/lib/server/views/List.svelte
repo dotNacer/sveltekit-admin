@@ -3,6 +3,7 @@
   import type { ViewModel } from './types.js';
   import type { ListQuery } from '../query/listQuery.js';
   import type { ResolvedFilterField } from '../query/filterDetection.js';
+  import { DATETIME_PRESETS } from '../query/filterDetection.js';
   import type { FkFilterMeta } from './types.js';
   import { getDisplayFields } from '../introspection/parser.js';
   import { buildListUrl, hiddenParams } from '../query/urls.js';
@@ -82,8 +83,22 @@
     // render et jamais mutée après coup, SvelteMap n'a aucun intérêt ici.
     // eslint-disable-next-line svelte/prefer-svelte-reactivity
     const map = new Map<string, string>();
+    const presetSet = new Set<string>(DATETIME_PRESETS);
     for (const f of query?.filters ?? []) {
-      if (f.op === 'equals') map.set(f.field, f.raw);
+      if (f.op === 'equals') {
+        map.set(f.field, f.raw);
+      } else if (f.op === 'gte' && presetSet.has(f.raw)) {
+        // Un raccourci DateTime (§5.5) sort de parseListQuery avec
+        // `op: 'gte'` (le range gte/lt est fusionné dans un seul
+        // ActiveFilter) mais `raw` reste le nom du preset d'origine
+        // ('today'/'7d'/'month'/'year'), jamais la date calculée — c'est
+        // ce qui permet de le distinguer d'un `?f.x__gte=<date brute>`
+        // manuel, qui lui ne doit JAMAIS marquer une entrée de sidebar
+        // active (bug trouvé en review : sans cette distinction, aucun
+        // preset actif n'était jamais marqué, régression a11y contre
+        // aria-current exigé par §3.4).
+        map.set(f.field, f.raw);
+      }
     }
     return map;
   });
@@ -99,6 +114,32 @@
       map.set(f.field, entry);
     }
     return map;
+  });
+
+  /**
+   * Messages « Filtre ignoré : champ "foo" inconnu » rendus pour chaque
+   * entrée `query.ignored`. Requis par docs/design §5.4, pour deux
+   * raisons : (1) sans ce message l'utilisateur ne comprend pas pourquoi
+   * son URL bricolée ne fait rien, (2) ça rend la branche `ignored`
+   * observable et testable via le rendu réel plutôt que par un appel
+   * unitaire isolé qui contourne le vrai chemin. Le message est le MÊME
+   * pour un champ sensible que pour un champ inconnu (§0.a, §5.4) — ne
+   * jamais dire "champ interdit", ça confirmerait son existence.
+   */
+  const ignoredMessages = $derived.by(() => {
+    return (query?.ignored ?? []).map((entry) => {
+      // `param` est soit `f.<field>` / `f.<field>__<op>` (nouveau format),
+      // soit littéralement `filter` (legacy `?filter=field:value` — le nom
+      // du champ ciblé n'est pas conservé côté IgnoredFilter pour ce
+      // chemin, seul le message générique s'applique).
+      if (entry.param === 'filter') {
+        return { key: entry.param, text: 'Ignored filter: legacy `filter=` value could not be applied' };
+      }
+      const withoutPrefix = entry.param.slice(2);
+      const sep = withoutPrefix.indexOf('__');
+      const fieldName = sep === -1 ? withoutPrefix : withoutPrefix.slice(0, sep);
+      return { key: entry.param, text: `Ignored filter: field "${fieldName}" unknown` };
+    });
   });
 </script>
 
@@ -138,6 +179,14 @@
     />
     <button type="submit" class="ska-btn ska-btn--secondary">Search</button>
   </form>
+{/if}
+
+{#if ignoredMessages.length > 0}
+  <div class="ska-alert ska-alert--error">
+    {#each ignoredMessages as m (m.key)}
+      <p>{m.text}</p>
+    {/each}
+  </div>
 {/if}
 
 {#if hasActiveCriteria}

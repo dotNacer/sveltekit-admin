@@ -64,20 +64,28 @@ function isSearchableByHeuristic(field: PrismaField): boolean {
  * (same list used for relation labels — one heuristic, not two that could
  * drift apart). Empty result means "no search box rendered", never a
  * fallback that scans every String column.
+ *
+ * `hidden` excludes a field in EVERY case, config included (§3.5): a
+ * field hidden from the list/form display must not remain a value-
+ * confirmation oracle via `?q=`/`contains` just because a developer
+ * explicitly listed it in `searchFields` — that's the exact §0.a leak
+ * closed for sensitive-by-name fields, `hidden` is a second independent
+ * source that must close the same way (§10).
  */
 export function resolveSearchFields(
   model: PrismaModel,
   configured: string[] | undefined,
-  labelFields: string[] = DEFAULT_LABEL_FIELDS
+  labelFields: string[] = DEFAULT_LABEL_FIELDS,
+  hidden: Set<string> = new Set()
 ): string[] {
   if (configured) {
     return configured.filter((name) => {
       const field = model.fields.find((f) => f.name === name);
-      return field && isFilterableFieldType(field) && !isSensitiveFieldName(name);
+      return field && isFilterableFieldType(field) && !isSensitiveFieldName(name) && !hidden.has(name);
     });
   }
   return model.fields
-    .filter((f) => isSearchableByHeuristic(f) && labelFields.includes(f.name))
+    .filter((f) => isSearchableByHeuristic(f) && labelFields.includes(f.name) && !hidden.has(f.name))
     .map((f) => f.name);
 }
 
@@ -411,24 +419,67 @@ function clauseOf(filter: ActiveFilter): Record<string, unknown> {
 export function buildWhere(
   query: ListQuery,
   scope: Record<string, unknown> | undefined,
-  caseInsensitiveSearch: boolean
+  caseInsensitiveSearch: boolean,
+  model: PrismaModel
 ): PrismaWhere | undefined {
   const and: Record<string, unknown>[] = [];
   if (scope) and.push(scope);
   for (const f of query.filters) and.push(clauseOf(f));
 
   if (query.q && query.searchFields.length > 0) {
-    const or = query.searchFields.map((field) => ({
-      [field]: caseInsensitiveSearch
-        ? { contains: query.q, mode: 'insensitive' }
-        : { contains: query.q }
-    }));
+    const or: Record<string, unknown>[] = [];
+    for (const fieldName of query.searchFields) {
+      const field = model.fields.find((f) => f.name === fieldName);
+      const clause = searchClauseFor(field, query.q, caseInsensitiveSearch);
+      if (clause) or.push({ [fieldName]: clause });
+    }
     // Never emit `{OR: []}` — in Prisma that matches nothing, which would
-    // silently turn "no searchable field" into "empty result" (§2.4).
+    // silently turn "no searchable field" (or "every clause omitted", §2.4)
+    // into "empty result". A no-op search must add nothing to the where.
     if (or.length > 0) and.push({ OR: or });
   }
 
   if (and.length === 0) return undefined;
   if (and.length === 1) return and[0];
   return { AND: and };
+}
+
+/**
+ * The per-field-type clause for a `searchFields` entry (§2.4):
+ * - String @id/@unique -> `equals` (a `contains` on a cuid/uuid can't use
+ *   the index and never makes semantic sense; §2.1).
+ * - other String -> `contains` (+ `mode: 'insensitive'` when the provider
+ *   supports it).
+ * - Int/BigInt/Float/Decimal -> `equals` if `q` coerces to that type,
+ *   otherwise the clause is OMITTED — never `contains` on a numeric
+ *   column, which Prisma rejects with a hard error (`Unknown argument
+ *   contains`), turning any legitimate `?q=` into a 500 (§10's known
+ *   trap, discovered via review — the original implementation searched
+ *   this exactly wrong).
+ * - anything else (enum, Boolean, DateTime, relation, Json/Bytes):
+ *   omitted. `resolveSearchFields`'s auto heuristic never proposes these,
+ *   but explicit `searchFields` config isn't type-checked against §2.4 at
+ *   boot (only against `isFilterableFieldType`), so this is reached in
+ *   practice for a misconfigured field — degrading to "omitted" here
+ *   keeps the guarantee that a legitimate URL never 500s, without adding
+ *   a boot-time validation pass this design doc doesn't ask for.
+ */
+function searchClauseFor(
+  field: PrismaField | undefined,
+  q: string,
+  caseInsensitiveSearch: boolean
+): Record<string, unknown> | undefined {
+  if (!field) return undefined;
+
+  if (field.type === 'String') {
+    if (field.isId || field.isUnique) return { equals: q };
+    return caseInsensitiveSearch ? { contains: q, mode: 'insensitive' } : { contains: q };
+  }
+
+  if (['Int', 'BigInt', 'Float', 'Decimal'].includes(field.type)) {
+    const coerced = coerceValue(field, 'equals', q);
+    return coerced === undefined ? undefined : { equals: coerced };
+  }
+
+  return undefined;
 }

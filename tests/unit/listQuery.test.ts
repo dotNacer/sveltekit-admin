@@ -65,6 +65,18 @@ describe('resolveSearchFields — config explicite searchFields', () => {
     expect(resolveSearchFields(Article, ['apiToken', 'title'])).toEqual(['title']);
   });
 
+  it('rejette un champ listé dans `hidden`, même configuré explicitement (bug §3.5 trouvé en review)', () => {
+    // Même faille que pour resolveFilterableFields/resolveListFilters :
+    // `hidden` masque l'affichage mais, sans ce garde, laissait le champ
+    // exploitable via `?q=` comme oracle de confirmation de valeur
+    // (`contains` sur String, ou `equals` sur un type coercible).
+    expect(resolveSearchFields(Article, ['content', 'title'], undefined, new Set(['content']))).toEqual(['title']);
+  });
+
+  it('l\'heuristique par défaut aussi exclut un champ `hidden` (title serait sinon détecté)', () => {
+    expect(resolveSearchFields(Article, undefined, undefined, new Set(['title']))).toEqual(['slug']);
+  });
+
   it('rejette un champ Json/Bytes/relation configuré explicitement', () => {
     expect(resolveSearchFields(Article, ['metadata', 'attachment', 'title'])).toEqual(['title']);
   });
@@ -81,7 +93,13 @@ describe('resolveSearchFields — config explicite searchFields', () => {
     expect(resolveSearchFields(Article, ['nope', 'title'])).toEqual(['title']);
   });
 
-  it('accepte un champ non-String (Int, etc.) configuré explicitement', () => {
+  it('accepte un champ non-String (Int, etc.) configuré explicitement — le type est traité plus tard par buildWhere', () => {
+    // resolveSearchFields ne fait QUE la sélection des champs filtrables au
+    // sens large (relation/isList/Json/Bytes/sensible exclus) — elle ne
+    // décide jamais de l'opérateur. C'est searchClauseFor (dans buildWhere,
+    // §2.4) qui applique la vraie règle par type : equals si coercible,
+    // omis sinon, jamais `contains` sur un Int. Voir la suite dédiée
+    // "§2.4 — searchFields sur un champ non-String" plus bas dans ce fichier.
     expect(resolveSearchFields(Article, ['views'])).toEqual(['views']);
   });
 });
@@ -428,21 +446,21 @@ describe('buildWhere — composition AND, jamais de spread', () => {
   const empty: ListQuery = { q: null, searchFields: [], filters: [], ignored: [] };
 
   it('undefined quand rien n\'est actif (identique au comportement actuel)', () => {
-    expect(buildWhere(empty, undefined, false)).toBeUndefined();
+    expect(buildWhere(empty, undefined, false, Article)).toBeUndefined();
   });
 
   it('le scope seul, sans wrapper AND, quand aucun filtre n\'est actif', () => {
-    expect(buildWhere(empty, { tenantId: 1 }, false)).toEqual({ tenantId: 1 });
+    expect(buildWhere(empty, { tenantId: 1 }, false, Article)).toEqual({ tenantId: 1 });
   });
 
   it('un seul filtre actif sans scope : la clause brute, sans wrapper AND', () => {
     const lq: ListQuery = { q: null, searchFields: [], filters: [{ field: 'views', op: 'equals', value: 5, raw: '5' }], ignored: [] };
-    expect(buildWhere(lq, undefined, false)).toEqual({ views: 5 });
+    expect(buildWhere(lq, undefined, false, Article)).toEqual({ views: 5 });
   });
 
   it('scope + filtre → AND explicite, scope en premier', () => {
     const lq: ListQuery = { q: null, searchFields: [], filters: [{ field: 'views', op: 'equals', value: 5, raw: '5' }], ignored: [] };
-    expect(buildWhere(lq, { tenantId: 1 }, false)).toEqual({
+    expect(buildWhere(lq, { tenantId: 1 }, false, Article)).toEqual({
       AND: [{ tenantId: 1 }, { views: 5 }]
     });
   });
@@ -453,7 +471,7 @@ describe('buildWhere — composition AND, jamais de spread', () => {
     // car le résultat n'aurait qu'une seule clé `tenantId` au lieu des deux
     // entrées indépendantes du AND.
     const lq: ListQuery = { q: null, searchFields: [], filters: [{ field: 'tenantId', op: 'equals', value: 2, raw: '2' }], ignored: [] };
-    const where = buildWhere(lq, { tenantId: 1 }, false);
+    const where = buildWhere(lq, { tenantId: 1 }, false, Article);
     expect(where).toEqual({ AND: [{ tenantId: 1 }, { tenantId: 2 }] });
   });
 
@@ -465,38 +483,41 @@ describe('buildWhere — composition AND, jamais de spread', () => {
         { field: 'views', op: 'lte', value: 100, raw: '100' }
       ]
     };
-    expect(buildWhere(lq, undefined, false)).toEqual({
+    expect(buildWhere(lq, undefined, false, Article)).toEqual({
       AND: [{ views: { gte: 10 } }, { views: { lte: 100 } }]
     });
   });
 
   it('isnull=true → {equals: null}', () => {
     const lq: ListQuery = { q: null, searchFields: [], filters: [{ field: 'content', op: 'isnull', value: true, raw: '1' }], ignored: [] };
-    expect(buildWhere(lq, undefined, false)).toEqual({ content: { equals: null } });
+    expect(buildWhere(lq, undefined, false, Article)).toEqual({ content: { equals: null } });
   });
 
   it('isnull=false → {not: null}', () => {
     const lq: ListQuery = { q: null, searchFields: [], filters: [{ field: 'content', op: 'isnull', value: false, raw: '0' }], ignored: [] };
-    expect(buildWhere(lq, undefined, false)).toEqual({ content: { not: null } });
+    expect(buildWhere(lq, undefined, false, Article)).toEqual({ content: { not: null } });
   });
 
-  it('recherche texte → OR sur les searchFields', () => {
+  it('recherche texte → OR sur les searchFields (String non-id/unique → contains ; String @unique → equals)', () => {
+    // slug est @unique dans le fixture (search.prisma) : conforme §2.1/§2.4,
+    // un `contains` sur un champ unique n'aurait aucun sens sémantique et
+    // empêcherait l'usage de l'index.
     const lq: ListQuery = { q: 'hello', searchFields: ['title', 'slug'], filters: [], ignored: [] };
-    expect(buildWhere(lq, undefined, false)).toEqual({
-      OR: [{ title: { contains: 'hello' } }, { slug: { contains: 'hello' } }]
+    expect(buildWhere(lq, undefined, false, Article)).toEqual({
+      OR: [{ title: { contains: 'hello' } }, { slug: { equals: 'hello' } }]
     });
   });
 
   it('recherche texte avec mode insensible à la casse (Postgres)', () => {
     const lq: ListQuery = { q: 'hello', searchFields: ['title'], filters: [], ignored: [] };
-    expect(buildWhere(lq, undefined, true)).toEqual({
+    expect(buildWhere(lq, undefined, true, Article)).toEqual({
       OR: [{ title: { contains: 'hello', mode: 'insensitive' } }]
     });
   });
 
   it('q présent mais searchFields vide → aucune clause de recherche (no-op, pas {OR: []})', () => {
     const lq: ListQuery = { q: 'hello', searchFields: [], filters: [], ignored: [] };
-    expect(buildWhere(lq, undefined, false)).toBeUndefined();
+    expect(buildWhere(lq, undefined, false, Article)).toBeUndefined();
   });
 
   it('recherche + filtre + scope ensemble → un seul AND cohérent', () => {
@@ -505,7 +526,7 @@ describe('buildWhere — composition AND, jamais de spread', () => {
       filters: [{ field: 'published', op: 'equals', value: true, raw: 'true' }],
       ignored: []
     };
-    const where = buildWhere(lq, { tenantId: 1 }, false);
+    const where = buildWhere(lq, { tenantId: 1 }, false, Article);
     expect(where).toEqual({
       AND: [
         { tenantId: 1 },
@@ -515,10 +536,82 @@ describe('buildWhere — composition AND, jamais de spread', () => {
     });
   });
 
+  describe('§2.4 — searchFields sur un champ non-String (jamais de contains)', () => {
+    it('champ Int configuré explicitement, q coercible → equals, jamais contains', () => {
+      // C'est le bug bloquant trouvé en review : `contains` sur un Int fait
+      // planter Prisma en dur (P2009/Unknown argument). q="10" DOIT devenir
+      // { views: { equals: 10 } }, jamais { views: { contains: "10" } }.
+      const lq: ListQuery = { q: '10', searchFields: ['views'], filters: [], ignored: [] };
+      expect(buildWhere(lq, undefined, false, Article)).toEqual({
+        OR: [{ views: { equals: 10 } }]
+      });
+    });
+
+    it('champ Int configuré, q non coercible ("hello") → clause OMISE, pas de contains', () => {
+      const lq: ListQuery = { q: 'hello', searchFields: ['views'], filters: [], ignored: [] };
+      expect(buildWhere(lq, undefined, false, Article)).toBeUndefined();
+    });
+
+    it('champ Decimal configuré, q coercible → equals en string (pas de perte de précision)', () => {
+      const lq: ListQuery = { q: '19.99', searchFields: ['price'], filters: [], ignored: [] };
+      expect(buildWhere(lq, undefined, false, Article)).toEqual({
+        OR: [{ price: { equals: '19.99' } }]
+      });
+    });
+
+    it('mélange String + Int dans searchFields : seules les clauses valides/coercibles entrent dans le OR', () => {
+      const lq: ListQuery = { q: 'hello', searchFields: ['title', 'views'], filters: [], ignored: [] };
+      // "hello" ne coerce pas en Int : la clause `views` est omise, seul
+      // `title` (String) reste dans le OR — jamais {OR: []} ni un mix invalide.
+      expect(buildWhere(lq, undefined, false, Article)).toEqual({
+        OR: [{ title: { contains: 'hello' } }]
+      });
+    });
+
+    it('toutes les clauses omises (que des champs numériques non coercibles) → no-op, pas {OR: []}', () => {
+      const lq: ListQuery = { q: 'not-a-number', searchFields: ['views', 'price'], filters: [], ignored: [] };
+      expect(buildWhere(lq, undefined, false, Article)).toBeUndefined();
+    });
+
+    it('un champ String @id ou @unique configuré explicitement en searchFields → equals, jamais contains', () => {
+      const idSchema = parseSchemaContent(
+        'model T {\n  id String @id @default(cuid())\n  slug String @unique\n  name String\n}'
+      );
+      const T = idSchema.models[0];
+      const lq: ListQuery = { q: 'abc123', searchFields: ['id', 'slug'], filters: [], ignored: [] };
+      expect(buildWhere(lq, undefined, false, T)).toEqual({
+        OR: [{ id: { equals: 'abc123' } }, { slug: { equals: 'abc123' } }]
+      });
+    });
+
+    it('un champ Boolean ou DateTime configuré explicitement en searchFields → clause omise (aucun opérateur défini pour "chercher" dessus)', () => {
+      // isFilterableFieldType (resolveSearchFields) ne rejette que
+      // relation/isList/Json/Bytes — un Boolean/DateTime/enum passe la
+      // sélection mais searchClauseFor n'a aucune règle pour lui : ni
+      // `contains` (pas de sens), ni `equals` (`q` texte libre ne se
+      // coerce pas de façon fiable en date/bool ici). Omis, comme un Int
+      // non coercible — jamais de clause bancale dans le OR.
+      const lq: ListQuery = { q: 'hello', searchFields: ['published', 'createdAt'], filters: [], ignored: [] };
+      expect(buildWhere(lq, undefined, false, Article)).toBeUndefined();
+    });
+
+    it('un nom de champ dans searchFields absent du modèle (ListQuery construit à la main) : clause omise, pas de throw', () => {
+      // buildWhere fait confiance à `query.searchFields`, normalement
+      // produit par resolveSearchFields (qui filtre déjà sur les champs
+      // existants). Un appelant qui construit un ListQuery à la main avec
+      // un nom de champ inexistant ne doit pas faire planter buildWhere —
+      // la clause correspondante est simplement absente du OR.
+      const lq: ListQuery = { q: 'hello', searchFields: ['doesNotExist', 'title'], filters: [], ignored: [] };
+      expect(buildWhere(lq, undefined, false, Article)).toEqual({
+        OR: [{ title: { contains: 'hello' } }]
+      });
+    });
+  });
+
   it('date shortcut (gte/lt) se traduit en clause correcte via buildWhere', () => {
     const range = resolveDateShortcut('today', FIXED_NOW)!;
     const lq: ListQuery = { q: null, searchFields: [], filters: [{ field: 'createdAt', op: 'gte', value: range, raw: 'today' }], ignored: [] };
-    expect(buildWhere(lq, undefined, false)).toEqual({
+    expect(buildWhere(lq, undefined, false, Article)).toEqual({
       createdAt: { gte: range.gte, lt: range.lt }
     });
   });

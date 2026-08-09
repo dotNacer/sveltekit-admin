@@ -213,7 +213,7 @@
               <input type="hidden" name={p.name} value={p.value} />
             {/each}
             <select name={`f.${group.field}`} class="ska-filters__select-input">
-              {#each group.options as option (option.label)}
+              {#each group.options as option (option.value ?? 'all')}
                 <option value={option.value ?? ''} selected={option.active}>{option.label}</option>
               {/each}
             </select>
@@ -237,7 +237,7 @@
 
         {:else if group.kind === 'links' || (group.kind === 'fk' && group.mode === 'links')}
           <ul class="ska-filters__list">
-            {#each group.options as option (option.label)}
+            {#each group.options as option (option.value ?? 'all')}
               <li>
                 <a
                   href={option.href}
