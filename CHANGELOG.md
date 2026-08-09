@@ -1,96 +1,93 @@
 # Changelog
 
-Toutes les évolutions notables de ce projet sont documentées ici.
+All notable changes to this project are documented here.
 
-Le format s'appuie sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
-et ce projet suit [Semantic Versioning](https://semver.org/lang/fr/).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
 ## [0.4.0] - 2026-08-09
 
 ### Added
-- **Relations éditables dans les formulaires**, façon Django admin :
-  - Foreign keys (`to-one`) rendues en `<select>` avec labels lisibles au lieu
-    d'un champ ID brut ; repli automatique en input texte au-delà d'un seuil
-    configurable ou pour les FK composites (non représentables dans un
-    `<option>`)
-  - Relations many-to-many implicites (tables pivot Prisma) rendues en
-    checkboxes, avec écriture `connect`/`set` correcte et protection contre
-    la perte de données quand un formulaire est soumis avec le champ
-    décoché/absent
-  - Bloc « Liaisons » en lecture seule sur les pages d'édition, listant les
-    relations inverses (1-N, 1-1) avec liens directs vers la liste filtrée
-    et la création pré-remplie
-  - Filtre de liste via `?filter=champ:valeur`
-  - Endpoint `GET {basePath}/_search` pour interroger les options d'une
-    relation en JSON (pagination, recherche par texte, respect du scoping) —
-    base pour un futur widget de recherche côté client
-- Nouvelle option de config par modèle : `relations` (widget, label, tri,
-  scoping via `where`, seuil de bascule en champ texte)
-- Validation serveur systématique des relations avant écriture : cohérence
-  des IDs, existence en base, respect du scoping — empêche la modification
-  d'une relation vers un enregistrement non autorisé (IDOR)
+- **Editable relations in forms**, Django-admin style:
+  - Foreign keys (`to-one`) rendered as a `<select>` with readable labels
+    instead of a raw ID field; automatic fallback to a text input beyond a
+    configurable threshold or for composite FKs (which can't be represented
+    in an `<option>`)
+  - Implicit many-to-many relations (Prisma pivot tables) rendered as
+    checkboxes, with correct `connect`/`set` writes and protection against
+    data loss when a form is submitted with the field unchecked/absent
+  - Read-only "Related" block on edit pages, listing inverse relations
+    (1-N, 1-1) with direct links to the filtered list and to pre-filled
+    creation
+  - List filtering via `?filter=field:value`
+  - `GET {basePath}/_search` endpoint to query a relation's options as JSON
+    (pagination, text search, scoping respected) — groundwork for a future
+    client-side search widget
+- New per-model config option: `relations` (widget, label, sort order,
+  scoping via `where`, threshold for falling back to a text field)
+- Systematic server-side validation of relations before any write: ID
+  consistency, existence in the database, scoping respected — prevents
+  modifying a relation to point at an unauthorized record (IDOR)
 
 ### Changed
-- Le parser de schéma Prisma reconnaît maintenant correctement les relations
-  nommées explicitement et les relations inverses, y compris quand plusieurs
-  relations existent entre les deux mêmes modèles (évite les faux
-  appariements silencieux)
+- The Prisma schema parser now correctly recognizes explicitly named
+  relations and inverse relations, including when several relations exist
+  between the same two models (avoids silent mismatches)
 
 ### Fixed
-- Un schéma Prisma avec plusieurs FK sur un même modèle (ex. `author` et
-  `reviewer` pointant tous deux vers `User`) pouvait auparavant produire un
-  appariement de relation incorrect
+- A Prisma schema with multiple FKs on the same model (e.g. `author` and
+  `reviewer` both pointing at `User`) could previously produce an incorrect
+  relation match
 
 ## [0.3.0] - 2026-08-06
 
 ### Added
-- Détection et masquage automatique des tables pivot (many-to-many
-  implicites) dans la liste des modèles administrables
-- Migration des vues internes vers des composants Svelte
-- Suite de tests avec couverture à 100 % et intégration continue
+- Automatic detection and hiding of pivot tables (implicit many-to-many)
+  from the list of administrable models
+- Migration of internal views to Svelte components
+- Test suite with 100% coverage and continuous integration
 
 ### Changed
-- API unifiée autour de `createAdminHandler` (hook SvelteKit unique)
+- Unified API around `createAdminHandler` (single SvelteKit hook)
 
 ### Fixed
-- Échappement systématique des valeurs issues de l'URL et de la base dans le
-  HTML rendu (faille XSS potentielle)
-- La coercion de l'identifiant consulte désormais le type réel de la clé
-  primaire (une PK `String` entièrement numérique n'était plus envoyée à
-  Prisma comme un `Int`)
-- `?page=` invalide (`abc`, `0`, négatif, hors entiers sûrs) retombe sur la
-  première page au lieu d'envoyer un `skip` `NaN` ou négatif
-- Une URL de trois segments ou plus rend une page « not found » au lieu du
-  dashboard
-- Heuristique de détection des champs `textarea` insensible à la casse
-- Une couleur de branding invalide retombe sur la couleur par défaut au lieu
-  de rendre du noir
+- Systematic escaping of values coming from the URL and the database in
+  the rendered HTML (potential XSS vulnerability)
+- ID coercion now consults the primary key's actual type (a fully numeric
+  `String` PK is no longer sent to Prisma as an `Int`)
+- An invalid `?page=` (`abc`, `0`, negative, out of safe integer range)
+  falls back to the first page instead of sending a `NaN` or negative `skip`
+- A URL with three or more segments renders a "not found" page instead of
+  the dashboard
+- Textarea field detection heuristic is now case-insensitive
+- An invalid branding color falls back to the default color instead of
+  rendering black
 
 ### Removed
-- **Breaking** : suppression de l'ancienne API à base de loaders
-  (`createAdmin`, `createLayoutLoad`, `createModelListLoad`, etc.) — utiliser
+- **Breaking**: removed the old loader-based API (`createAdmin`,
+  `createLayoutLoad`, `createModelListLoad`, etc.) — use
   `createAdminHandler`
-- **Breaking** : suppression des composants Svelte exportés
-  (`sveltekit-admin/components`) et de l'export `sveltekit-admin/admin`
-- **Breaking** : suppression des utilitaires CRUD exportés
+- **Breaking**: removed the exported Svelte components
+  (`sveltekit-admin/components`) and the `sveltekit-admin/admin` export
+- **Breaking**: removed the exported CRUD utilities
   (`createListOperation`, `buildSearchWhere`, `createAuthGuard`, …)
-- Retrait des options de configuration jamais implémentées
+- Removed configuration options that were never implemented
   (`branding.logo`, `models[].icon`)
 
 ## [0.2.1] - 2026-08-05
 
 ### Fixed
-- Correctifs mineurs sur le handler autonome introduit en 0.2.0
+- Minor fixes to the standalone handler introduced in 0.2.0
 
 ## [0.2.0] - 2026-08-05
 
 ### Added
-- Handler d'administration autonome : plus besoin de créer des routes
-  manuellement, tout passe par un seul hook
+- Standalone admin handler: no more manual route creation, everything goes
+  through a single hook
 
 ## [0.1.0] - 2026-08-05
 
 ### Added
-- Première version publique de `sveltekit-admin`
+- First public release of `sveltekit-admin`
