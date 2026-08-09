@@ -18,8 +18,9 @@ const renderList = (
   basePath: string,
   config: any,
   query?: ListQuery,
-  currentUrl?: URL
-) => render(List, { props: { model, items, pagination, basePath, config, query, currentUrl } }).body;
+  currentUrl?: URL,
+  listFilters?: any[]
+) => render(List, { props: { model, items, pagination, basePath, config, query, currentUrl, listFilters } }).body;
 
 const columns = (html: string) =>
   [...html.matchAll(/<th>([^<]*)<\/th>/g)].map((m) => m[1]);
@@ -235,6 +236,31 @@ describe('List.svelte — recherche et filtres (query/currentUrl)', () => {
     };
     const html = renderList(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', empty, query, url('http://localhost/admin/user?f.published=true'));
     expect(html).toContain('Clear all filters');
+  });
+
+  it('un filtre non-equals (ex: gte sur DateTime) n\'active aucune entrée de la sidebar', () => {
+    // activeFilterValues ne retient que les filtres `equals` — un `gte`/`lte`
+    // ne correspond à aucune option de la sidebar Boolean/enum, donc il ne
+    // doit jamais y être ajouté par erreur.
+    const query: ListQuery = {
+      q: null, searchFields: [], ignored: [],
+      filters: [{ field: 'createdAt', op: 'gte', value: new Date('2024-01-01'), raw: '2024-01-01' }]
+    };
+    const html = renderList(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', empty, query, url('http://localhost/admin/user?f.createdAt__gte=2024-01-01'));
+    expect(html).toContain('Clear all filters');
+  });
+
+  it('sidebar rendue (listFilters non vide) sans query : activeFilterValues retombe sur une Map vide', () => {
+    // Couvre `query?.filters ?? []` côté `undefined` : le composant peut
+    // être utilisé isolément avec listFilters fourni mais query absent —
+    // aucune entrée ne doit être marquée active, et surtout pas de throw.
+    const listFilters = [{ field: 'role', label: 'Role', kind: 'boolean' as const }];
+    const html = renderList(
+      viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', empty,
+      undefined, url('http://localhost/admin/user'), listFilters
+    );
+    expect(html).toContain('ska-filters__group');
+    expect(html).toMatch(/href="\/admin\/user" class="ska-filters__link ska-filters__link--active"/);
   });
 
   it('état vide avec critères actifs : message dédié, pas le message générique', () => {

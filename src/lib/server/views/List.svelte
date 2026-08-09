@@ -2,9 +2,11 @@
   import type { AdminHandlerConfig } from '../handler.js';
   import type { ViewModel } from './types.js';
   import type { ListQuery } from '../query/listQuery.js';
+  import type { ResolvedFilterField } from '../query/filterDetection.js';
   import { getDisplayFields } from '../introspection/parser.js';
   import { buildListUrl, hiddenParams } from '../query/urls.js';
   import { escapeHtml, toLabel, formatValue } from './html.js';
+  import ListFilters from './ListFilters.svelte';
 
   let {
     model,
@@ -13,7 +15,8 @@
     basePath,
     config,
     query,
-    currentUrl
+    currentUrl,
+    listFilters
   }: {
     model: ViewModel;
     items: any[];
@@ -24,6 +27,8 @@
     query?: ListQuery;
     /** URL de la requête courante — nécessaire pour construire les liens de pagination et le form GET. Absent = pagination legacy `?page=N` isolée. */
     currentUrl?: URL;
+    /** Filtres sidebar résolus (Boolean/enum), absent = pas de sidebar rendue. */
+    listFilters?: ResolvedFilterField[];
   } = $props();
 
   const modelConfig = $derived(config.models?.[model.name] || {});
@@ -66,6 +71,18 @@
   });
   const clearHref = $derived(currentUrl ? currentUrl.pathname : listPath);
   const searchHiddenParams = $derived(currentUrl ? hiddenParams(currentUrl, ['q']) : []);
+
+  /** Valeur brute active par champ (pour marquer l'option correspondante dans la sidebar). */
+  const activeFilterValues = $derived.by(() => {
+    // Rendu SSR sans hydratation : la Map est construite une fois par
+    // render et jamais mutée après coup, SvelteMap n'a aucun intérêt ici.
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
+    const map = new Map<string, string>();
+    for (const f of query?.filters ?? []) {
+      if (f.op === 'equals') map.set(f.field, f.raw);
+    }
+    return map;
+  });
 </script>
 
 <div class="ska-header">
@@ -78,6 +95,11 @@
     Add {model.label}
   </a>
 </div>
+
+{#if listFilters && listFilters.length > 0 && currentUrl}
+  <ListFilters filters={listFilters} activeValues={activeFilterValues} {currentUrl} />
+{/if}
+
 
 {#if hasSearch}
   <form method="GET" class="ska-search">

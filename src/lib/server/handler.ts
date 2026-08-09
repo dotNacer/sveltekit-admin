@@ -24,6 +24,7 @@ import {
   buildWhere,
   resolveSearchFields
 } from './query/listQuery.js';
+import { resolveListFilters, validateListFilterConfig } from './query/filterDetection.js';
 import { escapeHtml, toLabel } from './views/html.js';
 import NotFound from './views/NotFound.svelte';
 import Layout from './views/Layout.svelte';
@@ -66,6 +67,17 @@ export interface AdminHandlerConfig {
      * y est silencieusement ignoré.
      */
     searchFields?: string[];
+    /**
+     * Champs filtrables via la sidebar de la liste. Config explicite
+     * (forme courte `'published'` ou objet `{ field, label }`) — sinon
+     * une heuristique auto-détecte les champs Boolean et enum uniquement
+     * (domaine de valeurs connu statiquement, zéro requête pour rendre la
+     * sidebar ; voir docs/design/list-search-filters.md §3.5). Une config
+     * invalide (champ inexistant, sensible, relation, type non supporté)
+     * lève une erreur au démarrage — c'est une erreur de développeur, elle
+     * doit échouer fort plutôt que produire un filtre silencieusement mort.
+     */
+    listFilter?: import('./query/filterDetection.js').ListFilterConfigEntry[];
   }>;
   /** Models to exclude from admin */
   exclude?: string[];
@@ -132,6 +144,17 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     if (hidePivotTables && m.isPivotTable) return false;
     return true;
   }) || [];
+
+  // Valider `listFilter` au démarrage : une config invalide (champ
+  // inexistant, sensible, relation, type non supporté) doit échouer fort
+  // ici plutôt que produire silencieusement un filtre mort à chaque rendu
+  // de liste (docs/design §8, même politique que le groupe ambigu de
+  // relations.ts).
+  for (const m of filteredModels) {
+    const entries = modelsConfig[m.name]?.listFilter;
+    if (entries) validateListFilterConfig(m.name, entries, m);
+  }
+
   const labelOf = (m: PrismaModel) => modelsConfig[m.name]?.label || toLabel(m.name);
   const modelList = filteredModels.map((m) => ({ name: m.name, label: labelOf(m) }));
   const findModel = (name?: string) =>
@@ -609,6 +632,12 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           );
           const where = buildWhere(listQuery, undefined, caseInsensitiveSearch);
           const { items, total } = await listRecords(prisma, model, page, PER_PAGE, where);
+          const listFilters = resolveListFilters(
+            model,
+            schema!.enums,
+            modelsConfig[model.name]?.listFilter,
+            toLabel
+          );
           content = render(List, {
             props: {
               model: viewModel(model),
@@ -617,7 +646,8 @@ export function createAdminHandler(config: AdminHandlerConfig) {
               basePath,
               config,
               query: listQuery,
-              currentUrl: event.url
+              currentUrl: event.url,
+              listFilters
             }
           }).body;
         } else if (route.view === 'create') {

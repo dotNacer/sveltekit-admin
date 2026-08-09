@@ -360,6 +360,53 @@ export function styles(primaryColor: string): string {
       width: 300px;
     }
 
+    /* Filter sidebar */
+    .ska-filters {
+      margin-bottom: 1.5rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.5rem;
+    }
+
+    .ska-filters__group {
+      min-width: 140px;
+    }
+
+    .ska-filters__title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #64748b;
+      margin-bottom: 0.5rem;
+    }
+
+    .ska-filters__list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .ska-filters__link {
+      display: block;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.25rem;
+      color: #475569;
+      text-decoration: none;
+      font-size: 0.875rem;
+    }
+
+    .ska-filters__link:hover {
+      background: #f1f5f9;
+    }
+
+    .ska-filters__link--active {
+      background: #eef2ff;
+      color: var(--ska-primary);
+      font-weight: 500;
+    }
+
     /* Back link */
     .ska-back {
       display: inline-flex;
