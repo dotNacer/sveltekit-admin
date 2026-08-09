@@ -407,6 +407,20 @@ export function styles(primaryColor: string): string {
       font-weight: 500;
     }
 
+    .ska-filters__range {
+      display: flex;
+      flex-direction: column;
+      gap: 0.375rem;
+    }
+
+    .ska-filters__range-input {
+      padding: 0.375rem 0.5rem;
+      border: 1px solid #e2e8f0;
+      border-radius: 0.25rem;
+      font-size: 0.8125rem;
+      width: 100%;
+    }
+
     /* Back link */
     .ska-back {
       display: inline-flex;

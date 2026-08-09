@@ -1,30 +1,44 @@
 /**
  * Filter sidebar detection and configuration resolution.
  *
- * Design reference: docs/design/list-search-filters.md §3.5, §8.
+ * Design reference: docs/design/list-search-filters.md §3.5, §5.5, §6, §8.
  *
  * Auto-detection is intentionally narrow — Boolean and enum only — because
  * their value domain is known STATICALLY from the schema (zero extra query
- * to render the sidebar). Anything else (DateTime, FK, free String/Int)
- * requires explicit `listFilter` config. This is a deliberate perf guard:
- * an auto-detect heuristic that fires `groupBy`/`findMany` on every list
- * render is a trap that can't be removed later without a breaking change.
+ * to render the sidebar). DateTime, numeric ranges, and FK all require
+ * explicit `listFilter` config (DateTime presets are an editorial choice,
+ * ranges need two inputs not a fixed set, FK needs a query to load options
+ * — see §3.5, §6.2). This is a deliberate perf guard: an auto-detect
+ * heuristic that fires `groupBy`/`findMany` on every list render is a trap
+ * that can't be removed later without a breaking change.
  */
 
 import type { PrismaField, PrismaModel } from '../introspection/parser.js';
 import { isSensitiveFieldName } from '../introspection/parser.js';
 
+const NUMERIC_TYPES = ['Int', 'Float', 'Decimal', 'BigInt'];
+export const DATETIME_PRESETS = ['today', '7d', 'month', 'year'] as const;
+export type DateTimePreset = (typeof DATETIME_PRESETS)[number];
+
 export type ListFilterConfigEntry =
   | string
-  | { field: string; label?: string };
+  | {
+      field: string;
+      label?: string;
+      /** DateTime only: which shortcuts to offer as sidebar links (default: all four, §5.5). */
+      presets?: DateTimePreset[];
+      /** Numeric field only: render two `gte`/`lte` inputs in a GET form instead of a fixed link set. */
+      range?: boolean;
+    };
 
 export interface ResolvedFilterField {
   field: string;
   label: string;
-  /** 'boolean' offers a fixed [All, Yes, No] set; 'enum' offers one entry per member. */
-  kind: 'boolean' | 'enum';
+  kind: 'boolean' | 'enum' | 'datetime' | 'range';
   /** Only present for kind 'enum'. */
   enumValues?: string[];
+  /** Only present for kind 'datetime'. */
+  presets?: DateTimePreset[];
 }
 
 /** Whether a field is eligible for auto-detection: Boolean or enum, not sensitive/hidden/list/relation. */
@@ -70,10 +84,42 @@ export function validateListFilterConfig(
         `[sveltekit-admin] listFilter: "${modelName}.${fieldName}" looks sensitive by name, refusing to expose it as a filter`
       );
     }
-    if (field.type !== 'Boolean' && !field.isEnum) {
+    const range = typeof entry !== 'string' && entry.range;
+    const presets = typeof entry !== 'string' ? entry.presets : undefined;
+
+    if (range && !NUMERIC_TYPES.includes(field.type)) {
+      throw new Error(
+        `[sveltekit-admin] listFilter: "${modelName}.${fieldName}" has range:true but type ${field.type} is not numeric`
+      );
+    }
+    if (presets && field.type !== 'DateTime') {
+      throw new Error(
+        `[sveltekit-admin] listFilter: "${modelName}.${fieldName}" has presets but is not a DateTime field`
+      );
+    }
+    if (presets) {
+      const invalid = presets.filter((p) => !(DATETIME_PRESETS as readonly string[]).includes(p));
+      if (invalid.length > 0) {
+        throw new Error(
+          `[sveltekit-admin] listFilter: "${modelName}.${fieldName}" has unknown preset(s) ${invalid.join(', ')}, ` +
+            `expected one of ${DATETIME_PRESETS.join(', ')}`
+        );
+      }
+    }
+
+    // Champ finalement supporté par la sidebar si : Boolean, enum, DateTime
+    // (avec ou sans presets), ou numérique avec range:true. Tout le reste
+    // (String libre, Int/Float sans range, Json déjà rejeté plus haut) est
+    // refusé — pas de filtre silencieusement mort.
+    const supported =
+      field.type === 'Boolean' ||
+      field.isEnum ||
+      field.type === 'DateTime' ||
+      (range && NUMERIC_TYPES.includes(field.type));
+    if (!supported) {
       throw new Error(
         `[sveltekit-admin] listFilter: "${modelName}.${fieldName}" has type ${field.type}, ` +
-          `only Boolean and enum fields are supported by the sidebar filter in this version`
+          `only Boolean, enum, DateTime, and range:true numeric fields are supported by the sidebar filter`
       );
     }
   }
@@ -94,9 +140,10 @@ export function resolveListFilters(
     ? configured.map((e) => (typeof e === 'string' ? e : e.field))
     : model.fields.filter(isAutoDetectable).map((f) => f.name);
 
+  const entryOf = (fieldName: string) =>
+    configured?.find((e) => (typeof e === 'string' ? e : e.field) === fieldName);
   const labelOf = (fieldName: string): string | undefined => {
-    if (!configured) return undefined;
-    const entry = configured.find((e) => (typeof e === 'string' ? e : e.field) === fieldName);
+    const entry = entryOf(fieldName);
     return entry && typeof entry !== 'string' ? entry.label : undefined;
   };
 
@@ -104,15 +151,20 @@ export function resolveListFilters(
   for (const fieldName of fieldNames) {
     const field = model.fields.find((f) => f.name === fieldName);
     if (!field) continue; // Already validated at boot for explicit config; defensive no-op otherwise.
-    if (field.type === 'Boolean') {
-      out.push({ field: fieldName, label: labelOf(fieldName) ?? toLabel(fieldName), kind: 'boolean' });
+    const entry = entryOf(fieldName);
+    const range = Boolean(entry && typeof entry !== 'string' && entry.range);
+    const label = labelOf(fieldName) ?? toLabel(fieldName);
+
+    if (range && NUMERIC_TYPES.includes(field.type)) {
+      out.push({ field: fieldName, label, kind: 'range' });
+    } else if (field.type === 'DateTime') {
+      const presets =
+        (entry && typeof entry !== 'string' ? entry.presets : undefined) ?? [...DATETIME_PRESETS];
+      out.push({ field: fieldName, label, kind: 'datetime', presets });
+    } else if (field.type === 'Boolean') {
+      out.push({ field: fieldName, label, kind: 'boolean' });
     } else if (field.isEnum) {
-      out.push({
-        field: fieldName,
-        label: labelOf(fieldName) ?? toLabel(fieldName),
-        kind: 'enum',
-        enumValues: enums.get(field.type) ?? []
-      });
+      out.push({ field: fieldName, label, kind: 'enum', enumValues: enums.get(field.type) ?? [] });
     }
   }
   return out;

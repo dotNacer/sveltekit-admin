@@ -110,6 +110,58 @@ describe('resolveListFilters — config explicite listFilter', () => {
   });
 });
 
+describe('resolveListFilters — DateTime (kind: datetime)', () => {
+  it('auto-détection : n\'inclut JAMAIS un champ DateTime (config explicite requise)', () => {
+    const filters = resolveListFilters(Article, schema.enums, undefined, toLabel);
+    expect(filters.map((f) => f.field)).not.toContain('createdAt');
+  });
+
+  it('config explicite (forme courte) : presets par défaut = les 4 raccourcis', () => {
+    const filters = resolveListFilters(Article, schema.enums, ['createdAt'], toLabel);
+    expect(filters[0]).toEqual({
+      field: 'createdAt', label: toLabel('createdAt'), kind: 'datetime',
+      presets: ['today', '7d', 'month', 'year']
+    });
+  });
+
+  it('config explicite avec presets restreints', () => {
+    const filters = resolveListFilters(
+      Article, schema.enums, [{ field: 'createdAt', presets: ['today', 'year'] }], toLabel
+    );
+    expect(filters[0].presets).toEqual(['today', 'year']);
+  });
+
+  it('label personnalisé sur un champ DateTime', () => {
+    const filters = resolveListFilters(
+      Article, schema.enums, [{ field: 'createdAt', label: 'Créé le' }], toLabel
+    );
+    expect(filters[0].label).toBe('Créé le');
+  });
+});
+
+describe('resolveListFilters — plages numériques (kind: range)', () => {
+  it('auto-détection : n\'inclut JAMAIS un champ numérique (config explicite requise)', () => {
+    const filters = resolveListFilters(Article, schema.enums, undefined, toLabel);
+    expect(filters.map((f) => f.field)).not.toContain('views');
+    expect(filters.map((f) => f.field)).not.toContain('price');
+  });
+
+  it('range:true sur Int : kind range', () => {
+    const filters = resolveListFilters(Article, schema.enums, [{ field: 'views', range: true }], toLabel);
+    expect(filters[0]).toEqual({ field: 'views', label: toLabel('views'), kind: 'range' });
+  });
+
+  it('range:true sur Decimal : kind range aussi', () => {
+    const filters = resolveListFilters(Article, schema.enums, [{ field: 'price', range: true }], toLabel);
+    expect(filters[0].kind).toBe('range');
+  });
+
+  it('un Int configuré SANS range:true n\'est pas résolu du tout (config invalide, mais resolveListFilters ne valide pas elle-même)', () => {
+    const filters = resolveListFilters(Article, schema.enums, ['views'], toLabel);
+    expect(filters).toEqual([]);
+  });
+});
+
 describe('validateListFilterConfig — fail loud au boot', () => {
   it('accepte une config valide sans lever', () => {
     expect(() => validateListFilterConfig('Article', ['published', 'status'], Article)).not.toThrow();
@@ -138,8 +190,8 @@ describe('validateListFilterConfig — fail loud au boot', () => {
   });
 
   it('lève sur un champ String ou Int (type non supporté par la sidebar en v1)', () => {
-    expect(() => validateListFilterConfig('Article', ['title'], Article)).toThrow(/only Boolean and enum/);
-    expect(() => validateListFilterConfig('Article', ['views'], Article)).toThrow(/only Boolean and enum/);
+    expect(() => validateListFilterConfig('Article', ['title'], Article)).toThrow(/only Boolean, enum, DateTime/);
+    expect(() => validateListFilterConfig('Article', ['views'], Article)).toThrow(/only Boolean, enum, DateTime/);
   });
 
   it('accepte la forme objet pour la validation aussi', () => {
@@ -148,5 +200,45 @@ describe('validateListFilterConfig — fail loud au boot', () => {
 
   it('lève sur la première entrée invalide d\'une liste, même si les autres sont valides', () => {
     expect(() => validateListFilterConfig('Article', ['published', 'nope'], Article)).toThrow(/no field "nope"/);
+  });
+
+  it('accepte une config range:true sur un champ numérique (Int)', () => {
+    expect(() => validateListFilterConfig('Article', [{ field: 'views', range: true }], Article)).not.toThrow();
+  });
+
+  it('accepte une config range:true sur un champ numérique (Decimal)', () => {
+    expect(() => validateListFilterConfig('Article', [{ field: 'price', range: true }], Article)).not.toThrow();
+  });
+
+  it('lève si range:true est posé sur un champ non numérique', () => {
+    expect(() =>
+      validateListFilterConfig('Article', [{ field: 'title', range: true }], Article)
+    ).toThrow(/range:true but type String is not numeric/);
+  });
+
+  it('accepte un champ DateTime sans presets (defaults appliqués à la résolution)', () => {
+    expect(() => validateListFilterConfig('Article', ['createdAt'], Article)).not.toThrow();
+  });
+
+  it('accepte un champ DateTime avec des presets valides', () => {
+    expect(() =>
+      validateListFilterConfig('Article', [{ field: 'createdAt', presets: ['today', 'year'] }], Article)
+    ).not.toThrow();
+  });
+
+  it('lève si presets est posé sur un champ non-DateTime', () => {
+    expect(() =>
+      validateListFilterConfig('Article', [{ field: 'views', presets: ['today'] }], Article)
+    ).toThrow(/has presets but is not a DateTime field/);
+  });
+
+  it('lève sur un preset inconnu', () => {
+    expect(() =>
+      validateListFilterConfig('Article', [{ field: 'createdAt', presets: ['nextCentury' as any] }], Article)
+    ).toThrow(/unknown preset\(s\) nextCentury/);
+  });
+
+  it('un champ Int sans range:true reste rejeté (String/Int libres toujours interdits)', () => {
+    expect(() => validateListFilterConfig('Article', ['views'], Article)).toThrow(/only Boolean, enum, DateTime/);
   });
 });

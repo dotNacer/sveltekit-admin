@@ -83,6 +83,19 @@
     }
     return map;
   });
+
+  /** Bornes gte/lte actives par champ (pour préremplir les inputs "range" de la sidebar). */
+  const activeRangeValues = $derived.by(() => {
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
+    const map = new Map<string, { gte?: string; lte?: string }>();
+    for (const f of query?.filters ?? []) {
+      if (f.op !== 'gte' && f.op !== 'lte') continue;
+      const entry = map.get(f.field) ?? {};
+      entry[f.op] = f.raw;
+      map.set(f.field, entry);
+    }
+    return map;
+  });
 </script>
 
 <div class="ska-header">
@@ -97,7 +110,7 @@
 </div>
 
 {#if listFilters && listFilters.length > 0 && currentUrl}
-  <ListFilters filters={listFilters} activeValues={activeFilterValues} {currentUrl} />
+  <ListFilters filters={listFilters} activeValues={activeFilterValues} {activeRangeValues} {currentUrl} />
 {/if}
 
 
