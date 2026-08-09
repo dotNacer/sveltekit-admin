@@ -47,7 +47,11 @@
         field: e.field,
         label: toLabel(e.field),
         count: counts.get(`${e.model}.${e.field}`)!,
-        viewAllHref: `${targetPath}?filter=${encodeURIComponent(scalarName)}:${encodeURIComponent(String(currentId))}`,
+        // `f.<field>=<value>` — même pipeline sécurisé que la recherche/
+        // filtre (whitelist + coercion, docs/design/list-search-filters.md).
+        // L'ancien `?filter=field:value` reste supporté en lecture pour la
+        // rétrocompatibilité, mais ce composant n'en émet plus.
+        viewAllHref: `${targetPath}?f.${encodeURIComponent(scalarName)}=${encodeURIComponent(String(currentId))}`,
         addHref: `${targetPath}/new?${encodeURIComponent(scalarName)}=${encodeURIComponent(String(currentId))}`
       });
     }

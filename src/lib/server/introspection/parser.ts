@@ -16,6 +16,8 @@ export interface PrismaField {
   isCreatedAt: boolean;
   hasDefault: boolean;
   defaultValue?: string;
+  /** true si `type` correspond à un `enum` déclaré dans le même schéma. */
+  isEnum?: boolean;
   relation?: {
     name?: string;
     model: string;
@@ -36,6 +38,14 @@ export interface PrismaModel {
 export interface PrismaSchema {
   models: PrismaModel[];
   enums: Map<string, string[]>;
+  /**
+   * Provider du bloc `datasource` (ex. "postgresql", "sqlite"), tel qu'écrit
+   * littéralement dans le schéma. `undefined` si absent ou si la valeur est
+   * une expression (`env("...")`, un provider non littéral) — dans ce cas
+   * le code appelant doit dégrader vers le comportement le plus prudent
+   * (voir `caseInsensitiveSearch` dans query/listQuery.ts).
+   */
+  provider?: string;
 }
 
 const SCALAR_TYPES = ['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Json', 'Bytes', 'Decimal', 'BigInt'];
@@ -99,6 +109,13 @@ export function parseSchemaContent(content: string): PrismaSchema {
     enums.set(enumName, enumValues);
   }
 
+  // Parse provider du bloc datasource. On ne capture qu'une valeur littérale
+  // entre guillemets — `provider = env("DB_PROVIDER")` ou toute expression
+  // laisse `provider` à `undefined`, volontairement : le code appelant doit
+  // alors dégrader vers le comportement le plus prudent plutôt que deviner.
+  const providerMatch = content.match(/datasource\s+\w+\s*\{[^}]*provider\s*=\s*"([^"]+)"/);
+  const provider = providerMatch?.[1];
+
   // Parse models
   const modelRegex = /(?:\/\/\/\s*(.+)\n)?model\s+(\w+)\s*\{([^}]+)\}/g;
   let modelMatch;
@@ -121,7 +138,7 @@ export function parseSchemaContent(content: string): PrismaSchema {
     });
   }
 
-  return { models, enums };
+  return { models, enums, provider };
 }
 
 function parseModelFields(modelBody: string, enums: Map<string, string[]>): PrismaField[] {
@@ -238,6 +255,7 @@ function parseFieldLine(
     isCreatedAt,
     hasDefault,
     defaultValue,
+    isEnum: enums.has(type),
     relation,
     documentation
   };
@@ -251,14 +269,24 @@ function parseFieldLine(
 const SENSITIVE_FIELD_NAMES = ['password', 'hash', 'secret', 'token'];
 
 /**
+ * Un champ est-il sensible par son nom ? Prédicat UNIQUE, partagé par
+ * `getDisplayFields` (liste) et par le module de recherche/filtre
+ * (`query/listQuery.ts`) — sans ce partage, les deux heuristiques
+ * divergeraient tôt ou tard et un champ masqué de la liste redeviendrait
+ * cherchable/filtrable par URL forgée.
+ */
+export function isSensitiveFieldName(name: string): boolean {
+  const lower = name.toLowerCase();
+  return SENSITIVE_FIELD_NAMES.some((hidden) => lower.includes(hidden));
+}
+
+/**
  * Get display fields for a model (fields suitable for list view)
  */
 export function getDisplayFields(model: Pick<PrismaModel, 'fields'>): PrismaField[] {
   return model.fields.filter(f =>
     !f.relation?.fields && // Skip relation foreign keys shown separately
     !f.isList && // Skip array fields
-    !SENSITIVE_FIELD_NAMES.some(
-      hidden => f.name.toLowerCase().includes(hidden)
-    )
+    !isSensitiveFieldName(f.name)
   );
 }

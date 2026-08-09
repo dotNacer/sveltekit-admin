@@ -4,7 +4,7 @@
  */
 
 import { render } from 'svelte/server';
-import { parsePrismaSchema, type PrismaSchema, type PrismaModel } from './introspection/parser.js';
+import { parsePrismaSchema, type PrismaSchema, type PrismaModel, isSensitiveFieldName } from './introspection/parser.js';
 import { buildRelationGraph, type RelationGraph } from './introspection/relations.js';
 import { parseRoute } from './router.js';
 import {
@@ -19,6 +19,11 @@ import {
   updateRecord,
   deleteRecord
 } from './data.js';
+import {
+  parseListQuery,
+  buildWhere,
+  resolveSearchFields
+} from './query/listQuery.js';
 import { escapeHtml, toLabel } from './views/html.js';
 import NotFound from './views/NotFound.svelte';
 import Layout from './views/Layout.svelte';
@@ -51,6 +56,16 @@ export interface AdminHandlerConfig {
       where?: (ctx: { locals?: any }) => Record<string, unknown>;
       nullLabel?: string;
     }>;
+    /**
+     * Champs interrogés par la barre de recherche texte libre. Sans
+     * config, une heuristique conservatrice reprend `relationDefaults.labelFields`
+     * parmi les champs String non sensibles (voir docs/design/list-search-filters.md §2.1).
+     * Une config explicite gagne toujours et n'est jamais tronquée par
+     * l'heuristique — un champ non filtrable au sens de `isFilterableFieldType`
+     * (relation, liste, Json, Bytes) ou sensible (password/hash/secret/token)
+     * y est silencieusement ignoré.
+     */
+    searchFields?: string[];
   }>;
   /** Models to exclude from admin */
   exclude?: string[];
@@ -62,6 +77,18 @@ export interface AdminHandlerConfig {
     selectThreshold?: number;
     /** Champs candidats pour le label, dans l'ordre de préférence */
     labelFields?: string[];
+  };
+  /**
+   * Recherche texte libre : configuration globale.
+   * `mode`: 'auto' détecte le provider du schéma et n'émet `mode: 'insensitive'`
+   * que sur postgresql/cockroachdb/mongodb (les seuls où Prisma le supporte —
+   * l'émettre sur sqlite/mysql/sqlserver lève une erreur Prisma). 'insensitive'
+   * et 'default' forcent le comportement, pour un provider non détectable
+   * (`provider = env(...)`) ou un besoin spécifique (index `citext`, etc.).
+   * Voir docs/design/list-search-filters.md §2.5.
+   */
+  search?: {
+    mode?: 'auto' | 'insensitive' | 'default';
   };
   /** Custom branding */
   branding?: {
@@ -128,6 +155,35 @@ export function createAdminHandler(config: AdminHandlerConfig) {
   const labelFieldCandidates = config.relationDefaults?.labelFields ?? [
     'name', 'title', 'label', 'email', 'username', 'slug'
   ];
+
+  // `mode: 'insensitive'` n'est supporté par Prisma que sur
+  // postgresql/cockroachdb/mongodb — l'émettre sur sqlite/mysql/sqlserver
+  // lève une erreur Prisma dure. Détection auto via le provider extrait du
+  // schéma ; `search.mode` permet de forcer le comportement (provider non
+  // littéral dans le schéma, index citext, etc.). Voir docs/design §2.5.
+  const searchMode = config.search?.mode ?? 'auto';
+  const caseInsensitiveSearch =
+    searchMode === 'insensitive' ||
+    (searchMode === 'auto' &&
+      ['postgresql', 'cockroachdb', 'mongodb'].includes(schema?.provider ?? ''));
+
+  /**
+   * Champs qu'un `?f.<field>=` est autorisé à cibler pour ce modèle : tout
+   * champ scalaire non-liste, non-relation, de type filtrable
+   * (String/Int/Float/Decimal/BigInt/Boolean/DateTime/enum — donc pas
+   * Json/Bytes), et non sensible. Défense en profondeur : `listQuery.ts`
+   * revérifie lui-même la sensibilité, ce set n'est qu'une première passe.
+   */
+  const resolveFilterableFields = (model: PrismaModel): Set<string> => {
+    const out = new Set<string>();
+    for (const f of model.fields) {
+      if (f.relation || f.isList) continue;
+      if (['Json', 'Bytes'].includes(f.type)) continue;
+      if (isSensitiveFieldName(f.name)) continue;
+      out.add(f.name);
+    }
+    return out;
+  };
 
   /**
    * Résout le label BRUT (non échappé) d'une ligne : premier champ String
@@ -541,27 +597,27 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           }).body;
         } else if (route.view === 'list') {
           const { page } = paginate(event.url.searchParams.get('page'), PER_PAGE);
-          // `?filter=field:value` — posé par les liens "Voir tout" du bloc de
-          // liaisons inverses. Coercé vers le type du champ ciblé quand connu,
-          // sinon laissé en string (Prisma le rejettera proprement si erroné).
-          const filterParam = event.url.searchParams.get('filter');
-          let filterWhere: Record<string, unknown> | undefined;
-          if (filterParam && filterParam.includes(':')) {
-            const [filterField, ...rest] = filterParam.split(':');
-            const rawValue = rest.join(':');
-            const targetField = model.fields.find((f) => f.name === filterField);
-            filterWhere = {
-              [filterField]: targetField?.type === 'Int' ? parseInt(rawValue) : rawValue
-            };
-          }
-          const { items, total } = await listRecords(prisma, model, page, PER_PAGE, filterWhere);
+          const modelSearchConfig = modelsConfig[model.name]?.searchFields;
+          const searchFields = resolveSearchFields(model, modelSearchConfig, labelFieldCandidates);
+          const filterableFields = resolveFilterableFields(model);
+          const listQuery = parseListQuery(
+            event.url.searchParams,
+            model,
+            schema!.enums,
+            searchFields,
+            filterableFields
+          );
+          const where = buildWhere(listQuery, undefined, caseInsensitiveSearch);
+          const { items, total } = await listRecords(prisma, model, page, PER_PAGE, where);
           content = render(List, {
             props: {
               model: viewModel(model),
               items,
               pagination: { page, perPage: PER_PAGE, total },
               basePath,
-              config
+              config,
+              query: listQuery,
+              currentUrl: event.url
             }
           }).body;
         } else if (route.view === 'create') {

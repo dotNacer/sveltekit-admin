@@ -3,6 +3,7 @@ import { render } from 'svelte/server';
 import List from '../../../src/lib/server/views/List.svelte';
 import { parsePrismaSchema, parseSchemaContent } from '../../../src/lib/server/introspection/parser.js';
 import { FULL_SCHEMA_PATH } from '../../fixtures/prismaMock.js';
+import type { ListQuery } from '../../../src/lib/server/query/listQuery.js';
 
 const schema = parsePrismaSchema(FULL_SCHEMA_PATH);
 const User = schema.models.find((m) => m.name === 'User')!;
@@ -10,11 +11,20 @@ const viewModel = { name: 'User', label: 'Users', fields: User.fields, primaryKe
 const empty = { prisma: {} } as any;
 const items = [{ id: 1, email: 'a@b.c', name: 'A' }, { id: 2, email: 'c@d.e', name: null }];
 
-const renderList = (model: any, items: any[], pagination: any, basePath: string, config: any) =>
-  render(List, { props: { model, items, pagination, basePath, config } }).body;
+const renderList = (
+  model: any,
+  items: any[],
+  pagination: any,
+  basePath: string,
+  config: any,
+  query?: ListQuery,
+  currentUrl?: URL
+) => render(List, { props: { model, items, pagination, basePath, config, query, currentUrl } }).body;
 
 const columns = (html: string) =>
   [...html.matchAll(/<th>([^<]*)<\/th>/g)].map((m) => m[1]);
+
+const noQuery: ListQuery = { q: null, searchFields: [], filters: [], ignored: [] };
 
 describe('List.svelte', () => {
   it('affiche le nombre total', () => {
@@ -154,5 +164,110 @@ describe('List.svelte', () => {
     expect(html).not.toContain('"/admin/user/a"b"');
     expect(html).toContain('href="/admin/user/a&quot;b"');
     expect(html).toContain('action="/admin/user/a&quot;b"');
+  });
+});
+
+describe('List.svelte — recherche et filtres (query/currentUrl)', () => {
+  const url = (s: string) => new URL(s, 'http://localhost');
+
+  it('sans query ni currentUrl : pas de barre de recherche (rétrocompat des tests directs)', () => {
+    const html = renderList(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', empty);
+    expect(html).not.toContain('ska-search');
+  });
+
+  it('query fourni mais searchFields vide : pas de barre de recherche rendue', () => {
+    const html = renderList(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', empty, noQuery, url('http://localhost/admin/user'));
+    expect(html).not.toContain('ska-search__input');
+  });
+
+  it('searchFields non vide : la barre de recherche est rendue avec la valeur courante', () => {
+    const query: ListQuery = { q: 'hello', searchFields: ['email'], filters: [], ignored: [] };
+    const html = renderList(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', empty, query, url('http://localhost/admin/user?q=hello'));
+    expect(html).toContain('name="q"');
+    expect(html).toContain('value="hello"');
+  });
+
+  it('la barre de recherche préserve les filtres actifs en hidden inputs', () => {
+    const query: ListQuery = {
+      q: null, searchFields: ['email'], ignored: [],
+      filters: [{ field: 'published', op: 'equals', value: true, raw: 'true' }]
+    };
+    const html = renderList(
+      viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', empty,
+      query, url('http://localhost/admin/user?f.published=true')
+    );
+    expect(html).toContain('<input type="hidden" name="f.published" value="true"');
+  });
+
+  it('query fourni sans currentUrl : pas de hidden params (robustesse de l\'API du composant)', () => {
+    // Cas défensif, sans équivalent en usage réel (le handler passe toujours
+    // query et currentUrl ensemble) : couvre le composant utilisé isolément,
+    // avec un contrat de props partiellement respecté.
+    const query: ListQuery = { q: null, searchFields: ['email'], filters: [], ignored: [] };
+    const html = renderList(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', empty, query);
+    expect(html).toContain('ska-search__input');
+    expect(html).not.toContain('type="hidden" name="f.');
+  });
+
+  it('la barre de recherche échappe une valeur q contenant du HTML', () => {
+    const query: ListQuery = { q: '<script>alert(1)</script>', searchFields: ['email'], filters: [], ignored: [] };
+    const html = renderList(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', empty, query, url('http://localhost/admin/user'));
+    expect(html).not.toContain('<script>alert(1)</script>');
+    expect(html).toContain('&lt;script');
+  });
+
+  it('aucun critère actif : pas de lien "Clear all filters"', () => {
+    const html = renderList(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', empty, noQuery, url('http://localhost/admin/user'));
+    expect(html).not.toContain('Clear all filters');
+  });
+
+  it('q actif : le lien "Clear all filters" est rendu, pointant sur le path nu', () => {
+    const query: ListQuery = { q: 'hello', searchFields: ['email'], filters: [], ignored: [] };
+    const html = renderList(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', empty, query, url('http://localhost/admin/user?q=hello'));
+    expect(html).toContain('Clear all filters');
+    expect(html).toContain('href="/admin/user"');
+  });
+
+  it('un filtre actif (sans q) rend aussi "Clear all filters"', () => {
+    const query: ListQuery = {
+      q: null, searchFields: [], ignored: [],
+      filters: [{ field: 'published', op: 'equals', value: true, raw: 'true' }]
+    };
+    const html = renderList(viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', empty, query, url('http://localhost/admin/user?f.published=true'));
+    expect(html).toContain('Clear all filters');
+  });
+
+  it('état vide avec critères actifs : message dédié, pas le message générique', () => {
+    const query: ListQuery = { q: 'nomatch', searchFields: ['email'], filters: [], ignored: [] };
+    const html = renderList(viewModel, [], { page: 1, perPage: 20, total: 0 }, '/admin', empty, query, url('http://localhost/admin/user?q=nomatch'));
+    expect(html).toContain('No results for these criteria');
+    expect(html).not.toContain('No records found');
+  });
+
+  it('état vide sans critère : message générique inchangé', () => {
+    const html = renderList(viewModel, [], { page: 1, perPage: 20, total: 0 }, '/admin', empty, noQuery, url('http://localhost/admin/user'));
+    expect(html).toContain('No records found');
+  });
+
+  it('pagination : sans currentUrl, retombe sur le format legacy ?page=N', () => {
+    const html = renderList(viewModel, items, { page: 1, perPage: 2, total: 10 }, '/admin', empty);
+    expect(html).toContain('href="?page=2"');
+  });
+
+  it('pagination : avec currentUrl, construit une URL absolue via buildListUrl (conserve les autres params)', () => {
+    const html = renderList(
+      viewModel, items, { page: 1, perPage: 2, total: 10 }, '/admin', empty,
+      noQuery, url('http://localhost/admin/user?f.published=true')
+    );
+    expect(html).toContain('href="/admin/user?f.published=true&amp;page=2"');
+  });
+
+  it('pagination : le lien Previous passe aussi par buildListUrl', () => {
+    const html = renderList(
+      viewModel, items, { page: 3, perPage: 2, total: 10 }, '/admin', empty,
+      noQuery, url('http://localhost/admin/user')
+    );
+    expect(html).toContain('href="/admin/user?page=2"');
+    expect(html).toContain('href="/admin/user?page=4"');
   });
 });

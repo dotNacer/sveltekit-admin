@@ -1,0 +1,36 @@
+// Corpus dédié aux tests de recherche/filtre : couvre tous les types
+// scalaires, un enum, des champs sensibles, et un provider PostgreSQL
+// (pour tester `mode: 'insensitive'`).
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Status {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model Article {
+  id          Int      @id @default(autoincrement())
+  title       String
+  content     String?
+  slug        String   @unique
+  status      Status   @default(DRAFT)
+  published   Boolean  @default(false)
+  views       Int      @default(0)
+  rating      Float?
+  price       Decimal  @default(0)
+  bigCounter  BigInt   @default(0)
+  publishedAt DateTime?
+  createdAt   DateTime @default(now())
+  apiToken    String?
+  authorHash  String?
+  metadata    Json?
+  attachment  Bytes?
+}

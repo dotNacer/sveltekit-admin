@@ -1,7 +1,9 @@
 <script lang="ts">
   import type { AdminHandlerConfig } from '../handler.js';
   import type { ViewModel } from './types.js';
+  import type { ListQuery } from '../query/listQuery.js';
   import { getDisplayFields } from '../introspection/parser.js';
+  import { buildListUrl, hiddenParams } from '../query/urls.js';
   import { escapeHtml, toLabel, formatValue } from './html.js';
 
   let {
@@ -9,13 +11,19 @@
     items,
     pagination,
     basePath,
-    config
+    config,
+    query,
+    currentUrl
   }: {
     model: ViewModel;
     items: any[];
     pagination: { page: number; perPage: number; total: number };
     basePath: string;
     config: AdminHandlerConfig;
+    /** Recherche/filtres actifs, absent quand l'appelant ne les gère pas (rétrocompat des tests directs du composant). */
+    query?: ListQuery;
+    /** URL de la requête courante — nécessaire pour construire les liens de pagination et le form GET. Absent = pagination legacy `?page=N` isolée. */
+    currentUrl?: URL;
   } = $props();
 
   const modelConfig = $derived(config.models?.[model.name] || {});
@@ -43,6 +51,21 @@
 
   const listPath = $derived(`${basePath}/${model.name.toLowerCase()}`);
   const totalPages = $derived(Math.ceil(pagination.total / pagination.perPage));
+
+  // Barre de recherche rendue seulement si des champs sont réellement
+  // cherchables pour ce modèle — jamais un input muet qui ne filtre rien
+  // (docs/design §2.1).
+  const hasSearch = $derived((query?.searchFields.length ?? 0) > 0);
+  const hasActiveCriteria = $derived(
+    Boolean(query && (query.q || query.filters.length > 0))
+  );
+
+  const pageHref = $derived.by(() => {
+    if (!currentUrl) return (n: number) => `?page=${n}`;
+    return (n: number) => buildListUrl(currentUrl, { page: String(n) });
+  });
+  const clearHref = $derived(currentUrl ? currentUrl.pathname : listPath);
+  const searchHiddenParams = $derived(currentUrl ? hiddenParams(currentUrl, ['q']) : []);
 </script>
 
 <div class="ska-header">
@@ -56,6 +79,28 @@
   </a>
 </div>
 
+{#if hasSearch}
+  <form method="GET" class="ska-search">
+    {#each searchHiddenParams as p (p.name)}
+      <input type="hidden" name={p.name} value={p.value} />
+    {/each}
+    <input
+      type="search"
+      name="q"
+      value={query?.q ?? ''}
+      placeholder="Search…"
+      class="ska-search__input"
+    />
+    <button type="submit" class="ska-btn ska-btn--secondary">Search</button>
+  </form>
+{/if}
+
+{#if hasActiveCriteria}
+  <p class="ska-subtitle">
+    <a href={clearHref} class="ska-back">Clear all filters</a>
+  </p>
+{/if}
+
 <div class="ska-card">
   <div class="ska-table-wrap">
     <table class="ska-table">
@@ -67,7 +112,11 @@
       </thead>
       <tbody>
         {#if items.length === 0}
-          <tr><td colspan={displayFields.length + 1} style="text-align: center; color: #64748b; padding: 2rem;">No records found</td></tr>
+          <tr>
+            <td colspan={displayFields.length + 1} style="text-align: center; color: #64748b; padding: 2rem;">
+              {hasActiveCriteria ? 'No results for these criteria' : 'No records found'}
+            </td>
+          </tr>
         {:else}
           {#each items as item (item[model.primaryKey])}
             <tr>
@@ -90,8 +139,8 @@
       <span class="ska-pagination__info">
         Showing {(pagination.page - 1) * pagination.perPage + 1} to {Math.min(pagination.page * pagination.perPage, pagination.total)} of {pagination.total}
       </span>
-      {#if pagination.page > 1}<a href="?page={pagination.page - 1}" class="ska-btn ska-btn--secondary ska-btn--sm">Previous</a>{/if}
-      {#if pagination.page < totalPages}<a href="?page={pagination.page + 1}" class="ska-btn ska-btn--secondary ska-btn--sm">Next</a>{/if}
+      {#if pagination.page > 1}<a href={pageHref(pagination.page - 1)} class="ska-btn ska-btn--secondary ska-btn--sm">Previous</a>{/if}
+      {#if pagination.page < totalPages}<a href={pageHref(pagination.page + 1)} class="ska-btn ska-btn--secondary ska-btn--sm">Next</a>{/if}
     </div>
   {/if}
 </div>

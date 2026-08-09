@@ -71,6 +71,42 @@ describe('parseSchemaContent — enums', () => {
   it('ne traite pas un champ de type enum comme une relation', () => {
     expect(field('User', 'role').relation).toBeUndefined();
   });
+
+  it('marque isEnum=true sur un champ de type enum', () => {
+    expect(field('User', 'role').isEnum).toBe(true);
+  });
+
+  it('marque isEnum=false (ou absent) sur un champ scalaire', () => {
+    expect(field('User', 'email').isEnum).toBeFalsy();
+  });
+
+  it('marque isEnum=false sur un champ relation', () => {
+    expect(field('Post', 'author').isEnum).toBeFalsy();
+  });
+});
+
+describe('parseSchemaContent — provider du datasource', () => {
+  it('extrait le provider littéral', () => {
+    expect(schema.provider).toBe('postgresql');
+  });
+
+  it('reste undefined sans bloc datasource', () => {
+    expect(parseSchemaContent('model T {\n  id Int @id\n}').provider).toBeUndefined();
+  });
+
+  it('reste undefined quand la valeur n\'est pas un littéral (env(...))', () => {
+    const parsed = parseSchemaContent(
+      'datasource db {\n  provider = env("DB_PROVIDER")\n  url = env("DATABASE_URL")\n}\nmodel T {\n  id Int @id\n}'
+    );
+    expect(parsed.provider).toBeUndefined();
+  });
+
+  it('extrait sqlite comme n\'importe quel autre provider littéral', () => {
+    const parsed = parseSchemaContent(
+      'datasource db {\n  provider = "sqlite"\n  url = "file:./dev.db"\n}\nmodel T {\n  id Int @id\n}'
+    );
+    expect(parsed.provider).toBe('sqlite');
+  });
 });
 
 describe('parseSchemaContent — drapeaux de champ', () => {
