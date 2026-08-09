@@ -1,0 +1,42 @@
+---
+title: MDSVEX Text Components
+name: Text Components
+description: Reference samples for heading, paragraph, link, inline code, blockquote, divider, lists, and fenced code.
+category: Reference
+---
+
+This page is a compact reference for markdown-to-component mappings used in this documentation app.
+
+# H1 sample
+
+## H2 sample
+
+### H3 sample
+
+#### H4 sample
+
+> Blockquote sample: neutral note content for policies, caveats, or status notes.
+
+---
+
+## Unordered list sample
+
+- First list item with **strong**.
+- Second list item with `inline code`.
+- Third list item with a [link](https://svelte.dev).
+
+## Ordered list sample
+
+1. First ordered item.
+2. Second ordered item.
+3. Third ordered item.
+
+## Fenced code sample
+
+```bash
+pnpm --dir apps/web check
+```
+
+```typescript
+type ComponentName = 'h1' | 'h2' | 'h3' | 'h4';
+```
