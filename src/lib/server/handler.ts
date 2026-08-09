@@ -227,6 +227,39 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     }
   };
 
+  /**
+   * Compte, pour chaque relation inverse (1-N, 1-1) d'un modèle, le nombre
+   * d'enregistrements liés côté cible. Résilient : une cible dont le client
+   * échoue (mock partiel, modèle absent) retombe sur 0 plutôt que de casser
+   * le rendu du formulaire.
+   */
+  const loadRelatedCounts = async (
+    model: PrismaModel,
+    currentId: string
+  ): Promise<Map<string, number>> => {
+    const out = new Map<string, number>();
+    for (const edge of relationGraph!.edges.values()) {
+      if (edge.model !== model.name) continue;
+      if (edge.kind !== 'to-many-inverse' && edge.kind !== 'to-one-inverse') continue;
+
+      const owning = [...relationGraph!.edges.values()].find(
+        (o) => o.model === edge.target && o.kind === 'to-one-owning' && o.relationName === edge.relationName
+      );
+      if (!owning || owning.unsupported) continue;
+
+      const scalarName = owning.scalarFields[0];
+      try {
+        const count: number = await prisma[toPrismaModel(edge.target)].count({
+          where: { [scalarName]: coerceId(currentId, model) }
+        });
+        out.set(`${edge.model}.${edge.field}`, count);
+      } catch {
+        out.set(`${edge.model}.${edge.field}`, 0);
+      }
+    }
+    return out;
+  };
+
   return async ({
     event,
     resolve
@@ -438,7 +471,20 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           }).body;
         } else if (route.view === 'list') {
           const { page } = paginate(event.url.searchParams.get('page'), PER_PAGE);
-          const { items, total } = await listRecords(prisma, model, page, PER_PAGE);
+          // `?filter=field:value` — posé par les liens "Voir tout" du bloc de
+          // liaisons inverses. Coercé vers le type du champ ciblé quand connu,
+          // sinon laissé en string (Prisma le rejettera proprement si erroné).
+          const filterParam = event.url.searchParams.get('filter');
+          let filterWhere: Record<string, unknown> | undefined;
+          if (filterParam && filterParam.includes(':')) {
+            const [filterField, ...rest] = filterParam.split(':');
+            const rawValue = rest.join(':');
+            const targetField = model.fields.find((f) => f.name === filterField);
+            filterWhere = {
+              [filterField]: targetField?.type === 'Int' ? parseInt(rawValue) : rawValue
+            };
+          }
+          const { items, total } = await listRecords(prisma, model, page, PER_PAGE, filterWhere);
           content = render(List, {
             props: {
               model: viewModel(model),
@@ -450,8 +496,24 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           }).body;
         } else if (route.view === 'create') {
           const relationOptions = await loadRelationOptions(model, { locals: event.locals });
+          // Pré-remplissage FK depuis la query string (`?authorId=3`), posé
+          // par le lien "Ajouter" du bloc de liaisons inverses.
+          const prefill: Record<string, unknown> = {};
+          for (const edge of relationGraph!.edges.values()) {
+            if (edge.model !== model.name || edge.kind !== 'to-one-owning') continue;
+            const scalarName = edge.scalarFields[0];
+            const value = event.url.searchParams.get(scalarName);
+            if (value !== null) prefill[scalarName] = value;
+          }
+          const itemPrefill = Object.keys(prefill).length > 0 ? prefill : undefined;
           content = render(Form, {
-            props: { mode: 'create', model: { ...viewModel(model), relationOptions }, basePath, config }
+            props: {
+              mode: 'create',
+              model: { ...viewModel(model), relationOptions },
+              basePath,
+              config,
+              item: itemPrefill
+            }
           }).body;
         } else {
           // `route.id!` s'appuie sur un invariant de `parseRoute` : les seules vues
@@ -461,9 +523,16 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           // interceptée en amont et ne peut pas arriver ici.
           const item = await getRecord(prisma, model, route.id!);
           const relationOptions = await loadRelationOptions(model, { locals: event.locals }, route.id);
+          const relatedCounts = item ? await loadRelatedCounts(model, route.id!) : undefined;
           content = item
             ? render(Form, {
-                props: { mode: 'edit', model: { ...viewModel(model), relationOptions }, basePath, config, item }
+                props: {
+                  mode: 'edit',
+                  model: { ...viewModel(model), relationOptions, relatedCounts },
+                  basePath,
+                  config,
+                  item
+                }
               }).body
             : render(NotFound, {
                 props: { message: `${model.name} with ID "${route.id}" not found`, basePath }

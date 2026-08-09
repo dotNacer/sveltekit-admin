@@ -4,6 +4,7 @@
   import FieldInput from './FieldInput.svelte';
   import RelationSelect from './RelationSelect.svelte';
   import RelationCheckboxes from './RelationCheckboxes.svelte';
+  import RelatedBlock from './RelatedBlock.svelte';
 
   let {
     mode,
@@ -61,8 +62,7 @@
       : []
   );
 
-  const currentValueOf = (scalarName: string) =>
-    mode === 'edit' && item ? item[scalarName] : null;
+  const currentValueOf = (scalarName: string) => (item ? item[scalarName] : null);
 
   const relationCheckboxGroups = $derived(
     model.relationGraph
@@ -73,6 +73,14 @@
             !e.unsupported &&
             !hidden.includes(e.field) &&
             model.relationOptions?.has(`${e.model}.${e.field}`)
+        )
+      : []
+  );
+
+  const inverseEdges = $derived(
+    model.relationGraph
+      ? [...model.relationGraph.edges.values()].filter(
+          (e) => e.model === model.name && (e.kind === 'to-many-inverse' || e.kind === 'to-one-inverse')
         )
       : []
   );
@@ -107,4 +115,13 @@
     </div>
   </form>
 </div>
+{#if mode === 'edit' && model.relationGraph && model.relatedCounts}
+  <RelatedBlock
+    edges={inverseEdges}
+    graph={model.relationGraph}
+    counts={model.relatedCounts}
+    currentId={item[model.primaryKey]}
+    {basePath}
+  />
+{/if}
 

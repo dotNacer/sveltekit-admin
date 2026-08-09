@@ -89,7 +89,8 @@ export async function listRecords(
   prisma: any,
   model: PrismaModel,
   page: number,
-  perPage: number
+  perPage: number,
+  where?: Record<string, unknown>
 ): Promise<{ items: any[]; total: number }> {
   const key = toPrismaModel(model.name);
   const primaryKey = primaryKeyOf(model);
@@ -101,11 +102,12 @@ export async function listRecords(
   // validé par l'appelant ; ne pas « simplifier » en réintroduisant un parse.
   const [items, total] = await Promise.all([
     prisma[key].findMany({
+      where,
       skip: (page - 1) * perPage,
       take: perPage,
       orderBy: { [primaryKey]: 'desc' }
     }),
-    prisma[key].count()
+    prisma[key].count({ where })
   ]);
 
   return { items, total };

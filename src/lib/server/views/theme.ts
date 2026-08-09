@@ -225,6 +225,15 @@ export function styles(primaryColor: string): string {
       gap: 0.375rem;
     }
 
+    .ska-related-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.625rem 0;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .ska-related-row:last-child { border-bottom: none; }
+
     .ska-form__actions {
       display: flex;
       gap: 0.75rem;

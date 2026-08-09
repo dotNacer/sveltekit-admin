@@ -22,4 +22,6 @@ export interface ViewModel {
   relationGraph?: RelationGraph;
   /** Options résolues pour chaque arête to-one-owning, indexées par "Model.field" */
   relationOptions?: Map<string, RelationMeta>;
+  /** Compteurs des relations inverses (1-N, 1-1), indexés par "Model.field" */
+  relatedCounts?: Map<string, number>;
 }
