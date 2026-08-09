@@ -2,6 +2,7 @@
   import type { AdminHandlerConfig } from '../handler.js';
   import type { ViewModel } from './types.js';
   import FieldInput from './FieldInput.svelte';
+  import RelationSelect from './RelationSelect.svelte';
 
   let {
     mode,
@@ -25,13 +26,42 @@
   const formFields = $derived(
     mode === 'create'
       ? model.fields.filter(
-          (f) => !hidden.includes(f.name) && !f.isId && !f.isCreatedAt && !f.isUpdatedAt && !f.relation && !f.hasDefault
+          (f) =>
+            !hidden.includes(f.name) &&
+            !f.isId &&
+            !f.isCreatedAt &&
+            !f.isUpdatedAt &&
+            !f.relation &&
+            !f.hasDefault &&
+            // Masqué : remplacé par le select de sa relation ci-dessous.
+            !model.relationGraph?.scalarToRelation.has(f.name)
         )
-      : model.fields.filter((f) => !hidden.includes(f.name) && !f.relation)
+      : model.fields.filter(
+          (f) =>
+            !hidden.includes(f.name) &&
+            !f.relation &&
+            !model.relationGraph?.scalarToRelation.has(f.name)
+        )
   );
 
   const isFieldReadonly = (f: (typeof formFields)[number]) =>
     mode === 'edit' && (f.isId || f.isCreatedAt || f.isUpdatedAt || readonly.includes(f.name));
+
+  const relationSelects = $derived(
+    model.relationGraph
+      ? [...model.relationGraph.edges.values()].filter(
+          (e) =>
+            e.model === model.name &&
+            e.kind === 'to-one-owning' &&
+            !e.unsupported &&
+            !hidden.includes(e.field) &&
+            model.relationOptions?.has(`${e.model}.${e.field}`)
+        )
+      : []
+  );
+
+  const currentValueOf = (scalarName: string) =>
+    mode === 'edit' && item ? item[scalarName] : null;
 </script>
 
 <a href={listPath} class="ska-back">← Back to list</a>
@@ -46,9 +76,18 @@
     {#each formFields as f (f.name)}
       <FieldInput field={f} value={item ? item[f.name] : null} isReadonly={isFieldReadonly(f)} />
     {/each}
+    {#each relationSelects as edge (edge.field)}
+      <RelationSelect
+        {edge}
+        meta={model.relationOptions!.get(`${edge.model}.${edge.field}`)!}
+        currentValue={currentValueOf(edge.scalarFields[0])}
+        {config}
+      />
+    {/each}
     <div class="ska-form__actions">
       <button type="submit" class="ska-btn ska-btn--primary">{mode === 'create' ? 'Create' : 'Save Changes'}</button>
       <a href={listPath} class="ska-btn ska-btn--secondary">Cancel</a>
     </div>
   </form>
 </div>
+

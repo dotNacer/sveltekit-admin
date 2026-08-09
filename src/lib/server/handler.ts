@@ -5,10 +5,12 @@
 
 import { render } from 'svelte/server';
 import { parsePrismaSchema, type PrismaSchema, type PrismaModel } from './introspection/parser.js';
+import { buildRelationGraph, type RelationGraph } from './introspection/relations.js';
 import { parseRoute } from './router.js';
 import {
   primaryKeyOf,
   toPrismaModel,
+  coerceId,
   formDataToPrisma,
   paginate,
   listRecords,
@@ -23,6 +25,7 @@ import Layout from './views/Layout.svelte';
 import Dashboard from './views/Dashboard.svelte';
 import Form from './views/Form.svelte';
 import List from './views/List.svelte';
+import type { ViewModel } from './views/types.js';
 
 const PER_PAGE = 20;
 
@@ -41,11 +44,25 @@ export interface AdminHandlerConfig {
     readonly?: string[];
     listFields?: string[];
     label?: string;
+    relations?: Record<string, {
+      widget?: 'select' | 'raw-id' | 'hidden';
+      labelTemplate?: string;
+      orderBy?: Record<string, 'asc' | 'desc'>;
+      where?: (ctx: { locals?: any }) => Record<string, unknown>;
+      nullLabel?: string;
+    }>;
   }>;
   /** Models to exclude from admin */
   exclude?: string[];
   /** Hide pivot/junction tables automatically (default: true) */
   hidePivotTables?: boolean;
+  /** Relation defaults */
+  relationDefaults?: {
+    /** Au-delà de ce nombre d'options, une FK est rendue en raw-id (default: 200) */
+    selectThreshold?: number;
+    /** Champs candidats pour le label, dans l'ordre de préférence */
+    labelFields?: string[];
+  };
   /** Custom branding */
   branding?: {
     title?: string;
@@ -70,8 +87,13 @@ export function createAdminHandler(config: AdminHandlerConfig) {
 
   // Parse schema once at startup
   let schema: PrismaSchema | null = null;
+  let relationGraph: RelationGraph | null = null;
   try {
     schema = parsePrismaSchema(prismaSchemaPath);
+    relationGraph = buildRelationGraph(schema);
+    for (const d of relationGraph.diagnostics) {
+      console.warn(`[sveltekit-admin] ${d}`);
+    }
   } catch (e) {
     console.warn('[sveltekit-admin] Could not parse Prisma schema:', e);
   }
@@ -87,17 +109,94 @@ export function createAdminHandler(config: AdminHandlerConfig) {
   const modelList = filteredModels.map((m) => ({ name: m.name, label: labelOf(m) }));
   const findModel = (name?: string) =>
     filteredModels.find((m) => m.name.toLowerCase() === name?.toLowerCase());
-  const viewModel = (m: PrismaModel) => ({
+  const viewModel = (m: PrismaModel): ViewModel => ({
     name: m.name,
     label: labelOf(m),
     fields: m.fields,
-    primaryKey: primaryKeyOf(m)
+    primaryKey: primaryKeyOf(m),
+    // Non-null par construction : `m` vient toujours de `filteredModels`,
+    // dérivé du schéma qu'on vient de parser avec succès.
+    relationGraph: relationGraph!
   });
   const redirectToList = (model: string) =>
     new Response(null, {
       status: 303,
       headers: { Location: `${basePath}/${model.toLowerCase()}` }
     });
+
+  const selectThreshold = config.relationDefaults?.selectThreshold ?? 200;
+  const labelFieldCandidates = config.relationDefaults?.labelFields ?? [
+    'name', 'title', 'label', 'email', 'username', 'slug'
+  ];
+
+  /**
+   * Résout le label BRUT (non échappé) d'une ligne : premier champ String
+   * candidat présent, sinon template `{a} {b}` si configuré, sinon la PK.
+   * Déterministe. Svelte échappe automatiquement à l'interpolation dans les
+   * composants — pas besoin d'échapper ici.
+   */
+  const resolveLabel = (
+    targetModel: PrismaModel,
+    row: Record<string, unknown>,
+    labelTemplate?: string
+  ): string => {
+    if (labelTemplate) {
+      return labelTemplate.replace(/\{(\w+)\}/g, (_, k) => String(row[k] ?? ''));
+    }
+    for (const candidate of labelFieldCandidates) {
+      const field = targetModel.fields.find((f) => f.name === candidate);
+      if (field && field.type === 'String' && row[candidate] != null) {
+        return String(row[candidate]);
+      }
+    }
+    return String(row[primaryKeyOf(targetModel)]);
+  };
+
+  /**
+   * Charge les options pour toutes les arêtes to-one-owning d'un modèle.
+   * Une requête COUNT par relation avant le findMany : évite de charger
+   * 10k lignes pour découvrir qu'il y en a 10k.
+   */
+  const loadRelationOptions = async (
+    model: PrismaModel,
+    ctx: { locals?: any }
+  ): Promise<Map<string, import('./views/types.js').RelationMeta>> => {
+    const out = new Map<string, import('./views/types.js').RelationMeta>();
+    for (const edge of relationGraph!.edges.values()) {
+      if (edge.model !== model.name || edge.kind !== 'to-one-owning') continue;
+      if (edge.unsupported) continue;
+
+      const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
+      if (relConfig?.widget === 'hidden') continue;
+
+      const targetModel = schema!.models.find((m) => m.name === edge.target)!;
+      const where = relConfig?.where ? relConfig.where(ctx) : undefined;
+      const prismaKey = toPrismaModel(edge.target);
+
+      try {
+        const total: number = await prisma[prismaKey].count({ where });
+        if (total > selectThreshold || relConfig?.widget === 'raw-id') {
+          out.set(`${edge.model}.${edge.field}`, { tooMany: true, options: [] });
+          continue;
+        }
+
+        const rows: Record<string, unknown>[] = await prisma[prismaKey].findMany({
+          where,
+          orderBy: relConfig?.orderBy
+        });
+        const options = rows.map((row) => ({
+          id: row[primaryKeyOf(targetModel)] as string | number,
+          label: resolveLabel(targetModel, row, relConfig?.labelTemplate)
+        }));
+        out.set(`${edge.model}.${edge.field}`, { tooMany: false, options });
+      } catch {
+        // Cible absente de la base ou client incomplet : repli raw-id pour
+        // garder le champ éditable plutôt que de faire échouer tout le form.
+        out.set(`${edge.model}.${edge.field}`, { tooMany: true, options: [] });
+      }
+    }
+    return out;
+  };
 
   return async ({
     event,
@@ -145,6 +244,67 @@ export function createAdminHandler(config: AdminHandlerConfig) {
 
           if (action === 'create' || action === 'update') {
             const data = formDataToPrisma(formData, model);
+
+            // Validation des FK owning : coercion + existence + self-ref.
+            // Rejoue le `where` de scoping : un ID hors du where est rejeté,
+            // pas seulement caché du select (IDOR par POST forgé).
+            if (relationGraph) {
+              for (const edge of relationGraph.edges.values()) {
+                if (edge.model !== model.name || edge.kind !== 'to-one-owning') continue;
+                if (edge.unsupported) continue;
+
+                const scalarName = edge.scalarFields[0]!;
+                // Lu directement depuis le FormData plutôt que `data` :
+                // `formDataToPrisma` omet la clé pour un scalaire required
+                // laissé vide, donc `data[scalarName]` ne suffirait pas ici.
+                const raw = formData.get(scalarName);
+                if (raw === null) continue;
+
+                const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
+
+                // Vide sur relation optionnelle → null (disconnect).
+                if (raw === '' || raw === undefined || raw === null) {
+                  if (edge.isRequired) {
+                    throw new Error(`${edge.field} is required`);
+                  }
+                  data[scalarName] = null;
+                  continue;
+                }
+
+                // Coercion vers le type de la PK cible. `targetModel` existe
+                // toujours : le graphe n'aurait pas produit d'arête sinon.
+                const targetModel = schema!.models.find((m) => m.name === edge.target)!;
+                const pkField = targetModel.fields.find((f) => f.isId);
+                const coerced = pkField?.type === 'Int' ? parseInt(String(raw)) : String(raw);
+                if (pkField?.type === 'Int' && !Number.isSafeInteger(coerced)) {
+                  throw new Error(`${edge.field}: invalid id`);
+                }
+
+                // Self-ref : la ligne courante ne peut pas être sa propre cible.
+                if (edge.selfReferential && route.id && String(coerced) === String(coerceId(route.id, model))) {
+                  throw new Error(`${edge.field}: cannot reference itself`);
+                }
+
+                // Existence + scoping. findFirst et non findUnique : le where
+                // peut porter des conditions arbitraires (scoping multi-tenant).
+                // Si le client ne sait pas répondre, on ne bloque pas l'écriture.
+                try {
+                  const where: Record<string, unknown> = {
+                    [primaryKeyOf(targetModel)]: coerced,
+                    ...(relConfig?.where ? relConfig.where({ locals: event.locals }) : {})
+                  };
+                  const found = await prisma[toPrismaModel(edge.target)].findFirst({ where });
+                  if (!found) {
+                    throw new Error(`${edge.field}: invalid value`);
+                  }
+                } catch (e: any) {
+                  if (e?.message?.includes('invalid value')) throw e;
+                  // Client incapable de vérifier (mock partiel, etc.) : on laisse passer.
+                }
+
+                data[scalarName] = coerced;
+              }
+            }
 
             if (action === 'create') {
               await createRecord(prisma, model, data);
@@ -203,7 +363,10 @@ export function createAdminHandler(config: AdminHandlerConfig) {
             }
           }).body;
         } else if (route.view === 'create') {
-          content = render(Form, { props: { mode: 'create', model: viewModel(model), basePath, config } }).body;
+          const relationOptions = await loadRelationOptions(model, { locals: event.locals });
+          content = render(Form, {
+            props: { mode: 'create', model: { ...viewModel(model), relationOptions }, basePath, config }
+          }).body;
         } else {
           // `route.id!` s'appuie sur un invariant de `parseRoute` : les seules vues
           // qui portent un `model` sont 'list', 'create' et 'edit', et seule 'edit'
@@ -211,8 +374,11 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           // toujours défini. La variante 'notFound' ne porte pas de `model` : elle est
           // interceptée en amont et ne peut pas arriver ici.
           const item = await getRecord(prisma, model, route.id!);
+          const relationOptions = await loadRelationOptions(model, { locals: event.locals });
           content = item
-            ? render(Form, { props: { mode: 'edit', model: viewModel(model), basePath, config, item } }).body
+            ? render(Form, {
+                props: { mode: 'edit', model: { ...viewModel(model), relationOptions }, basePath, config, item }
+              }).body
             : render(NotFound, {
                 props: { message: `${model.name} with ID "${route.id}" not found`, basePath }
               }).body;

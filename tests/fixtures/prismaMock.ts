@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 export const FULL_SCHEMA_PATH = resolve('tests/fixtures/schemas/full.prisma');
 export const MALFORMED_SCHEMA_PATH = resolve('tests/fixtures/schemas/malformed.prisma');
 export const PIVOT_SCHEMA_PATH = resolve('tests/fixtures/schemas/pivot.prisma');
+export const RELATIONS_SCHEMA_PATH = resolve('tests/fixtures/schemas/relations.prisma');
 
 export interface PrismaCall {
   model: string;
@@ -16,6 +17,13 @@ export interface PrismaMock {
 }
 
 type MethodOverride = (args: unknown) => unknown;
+
+/** Égalité simple sur toutes les entrées du where (suffisant pour les tests). */
+function filterByWhere(records: unknown[], where: unknown): unknown[] {
+  const entries = Object.entries((where as Record<string, unknown>) ?? {});
+  if (entries.length === 0) return records;
+  return records.filter((r: any) => entries.every(([k, v]) => r[k] === v));
+}
 
 /**
  * Fabrique un client Prisma mocké.
@@ -40,9 +48,10 @@ export function createPrismaMock(
 
     mock[modelKey] = {
       findMany: wrap('findMany', (args: any) => {
+        const filtered = filterByWhere(records, args?.where);
         const skip = args?.skip ?? 0;
-        const take = args?.take ?? records.length;
-        return Promise.resolve(records.slice(skip, skip + take));
+        const take = args?.take ?? filtered.length;
+        return Promise.resolve(filtered.slice(skip, skip + take));
       }),
       findUnique: wrap('findUnique', (args: any) => {
         const entries = Object.entries(args?.where ?? {});
@@ -50,7 +59,15 @@ export function createPrismaMock(
         const [[key, value]] = entries;
         return Promise.resolve(records.find((r: any) => r[key] === value) ?? null);
       }),
-      count: wrap('count', () => Promise.resolve(records.length)),
+      findFirst: wrap('findFirst', (args: any) => {
+        const entries = Object.entries(args?.where ?? {});
+        return Promise.resolve(
+          records.find((r: any) => entries.every(([k, v]) => r[k] === v)) ?? null
+        );
+      }),
+      count: wrap('count', (args: any) =>
+        Promise.resolve(filterByWhere(records, args?.where).length)
+      ),
       create: wrap('create', (args: any) => Promise.resolve(args.data)),
       update: wrap('update', (args: any) => Promise.resolve(args.data)),
       delete: wrap('delete', () => Promise.resolve(undefined))
