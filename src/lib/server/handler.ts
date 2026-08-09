@@ -153,17 +153,19 @@ export function createAdminHandler(config: AdminHandlerConfig) {
   };
 
   /**
-   * Charge les options pour toutes les arêtes to-one-owning d'un modèle.
-   * Une requête COUNT par relation avant le findMany : évite de charger
-   * 10k lignes pour découvrir qu'il y en a 10k.
+   * Charge les options pour toutes les arêtes to-one-owning et m2m-implicite
+   * d'un modèle. Une requête COUNT par relation avant le findMany : évite de
+   * charger 10k lignes pour découvrir qu'il y en a 10k.
    */
   const loadRelationOptions = async (
     model: PrismaModel,
-    ctx: { locals?: any }
+    ctx: { locals?: any },
+    currentId?: string
   ): Promise<Map<string, import('./views/types.js').RelationMeta>> => {
     const out = new Map<string, import('./views/types.js').RelationMeta>();
     for (const edge of relationGraph!.edges.values()) {
-      if (edge.model !== model.name || edge.kind !== 'to-one-owning') continue;
+      if (edge.model !== model.name) continue;
+      if (edge.kind !== 'to-one-owning' && edge.kind !== 'm2m-implicit') continue;
       if (edge.unsupported) continue;
 
       const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
@@ -176,7 +178,11 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       try {
         const total: number = await prisma[prismaKey].count({ where });
         if (total > selectThreshold || relConfig?.widget === 'raw-id') {
-          out.set(`${edge.model}.${edge.field}`, { tooMany: true, options: [] });
+          const selectedIds =
+            edge.kind === 'm2m-implicit' && currentId
+              ? await loadSelectedIds(model, edge, currentId, targetModel)
+              : undefined;
+          out.set(`${edge.model}.${edge.field}`, { tooMany: true, options: [], selectedIds });
           continue;
         }
 
@@ -188,7 +194,11 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           id: row[primaryKeyOf(targetModel)] as string | number,
           label: resolveLabel(targetModel, row, relConfig?.labelTemplate)
         }));
-        out.set(`${edge.model}.${edge.field}`, { tooMany: false, options });
+        const selectedIds =
+          edge.kind === 'm2m-implicit' && currentId
+            ? await loadSelectedIds(model, edge, currentId, targetModel)
+            : undefined;
+        out.set(`${edge.model}.${edge.field}`, { tooMany: false, options, selectedIds });
       } catch {
         // Cible absente de la base ou client incomplet : repli raw-id pour
         // garder le champ éditable plutôt que de faire échouer tout le form.
@@ -196,6 +206,124 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       }
     }
     return out;
+  };
+
+  /** IDs liés côté N-N implicite, via une requête sur le join field Prisma. */
+  const loadSelectedIds = async (
+    model: PrismaModel,
+    edge: import('./introspection/relations.js').RelationEdge,
+    currentId: string,
+    targetModel: PrismaModel
+  ): Promise<(string | number)[]> => {
+    try {
+      const current = await prisma[toPrismaModel(model.name)].findUnique({
+        where: { [primaryKeyOf(model)]: coerceId(currentId, model) },
+        include: { [edge.field]: true }
+      });
+      const linked: Record<string, unknown>[] = current?.[edge.field] ?? [];
+      return linked.map((row) => row[primaryKeyOf(targetModel)] as string | number);
+    } catch {
+      return [];
+    }
+  };
+
+  /**
+   * Compte, pour chaque relation inverse (1-N, 1-1) d'un modèle, le nombre
+   * d'enregistrements liés côté cible. Résilient : une cible dont le client
+   * échoue (mock partiel, modèle absent) retombe sur 0 plutôt que de casser
+   * le rendu du formulaire.
+   */
+  const loadRelatedCounts = async (
+    model: PrismaModel,
+    currentId: string
+  ): Promise<Map<string, number>> => {
+    const out = new Map<string, number>();
+    for (const edge of relationGraph!.edges.values()) {
+      if (edge.model !== model.name) continue;
+      if (edge.kind !== 'to-many-inverse' && edge.kind !== 'to-one-inverse') continue;
+
+      const owning = [...relationGraph!.edges.values()].find(
+        (o) => o.model === edge.target && o.kind === 'to-one-owning' && o.relationName === edge.relationName
+      );
+      if (!owning || owning.unsupported) continue;
+
+      const scalarName = owning.scalarFields[0];
+      try {
+        const count: number = await prisma[toPrismaModel(edge.target)].count({
+          where: { [scalarName]: coerceId(currentId, model) }
+        });
+        out.set(`${edge.model}.${edge.field}`, count);
+      } catch {
+        out.set(`${edge.model}.${edge.field}`, 0);
+      }
+    }
+    return out;
+  };
+
+  /**
+   * Endpoint de recherche `GET {basePath}/_search?rel=Model.field&q=...&page=N`.
+   * Sert les options d'une relation to-one-owning ou m2m-implicite en JSON
+   * paginé — la voie prévue pour un futur widget autocomplete côté client
+   * quand le nombre d'options dépasse `selectThreshold`. Respecte le `where`
+   * de scoping configuré sur la relation, comme le select et la validation
+   * POST : même garantie anti-IDOR sur les trois chemins.
+   */
+  const handleSearch = async (event: any): Promise<Response> => {
+    const relParam = event.url.searchParams.get('rel') ?? '';
+    const [modelName, fieldName] = relParam.split('.');
+    const q = event.url.searchParams.get('q') ?? '';
+    const { page } = paginate(event.url.searchParams.get('page'), PER_PAGE);
+
+    const model = findModel(modelName);
+    const edge = model && relationGraph
+      ? relationGraph.edges.get(`${model.name}.${fieldName}`)
+      : undefined;
+
+    if (!model || !edge || (edge.kind !== 'to-one-owning' && edge.kind !== 'm2m-implicit') || edge.unsupported) {
+      return new Response(JSON.stringify({ error: 'unknown relation' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    const targetModel = schema!.models.find((m) => m.name === edge.target)!;
+    const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
+    const configWhere = relConfig?.where ? relConfig.where({ locals: event.locals }) : {};
+
+    // Recherche sur le premier champ String candidat du modèle cible — le
+    // même champ que celui utilisé pour construire le label par défaut.
+    const searchField = labelFieldCandidates.find((c) =>
+      targetModel.fields.some((f) => f.name === c && f.type === 'String')
+    );
+    const where: Record<string, unknown> = {
+      ...configWhere,
+      ...(q && searchField ? { [searchField]: { contains: q } } : {})
+    };
+
+    const prismaKey = toPrismaModel(edge.target);
+    try {
+      const [total, rows] = await Promise.all([
+        prisma[prismaKey].count({ where }),
+        prisma[prismaKey].findMany({
+          where,
+          skip: (page - 1) * PER_PAGE,
+          take: PER_PAGE,
+          orderBy: relConfig?.orderBy
+        })
+      ]);
+      const options = (rows as Record<string, unknown>[]).map((row) => ({
+        id: row[primaryKeyOf(targetModel)],
+        label: resolveLabel(targetModel, row, relConfig?.labelTemplate)
+      }));
+      return new Response(JSON.stringify({ options, total, page }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    } catch {
+      return new Response(JSON.stringify({ error: 'search failed' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
   };
 
   return async ({
@@ -223,6 +351,10 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     const route = parseRoute(pathname, basePath);
     let content = '';
     let currentModel: string | undefined;
+
+    if (route.view === 'search') {
+      return handleSearch(event);
+    }
 
     try {
       // Handle POST requests (create, update, delete). Unrecognised actions fall
@@ -304,6 +436,63 @@ export function createAdminHandler(config: AdminHandlerConfig) {
 
                 data[scalarName] = coerced;
               }
+
+              // N-N implicite : lit `__rel__<field>` (valeurs cochées) et
+              // `__rel_present__<field>` (sentinelle). Sans le sentinelle,
+              // le champ est absent du form (readonly/exclu) → no-op.
+              // Avec le sentinelle mais zéro valeur cochée → vider la
+              // relation (`set: []` / rien à connecter en création).
+              for (const edge of relationGraph.edges.values()) {
+                if (edge.model !== model.name || edge.kind !== 'm2m-implicit') continue;
+                // Pas de garde `edge.unsupported` ici : par construction du
+                // graphe, `unsupported` n'est jamais posé sur une arête
+                // m2m-implicite (seulement sur to-one-owning / groupes
+                // ambigus, qui retombent toujours en to-one-owning).
+
+                const present = formData.get(`__rel_present__${edge.field}`);
+                if (present === null) continue;
+
+                const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
+                const targetModel = schema!.models.find((m) => m.name === edge.target)!;
+                const targetPk = primaryKeyOf(targetModel);
+                const pkIsInt = targetModel.fields.find((f) => f.isId)?.type === 'Int';
+
+                const submitted = formData.getAll(`__rel__${edge.field}`).map(String);
+                const rawIds: string[] =
+                  submitted.length === 1 && submitted[0].includes(',')
+                    ? submitted[0].split(',').map((s: string) => s.trim()).filter(Boolean)
+                    : submitted;
+
+                const ids: (string | number)[] = rawIds.map((v: string) =>
+                  pkIsInt ? parseInt(v) : v
+                );
+                if (pkIsInt && ids.some((v) => !Number.isSafeInteger(v))) {
+                  throw new Error(`${edge.field}: invalid id`);
+                }
+
+                // Existence + scoping en une requête, sur l'ensemble des IDs
+                // soumis. Un compte différent = au moins un ID invalide ou
+                // hors scoping — IDOR bloqué au même titre que pour les FK.
+                if (ids.length > 0) {
+                  const where: Record<string, unknown> = {
+                    [targetPk]: { in: ids },
+                    ...(relConfig?.where ? relConfig.where({ locals: event.locals }) : {})
+                  };
+                  try {
+                    const found: unknown[] = await prisma[toPrismaModel(edge.target)].findMany({ where });
+                    if (found.length !== new Set(ids.map(String)).size) {
+                      throw new Error(`${edge.field}: invalid value`);
+                    }
+                  } catch (e: any) {
+                    if (e?.message?.includes('invalid value')) throw e;
+                    // Client incapable de vérifier : on laisse passer.
+                  }
+                }
+
+                const idRefs = ids.map((id: string | number) => ({ [targetPk]: id }));
+                data[edge.field] =
+                  action === 'create' ? { connect: idRefs } : { set: idRefs };
+              }
             }
 
             if (action === 'create') {
@@ -352,7 +541,20 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           }).body;
         } else if (route.view === 'list') {
           const { page } = paginate(event.url.searchParams.get('page'), PER_PAGE);
-          const { items, total } = await listRecords(prisma, model, page, PER_PAGE);
+          // `?filter=field:value` — posé par les liens "Voir tout" du bloc de
+          // liaisons inverses. Coercé vers le type du champ ciblé quand connu,
+          // sinon laissé en string (Prisma le rejettera proprement si erroné).
+          const filterParam = event.url.searchParams.get('filter');
+          let filterWhere: Record<string, unknown> | undefined;
+          if (filterParam && filterParam.includes(':')) {
+            const [filterField, ...rest] = filterParam.split(':');
+            const rawValue = rest.join(':');
+            const targetField = model.fields.find((f) => f.name === filterField);
+            filterWhere = {
+              [filterField]: targetField?.type === 'Int' ? parseInt(rawValue) : rawValue
+            };
+          }
+          const { items, total } = await listRecords(prisma, model, page, PER_PAGE, filterWhere);
           content = render(List, {
             props: {
               model: viewModel(model),
@@ -364,8 +566,24 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           }).body;
         } else if (route.view === 'create') {
           const relationOptions = await loadRelationOptions(model, { locals: event.locals });
+          // Pré-remplissage FK depuis la query string (`?authorId=3`), posé
+          // par le lien "Ajouter" du bloc de liaisons inverses.
+          const prefill: Record<string, unknown> = {};
+          for (const edge of relationGraph!.edges.values()) {
+            if (edge.model !== model.name || edge.kind !== 'to-one-owning') continue;
+            const scalarName = edge.scalarFields[0];
+            const value = event.url.searchParams.get(scalarName);
+            if (value !== null) prefill[scalarName] = value;
+          }
+          const itemPrefill = Object.keys(prefill).length > 0 ? prefill : undefined;
           content = render(Form, {
-            props: { mode: 'create', model: { ...viewModel(model), relationOptions }, basePath, config }
+            props: {
+              mode: 'create',
+              model: { ...viewModel(model), relationOptions },
+              basePath,
+              config,
+              item: itemPrefill
+            }
           }).body;
         } else {
           // `route.id!` s'appuie sur un invariant de `parseRoute` : les seules vues
@@ -374,10 +592,17 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           // toujours défini. La variante 'notFound' ne porte pas de `model` : elle est
           // interceptée en amont et ne peut pas arriver ici.
           const item = await getRecord(prisma, model, route.id!);
-          const relationOptions = await loadRelationOptions(model, { locals: event.locals });
+          const relationOptions = await loadRelationOptions(model, { locals: event.locals }, route.id);
+          const relatedCounts = item ? await loadRelatedCounts(model, route.id!) : undefined;
           content = item
             ? render(Form, {
-                props: { mode: 'edit', model: { ...viewModel(model), relationOptions }, basePath, config, item }
+                props: {
+                  mode: 'edit',
+                  model: { ...viewModel(model), relationOptions, relatedCounts },
+                  basePath,
+                  config,
+                  item
+                }
               }).body
             : render(NotFound, {
                 props: { message: `${model.name} with ID "${route.id}" not found`, basePath }

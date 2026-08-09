@@ -1,5 +1,5 @@
 export interface ParsedRoute {
-  view: 'dashboard' | 'list' | 'create' | 'edit' | 'notFound';
+  view: 'dashboard' | 'list' | 'create' | 'edit' | 'notFound' | 'search';
   model?: string;
   id?: string;
 }
@@ -17,6 +17,9 @@ export function parseRoute(pathname: string, basePath: string): ParsedRoute {
   const segments = path.split('/').filter(Boolean);
 
   if (segments.length === 1) {
+    if (segments[0] === '_search') {
+      return { view: 'search' };
+    }
     return { view: 'list', model: segments[0] };
   }
 

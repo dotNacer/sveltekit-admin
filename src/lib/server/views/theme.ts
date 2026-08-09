@@ -214,6 +214,26 @@ export function styles(primaryColor: string): string {
       height: 1rem;
     }
 
+    .ska-checkbox-group {
+      border: 1px solid #e2e8f0;
+      border-radius: 0.5rem;
+      padding: 0.75rem;
+      max-height: 220px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.375rem;
+    }
+
+    .ska-related-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.625rem 0;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .ska-related-row:last-child { border-bottom: none; }
+
     .ska-form__actions {
       display: flex;
       gap: 0.75rem;

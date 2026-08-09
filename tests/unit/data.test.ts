@@ -174,8 +174,17 @@ describe('opérations Prisma', () => {
     expect(items).toEqual([{ id: 3, email: 'u2@x.y' }, { id: 4, email: 'u3@x.y' }]);
     expect(total).toBe(5);
     expect(callsTo(prisma, 'user', 'findMany')[0].args).toEqual({
-      skip: 2, take: 2, orderBy: { id: 'desc' }
+      where: undefined, skip: 2, take: 2, orderBy: { id: 'desc' }
     });
+  });
+
+  it('liste filtrée : le where est propagé à findMany et count', async () => {
+    const prisma = createPrismaMock({ user: records });
+    const { items, total } = await listRecords(prisma, User, 1, 20, { id: 3 });
+    expect(items).toEqual([{ id: 3, email: 'u2@x.y' }]);
+    expect(total).toBe(1);
+    expect(callsTo(prisma, 'user', 'findMany')[0].args).toMatchObject({ where: { id: 3 } });
+    expect(callsTo(prisma, 'user', 'count')[0].args).toEqual({ where: { id: 3 } });
   });
 
   it('récupère un enregistrement par PK coercée', async () => {
