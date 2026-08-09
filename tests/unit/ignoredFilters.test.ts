@@ -108,6 +108,13 @@ describe('listFilterDefaults.autoDetect: false (bug found in review — the flag
     const h = createAdminHandler({ prisma, prismaSchemaPath: SEARCH_SCHEMA_PATH } as any);
     const { event, resolve } = createEvent({ url: '/admin/article' });
     const html = await (await h({ event, resolve } as any)).text();
-    expect(html).toContain('ska-filters__group');
+    // `ska-filters__group` also appears verbatim in the page's inline CSS
+    // rules (theme.ts), so a plain `.toContain(...)` on that string passes
+    // on EVERY page regardless of whether a sidebar is actually rendered —
+    // that was a real filler-test bug found in review (it passed even with
+    // `listFilterDefaults.autoDetect: false`, i.e. no sidebar at all).
+    // Matching the real markup form (`class="ska-filters__group"`) is what
+    // actually discriminates "a sidebar is rendered" from "it is not".
+    expect(html).toMatch(/class="ska-filters__group"/);
   });
 });

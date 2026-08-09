@@ -278,7 +278,7 @@ describe('List.svelte — recherche et filtres (query/currentUrl)', () => {
       viewModel, items, { page: 1, perPage: 20, total: 2 }, '/admin', empty,
       undefined, url('http://localhost/admin/user'), listFilters
     );
-    expect(html).toContain('ska-filters__group');
+    expect(html).toMatch(/class="ska-filters__group"/);
     expect(html).toMatch(/href="\/admin\/user" class="ska-filters__link ska-filters__link--active"/);
   });
 

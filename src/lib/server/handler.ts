@@ -51,18 +51,40 @@ export interface AdminHandlerConfig {
     listFields?: string[];
     label?: string;
     /**
-     * Scoping `where` appliqué à TOUTE requête sur la vue liste de ce
-     * modèle (recherche, filtres sidebar, FK, pagination) — composé en
-     * `AND` avec les filtres actifs, jamais en spread (docs/design
-     * §0.c/§5.2). Sans ce scope, un filtre FK de première classe rend
-     * l'énumération cross-tenant triviale : `?f.authorId=1..N` liste les
-     * lignes une par une même quand le label du chip reste protégé
-     * (§6.3.b). Ce scope ne couvre QUE la vue liste dans cette version —
-     * les vues détail/édition/suppression n'ont pas d'équivalent et
-     * restent hors périmètre de cette feature (nécessitent leur propre
-     * travail de scoping, non résolu ici).
+     * Scoping `where` applied to the LIST VIEW ONLY of this model
+     * (search, sidebar filters, FK filter, pagination count) — composed
+     * via `AND` with active filters, never a spread (docs/design
+     * §0.c/§5.2). Deliberately named `listWhere`, not `where`: a bare
+     * `where` invites a developer to believe it scopes every operation
+     * on the model (detail view, edit, delete, dashboard counts), which
+     * it does NOT — those have no equivalent scoping in this version and
+     * remain fully open regardless of this config (a real risk found in
+     * review: a multi-tenant app that relies on `listWhere` alone gets a
+     * false sense of safety while `getRecord`/`updateRecord`/
+     * `deleteRecord` stay unscoped for anyone who obtains a row's ID
+     * through another channel — a referrer, a log line, or straight
+     * enumeration on a model with an Int primary key).
+     *
+     * Without this scope, the FK filter this feature adds makes
+     * cross-tenant row discovery through the list trivial: `?f.authorId=
+     * 1..N` used to return another tenant's row (its label stayed
+     * protected via `relations[x].where`, §6.3.b, but the row itself did
+     * not). This config closes that specific hole for the list — nothing
+     * more. If you need every view scoped, you currently have to wire
+     * `relations[x].where` for the active-FK-label lookup separately
+     * (they are NOT the same function and are NOT automatically kept in
+     * sync), and there is no scoping hook at all yet for
+     * detail/edit/delete/dashboard — track that as a real gap, not an
+     * oversight to work around silently.
+     *
+     * A scope function that returns `{}` (e.g. because `locals.userId`
+     * was undefined after a session expired) is NOT treated as "no
+     * scope" — `{}` would silently fail open (an intersection with an
+     * empty clause matches everything) exactly when a caller most needs
+     * protection. It throws instead: fail loud on a misbehaving scope
+     * function, never fail open on a data leak.
      */
-    where?: (ctx: { locals?: any }) => Record<string, unknown>;
+    listWhere?: (ctx: { locals?: any }) => Record<string, unknown>;
     relations?: Record<string, {
       widget?: 'select' | 'raw-id' | 'hidden';
       labelTemplate?: string;
@@ -755,7 +777,23 @@ export function createAdminHandler(config: AdminHandlerConfig) {
             searchFields,
             filterableFields
           );
-          const listScope = modelsConfig[model.name]?.where?.({ locals: event.locals });
+          const listScope = modelsConfig[model.name]?.listWhere?.({ locals: event.locals });
+          // A scope function returning `{}` (falsy-looking but truthy as
+          // an object) would otherwise silently fail OPEN — `{}` composed
+          // into an AND matches every row, exactly the opposite of what a
+          // caller configuring listWhere expects (real gap found in
+          // review: `locals.userId` undefined after a session expires is
+          // a realistic way to hit this). Fail loud instead: a scope
+          // function is either omitted entirely, or must return at least
+          // one condition every time it runs.
+          if (listScope && Object.keys(listScope).length === 0) {
+            throw new Error(
+              `[sveltekit-admin] models.${model.name}.listWhere returned an empty object ({}), ` +
+                `which would silently disable list scoping (fail-open). Return undefined/omit the ` +
+                `scope entirely if there is genuinely nothing to scope by for this request, or a ` +
+                `condition that actually restricts rows otherwise.`
+            );
+          }
           const where = buildWhere(listQuery, listScope, caseInsensitiveSearch, model);
           const { items, total } = await listRecords(prisma, model, page, PER_PAGE, where);
           const listFilters = resolveListFilters(

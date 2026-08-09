@@ -275,7 +275,20 @@ function parseOneFilter(
   param: string,
   raw: string,
   ctx: ParseContext
-): { filter: ActiveFilter } | { ignored: IgnoredFilter } {
+): { filter: ActiveFilter } | { ignored: IgnoredFilter } | { skip: true } {
+  // Empty value (e.g. the "All" option of a <select> FK/range filter,
+  // submitted via a plain GET form) means "no filter" — the design's
+  // nominal, expected case (§5.4: "?f.x= -> ignored. Important: it's
+  // what a <select> emits for its 'All' option"). This is checked BEFORE
+  // any field lookup and produces NEITHER an ActiveFilter NOR an
+  // IgnoredFilter: it must never surface as a rendered "unknown field"
+  // warning (that was a real regression found in review — classifying
+  // this as `ignored` made the UI show a false error banner on the most
+  // common sidebar interaction there is).
+  if (raw === '') {
+    return { skip: true };
+  }
+
   const { field: fieldName, op: opParam } = splitFilterParam(param);
   const field = ctx.model.fields.find((f) => f.name === fieldName);
 
@@ -286,11 +299,6 @@ function parseOneFilter(
   // field is treated EXACTLY like an unknown one, never a distinct
   // "forbidden" message that would confirm its existence.
   if (!field || !ctx.filterableFields.has(fieldName) || isSensitiveFieldName(fieldName)) {
-    return { ignored: { param, reason: 'unknown-field' } };
-  }
-  // Empty value (e.g. from a <select> "All" option submitted via a GET
-  // form) means "no filter", not "filter on empty string" (§5.4).
-  if (raw === '') {
     return { ignored: { param, reason: 'unknown-field' } };
   }
 
@@ -363,7 +371,9 @@ export function parseListQuery(
     const raw = searchParams.get(key)!;
     const result = parseOneFilter(key, raw, ctx);
     if ('filter' in result) filters.push(result.filter);
-    else ignored.push(result.ignored);
+    else if ('ignored' in result) ignored.push(result.ignored);
+    // else: { skip: true } — empty "All" value, silently dropped, not
+    // even recorded in `ignored` (see parseOneFilter's comment).
   }
 
   // Legacy `?filter=field:value` — routed through the exact same
@@ -380,7 +390,9 @@ export function parseListQuery(
     if (!alreadyHasField) {
       const result = parseOneFilter(`f.${legacyField}`, legacyValue, ctx);
       if ('filter' in result) filters.push(result.filter);
-      else ignored.push({ param: 'filter', reason: result.ignored.reason });
+      else if ('ignored' in result) ignored.push({ param: 'filter', reason: result.ignored.reason });
+      // else: { skip: true } — an empty legacy value (`?filter=field:`)
+      // is likewise a no-op, never surfaced as an "ignored" warning.
     }
   }
 
@@ -446,10 +458,16 @@ export function buildWhere(
 
 /**
  * The per-field-type clause for a `searchFields` entry (§2.4):
- * - String @id/@unique -> `equals` (a `contains` on a cuid/uuid can't use
- *   the index and never makes semantic sense; §2.1).
- * - other String -> `contains` (+ `mode: 'insensitive'` when the provider
- *   supports it).
+ * - String @id -> `equals` (a `contains` on a cuid/uuid can't use the
+ *   index and never makes semantic sense; §2.1 talks ONLY about the id
+ *   here — an earlier version of this function over-generalized to
+ *   `@id || @unique`, which silently broke fragment search on the most
+ *   common real-world case: `email`/`slug` fields are `@unique` in
+ *   nearly every Prisma schema and are exactly what §2.3's "a title, an
+ *   email" example means by free-text search. `@unique` alone is NOT a
+ *   reason to switch to `equals` — only `@id` is).
+ * - other String (including @unique) -> `contains` (+ `mode:
+ *   'insensitive'` when the provider supports it).
  * - Int/BigInt/Float/Decimal -> `equals` if `q` coerces to that type,
  *   otherwise the clause is OMITTED — never `contains` on a numeric
  *   column, which Prisma rejects with a hard error (`Unknown argument
@@ -472,7 +490,7 @@ function searchClauseFor(
   if (!field) return undefined;
 
   if (field.type === 'String') {
-    if (field.isId || field.isUnique) return { equals: q };
+    if (field.isId) return { equals: q };
     return caseInsensitiveSearch ? { contains: q, mode: 'insensitive' } : { contains: q };
   }
 

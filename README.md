@@ -141,6 +141,49 @@ models: {
 }
 ```
 
+## Multi-tenant / row-level scoping (`listWhere`) — read this before relying on it
+
+```typescript
+models: {
+  Post: {
+    // Applied to the LIST VIEW ONLY: search, sidebar filters (including
+    // the FK filter), and pagination counts. Composed with an AND, never
+    // a spread, so it can never be overwritten by a user-supplied filter
+    // on the same field.
+    listWhere: ({ locals }) => ({ tenantId: locals.tenantId })
+  }
+}
+```
+
+**`listWhere` does NOT scope anything except the list view.** The detail
+view, the edit form, the delete action, and the dashboard's per-model
+counts have no equivalent scoping hook in this version and remain fully
+open regardless of this config. Concretely: with only `listWhere` set, a
+user who obtains another tenant's row ID through any other channel (a
+referrer header, a log line, or simple enumeration on a model with an
+`Int` primary key) can still view, edit, and delete that row directly —
+`listWhere` only stops them from *discovering* the ID through the list or
+the FK filter in the first place.
+
+If you configure a `relations[field].where` scope for an FK filter (to
+resolve the target's display options/label, see the FK filter docs), it
+is a **separate function** from `listWhere` and is **not** kept in sync
+automatically — you must set both if you want the FK filter's dropdown
+*and* its active-value chip *and* the list rows to all be scoped
+consistently for the same relation.
+
+A `listWhere` function that returns `{}` throws instead of silently
+disabling the scope — this is deliberate: an empty object composed into
+an `AND` clause matches every row, which would fail *open* exactly when a
+caller (e.g. one built from a session value that unexpectedly turned out
+to be undefined) most needs protection. Make sure your scope function
+either returns a real condition or isn't called at all for a given
+request.
+
+Real per-record scoping (detail/edit/delete) is a known gap, not an
+oversight — track it separately if your application needs it; do not
+assume `listWhere` covers it.
+
 ## Prisma Schema Introspection
 
 The admin automatically parses your Prisma schema and:

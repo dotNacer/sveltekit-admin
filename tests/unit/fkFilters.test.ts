@@ -46,12 +46,16 @@ function handler(prisma: any, extra: Record<string, unknown> = {}) {
 
 /**
  * Same as `handler`, but ALSO scopes the Post list itself by tenant — the
- * B1 fix found in review: without a model-level `where`, the FK filter's
- * §6.3.b label protection was real but the LISTED ROWS were never scoped,
- * so `?f.authorId=<id-from-another-tenant>` would still leak the target
- * tenant's post title into the table even though its author's name stayed
- * hidden. This is the config a real multi-tenant app must set for the FK
- * filter to be actually safe end-to-end, not just on the chip.
+ * B1 fix found in review: without a model-level `listWhere`, the FK
+ * filter's §6.3.b label protection was real but the LISTED ROWS were
+ * never scoped, so `?f.authorId=<id-from-another-tenant>` would still
+ * leak the target tenant's post title into the table even though its
+ * author's name stayed hidden. This is the config a real multi-tenant
+ * app must set for the FK filter to be actually safe end-to-end, not
+ * just on the chip. Note it is a DIFFERENT function than
+ * `relations[x].where` (the active-chip label scope) — the two must be
+ * configured independently, see the dedicated test below for what
+ * happens if only one of the two is set.
  */
 function handlerWithListScope(prisma: any, extra: Record<string, unknown> = {}) {
   return createAdminHandler({
@@ -60,7 +64,7 @@ function handlerWithListScope(prisma: any, extra: Record<string, unknown> = {}) 
     models: {
       Post: {
         listFilter: ['authorId'],
-        where: ({ locals }: any) => ({ tenantId: locals.tenantId }),
+        listWhere: ({ locals }: any) => ({ tenantId: locals.tenantId }),
         relations: {
           author: {
             where: ({ locals }: any) => ({ tenantId: locals.tenantId }),
@@ -213,7 +217,7 @@ describe('PR3 — FK list filter: cross-tenant row enumeration (B1, found in rev
   it('WITHOUT a model-level list scope, a forged FK filter leaks another tenant\'s row into the table', async () => {
     // Documents the pre-fix vulnerability precisely: the chip's label stays
     // protected (§6.3.b, already covered above), but the config in this
-    // test (`handler`, no `models.Post.where`) has no list-level scoping at
+    // test (`handler`, no `models.Post.listWhere`) has no list-level scoping at
     // all, so the row itself is never protected either — by design, this
     // isn't a bug, it's what "no list scope configured" means. The point of
     // this test is to make the difference with `handlerWithListScope` below
@@ -226,7 +230,7 @@ describe('PR3 — FK list filter: cross-tenant row enumeration (B1, found in rev
   });
 
   it('WITH a model-level list scope configured, the same forged FK filter returns an empty, safe list', async () => {
-    // The B1 fix: `models.Post.where` is threaded into buildWhere's scope
+    // The B1 fix: `models.Post.listWhere` is threaded into buildWhere's scope
     // argument for the list view, composed via AND (never a spread) with
     // every active filter — including the FK filter. A tenant-a request for
     // `?f.authorId=2` (tenant-b's author) now yields zero rows: the FK
@@ -246,7 +250,7 @@ describe('PR3 — FK list filter: cross-tenant row enumeration (B1, found in rev
   it('the list scope composes with search and non-FK filters too, always via AND, never a spread', async () => {
     const prisma = createPrismaMock(baseData());
     const h = handlerWithListScope(prisma, { models: { Post: {
-      where: ({ locals }: any) => ({ tenantId: locals.tenantId }),
+      listWhere: ({ locals }: any) => ({ tenantId: locals.tenantId }),
       searchFields: ['title'],
       listFilter: ['authorId'],
       relations: { author: { where: ({ locals }: any) => ({ tenantId: locals.tenantId }) } }
@@ -269,7 +273,7 @@ describe('PR3 — FK list filter: cross-tenant row enumeration (B1, found in rev
       prismaSchemaPath: RELATIONS_SCHEMA_PATH,
       models: { Post: {
         // Deliberately scope by the SAME field a filter can target.
-        where: () => ({ authorId: 1 }),
+        listWhere: () => ({ authorId: 1 }),
         listFilter: ['authorId']
       } }
     } as any);
@@ -282,5 +286,56 @@ describe('PR3 — FK list filter: cross-tenant row enumeration (B1, found in rev
     expect(callsTo(prisma, 'post', 'findMany')[0].args).toMatchObject({
       where: { AND: [{ authorId: 1 }, { authorId: 2 }] }
     });
+  });
+
+  it('a listWhere scope that returns {} fails loud instead of silently disabling protection (fail-open guard)', async () => {
+    // Realistic trigger: a scope function derived from `locals.userId`
+    // when the session has expired and `locals.userId` is undefined —
+    // `{}` composed into an AND matches every row, the exact opposite of
+    // what configuring listWhere is meant to do. Found in review (A9):
+    // must throw, never silently degrade to "no scope".
+    const prisma = createPrismaMock(baseData());
+    const h = createAdminHandler({
+      prisma,
+      prismaSchemaPath: RELATIONS_SCHEMA_PATH,
+      models: { Post: { listWhere: () => ({}) } }
+    } as any);
+    const { event, resolve } = createEvent({ url: '/admin/post' });
+    const response = await h({ event, resolve } as any);
+    // The handler's top-level try/catch turns the thrown error into a
+    // rendered alert rather than an unhandled crash — but the query that
+    // would have leaked every row must never actually execute unscoped.
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain('listWhere returned an empty object');
+    expect(callsTo(prisma, 'post', 'findMany')).toHaveLength(0);
+  });
+
+  it('listWhere alone does NOT protect the active FK chip label — relations[x].where must be set independently (A10)', async () => {
+    // Documents a real gap found in review: listWhere scopes the LISTED
+    // ROWS; the active-chip label is resolved through a completely
+    // different function, relations[x].where. A developer who configures
+    // only listWhere (believing "the model is scoped now") still gets a
+    // chip that leaks another tenant's display name, even though the row
+    // itself is correctly hidden from the table.
+    const prisma = createPrismaMock(baseData());
+    const h = createAdminHandler({
+      prisma,
+      prismaSchemaPath: RELATIONS_SCHEMA_PATH,
+      models: { Post: {
+        listFilter: ['authorId'],
+        listWhere: ({ locals }: any) => ({ tenantId: locals.tenantId })
+        // Deliberately NOT setting relations.author.where here.
+      } }
+    } as any);
+    const { event, resolve } = tenantEvent('/admin/post?f.authorId=2');
+    const html = await (await h({ event, resolve } as any)).text();
+    // The row itself: correctly protected by listWhere.
+    expect(html).not.toContain('CONFIDENTIAL Tenant B post');
+    // The chip: NOT protected, because relations.author.where was never
+    // configured. This is documented, expected-given-the-config behaviour
+    // — the point of this test is to make the gap regression-visible, not
+    // to claim it's fixed.
+    expect(html).toContain('Mallory Secret');
   });
 });

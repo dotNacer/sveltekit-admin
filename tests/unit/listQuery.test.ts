@@ -498,13 +498,18 @@ describe('buildWhere — composition AND, jamais de spread', () => {
     expect(buildWhere(lq, undefined, false, Article)).toEqual({ content: { not: null } });
   });
 
-  it('recherche texte → OR sur les searchFields (String non-id/unique → contains ; String @unique → equals)', () => {
-    // slug est @unique dans le fixture (search.prisma) : conforme §2.1/§2.4,
-    // un `contains` sur un champ unique n'aurait aucun sens sémantique et
-    // empêcherait l'usage de l'index.
+  it('recherche texte → OR sur les searchFields (String non-id, y compris @unique → contains)', () => {
+    // slug est @unique dans le fixture (search.prisma). §2.1 du design ne
+    // parle que du champ id pour le passage en `equals` — un `@unique`
+    // "ordinaire" comme `email`/`slug` doit rester en `contains`, sinon la
+    // recherche par fragment casse sur le cas le plus courant d'un admin
+    // (retrouver un utilisateur par un bout de son email). Une version
+    // antérieure de ce code étendait `equals` à `@id || @unique`, ce qui
+    // cassait silencieusement cette recherche — régression trouvée en
+    // review, verrouillée ici par ce test.
     const lq: ListQuery = { q: 'hello', searchFields: ['title', 'slug'], filters: [], ignored: [] };
     expect(buildWhere(lq, undefined, false, Article)).toEqual({
-      OR: [{ title: { contains: 'hello' } }, { slug: { equals: 'hello' } }]
+      OR: [{ title: { contains: 'hello' } }, { slug: { contains: 'hello' } }]
     });
   });
 
@@ -573,14 +578,17 @@ describe('buildWhere — composition AND, jamais de spread', () => {
       expect(buildWhere(lq, undefined, false, Article)).toBeUndefined();
     });
 
-    it('un champ String @id ou @unique configuré explicitement en searchFields → equals, jamais contains', () => {
+    it('un champ String @id configuré explicitement en searchFields → equals, jamais contains', () => {
       const idSchema = parseSchemaContent(
         'model T {\n  id String @id @default(cuid())\n  slug String @unique\n  name String\n}'
       );
       const T = idSchema.models[0];
       const lq: ListQuery = { q: 'abc123', searchFields: ['id', 'slug'], filters: [], ignored: [] };
+      // Seul `id` (isId) passe en equals ; `slug` (isUnique mais pas isId)
+      // reste en contains — voir le test dédié plus haut sur cette
+      // distinction, qui verrouille la régression trouvée en review.
       expect(buildWhere(lq, undefined, false, T)).toEqual({
-        OR: [{ id: { equals: 'abc123' } }, { slug: { equals: 'abc123' } }]
+        OR: [{ id: { equals: 'abc123' } }, { slug: { contains: 'abc123' } }]
       });
     });
 
