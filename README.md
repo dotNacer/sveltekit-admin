@@ -5,34 +5,7 @@
 ![Version](https://img.shields.io/npm/v/sveltekit-admin)
 ![License](https://img.shields.io/npm/l/sveltekit-admin)
 
-## 0.3.0 — Breaking changes
-
-- Removed the loader-based API (`createAdmin`, `createLayoutLoad`, `createDashboardLoad`,
-  `createModelListLoad`, `createModelNewLoad`, `createModelNewAction`, `createModelEditLoad`,
-  `createModelEditAction`, `createModelDeleteAction`, `createAdminGuard`). Use `createAdminHandler`.
-- Removed the exported Svelte components (`sveltekit-admin/components`) and the `sveltekit-admin/admin` export.
-- Removed the exported CRUD utilities (`createListOperation`, `buildSearchWhere`, …) and `createAuthGuard`.
-- Removed the configuration options that were never implemented: `branding.logo` and `models[].icon`.
-- Security fix: values coming from the URL and from the database are now escaped in the rendered HTML.
-  Labels and titles coming from your configuration are escaped too.
-- Security fix: the list view now really auto-hides sensitive fields, as documented below.
-  Any column whose name contains `password`, `hash`, `secret` or `token` is dropped by
-  default, without needing an entry in `models[].hidden`. Previously the filter existed
-  but was never called, so a project that did not declare `hidden: ['password']` rendered
-  its password column in the list. Naming a field in `models[].listFields` overrides the
-  filter for that field, which is also the escape hatch for an ordinary name the
-  substring match catches (`hashtag`, `tokenCount`, `secretariat`).
-- Behaviour fixes:
-  - id coercion consults the primary key's type (a fully numeric `String` PK is no longer
-    sent to Prisma as an `Int`);
-  - an invalid `?page=` (`abc`, `0`, a negative value, or one outside the safe integer range)
-    falls back to the first page instead of sending a `NaN` or negative `skip`;
-  - a URL of three or more segments renders a "not found" page instead of the dashboard;
-  - the "Back to Dashboard" link on "not found" pages now points at `basePath`;
-  - the form textarea heuristic is case-insensitive and covers `bio`;
-  - an invalid branding colour falls back to the default colour instead of rendering black;
-  - the schema default values exposed by `PrismaField.defaultValue` are no longer
-    truncated (`@default(now())` yields `now()`, not `now(`).
+See [CHANGELOG.md](./CHANGELOG.md) for release notes and breaking changes.
 
 ## Features
 
