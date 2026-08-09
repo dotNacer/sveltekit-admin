@@ -30,9 +30,9 @@
 			</span>
 
 			<h1 class="text-4xl leading-none font-medium tracking-tight text-foreground md:text-6xl">
-				Motion Core
+				{brandingConfig.name}
 			</h1>
-			<p class="text-lg font-medium text-foreground-muted">Documentation Template</p>
+			<p class="text-lg font-medium text-foreground-muted">Documentation</p>
 
 			<div class="card-outer rounded-md bg-background-inset p-1.5">
 				<a
