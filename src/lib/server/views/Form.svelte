@@ -3,6 +3,7 @@
   import type { ViewModel } from './types.js';
   import FieldInput from './FieldInput.svelte';
   import RelationSelect from './RelationSelect.svelte';
+  import RelationCheckboxes from './RelationCheckboxes.svelte';
 
   let {
     mode,
@@ -62,6 +63,19 @@
 
   const currentValueOf = (scalarName: string) =>
     mode === 'edit' && item ? item[scalarName] : null;
+
+  const relationCheckboxGroups = $derived(
+    model.relationGraph
+      ? [...model.relationGraph.edges.values()].filter(
+          (e) =>
+            e.model === model.name &&
+            e.kind === 'm2m-implicit' &&
+            !e.unsupported &&
+            !hidden.includes(e.field) &&
+            model.relationOptions?.has(`${e.model}.${e.field}`)
+        )
+      : []
+  );
 </script>
 
 <a href={listPath} class="ska-back">← Back to list</a>
@@ -83,6 +97,9 @@
         currentValue={currentValueOf(edge.scalarFields[0])}
         {config}
       />
+    {/each}
+    {#each relationCheckboxGroups as edge (edge.field)}
+      <RelationCheckboxes {edge} meta={model.relationOptions!.get(`${edge.model}.${edge.field}`)!} />
     {/each}
     <div class="ska-form__actions">
       <button type="submit" class="ska-btn ska-btn--primary">{mode === 'create' ? 'Create' : 'Save Changes'}</button>

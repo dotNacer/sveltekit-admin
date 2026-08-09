@@ -10,6 +10,8 @@ export interface RelationMeta {
   /** true si la cible dépasse le seuil dur — rendre un raw-id, pas un select */
   tooMany: boolean;
   options: RelationOption[];
+  /** N-N uniquement : IDs actuellement liés (absent en création) */
+  selectedIds?: (string | number)[];
 }
 
 export interface ViewModel {

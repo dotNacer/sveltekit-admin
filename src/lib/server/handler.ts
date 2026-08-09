@@ -153,17 +153,19 @@ export function createAdminHandler(config: AdminHandlerConfig) {
   };
 
   /**
-   * Charge les options pour toutes les arêtes to-one-owning d'un modèle.
-   * Une requête COUNT par relation avant le findMany : évite de charger
-   * 10k lignes pour découvrir qu'il y en a 10k.
+   * Charge les options pour toutes les arêtes to-one-owning et m2m-implicite
+   * d'un modèle. Une requête COUNT par relation avant le findMany : évite de
+   * charger 10k lignes pour découvrir qu'il y en a 10k.
    */
   const loadRelationOptions = async (
     model: PrismaModel,
-    ctx: { locals?: any }
+    ctx: { locals?: any },
+    currentId?: string
   ): Promise<Map<string, import('./views/types.js').RelationMeta>> => {
     const out = new Map<string, import('./views/types.js').RelationMeta>();
     for (const edge of relationGraph!.edges.values()) {
-      if (edge.model !== model.name || edge.kind !== 'to-one-owning') continue;
+      if (edge.model !== model.name) continue;
+      if (edge.kind !== 'to-one-owning' && edge.kind !== 'm2m-implicit') continue;
       if (edge.unsupported) continue;
 
       const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
@@ -176,7 +178,11 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       try {
         const total: number = await prisma[prismaKey].count({ where });
         if (total > selectThreshold || relConfig?.widget === 'raw-id') {
-          out.set(`${edge.model}.${edge.field}`, { tooMany: true, options: [] });
+          const selectedIds =
+            edge.kind === 'm2m-implicit' && currentId
+              ? await loadSelectedIds(model, edge, currentId, targetModel)
+              : undefined;
+          out.set(`${edge.model}.${edge.field}`, { tooMany: true, options: [], selectedIds });
           continue;
         }
 
@@ -188,7 +194,11 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           id: row[primaryKeyOf(targetModel)] as string | number,
           label: resolveLabel(targetModel, row, relConfig?.labelTemplate)
         }));
-        out.set(`${edge.model}.${edge.field}`, { tooMany: false, options });
+        const selectedIds =
+          edge.kind === 'm2m-implicit' && currentId
+            ? await loadSelectedIds(model, edge, currentId, targetModel)
+            : undefined;
+        out.set(`${edge.model}.${edge.field}`, { tooMany: false, options, selectedIds });
       } catch {
         // Cible absente de la base ou client incomplet : repli raw-id pour
         // garder le champ éditable plutôt que de faire échouer tout le form.
@@ -196,6 +206,25 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       }
     }
     return out;
+  };
+
+  /** IDs liés côté N-N implicite, via une requête sur le join field Prisma. */
+  const loadSelectedIds = async (
+    model: PrismaModel,
+    edge: import('./introspection/relations.js').RelationEdge,
+    currentId: string,
+    targetModel: PrismaModel
+  ): Promise<(string | number)[]> => {
+    try {
+      const current = await prisma[toPrismaModel(model.name)].findUnique({
+        where: { [primaryKeyOf(model)]: coerceId(currentId, model) },
+        include: { [edge.field]: true }
+      });
+      const linked: Record<string, unknown>[] = current?.[edge.field] ?? [];
+      return linked.map((row) => row[primaryKeyOf(targetModel)] as string | number);
+    } catch {
+      return [];
+    }
   };
 
   return async ({
@@ -304,6 +333,63 @@ export function createAdminHandler(config: AdminHandlerConfig) {
 
                 data[scalarName] = coerced;
               }
+
+              // N-N implicite : lit `__rel__<field>` (valeurs cochées) et
+              // `__rel_present__<field>` (sentinelle). Sans le sentinelle,
+              // le champ est absent du form (readonly/exclu) → no-op.
+              // Avec le sentinelle mais zéro valeur cochée → vider la
+              // relation (`set: []` / rien à connecter en création).
+              for (const edge of relationGraph.edges.values()) {
+                if (edge.model !== model.name || edge.kind !== 'm2m-implicit') continue;
+                // Pas de garde `edge.unsupported` ici : par construction du
+                // graphe, `unsupported` n'est jamais posé sur une arête
+                // m2m-implicite (seulement sur to-one-owning / groupes
+                // ambigus, qui retombent toujours en to-one-owning).
+
+                const present = formData.get(`__rel_present__${edge.field}`);
+                if (present === null) continue;
+
+                const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
+                const targetModel = schema!.models.find((m) => m.name === edge.target)!;
+                const targetPk = primaryKeyOf(targetModel);
+                const pkIsInt = targetModel.fields.find((f) => f.isId)?.type === 'Int';
+
+                const submitted = formData.getAll(`__rel__${edge.field}`).map(String);
+                const rawIds: string[] =
+                  submitted.length === 1 && submitted[0].includes(',')
+                    ? submitted[0].split(',').map((s: string) => s.trim()).filter(Boolean)
+                    : submitted;
+
+                const ids: (string | number)[] = rawIds.map((v: string) =>
+                  pkIsInt ? parseInt(v) : v
+                );
+                if (pkIsInt && ids.some((v) => !Number.isSafeInteger(v))) {
+                  throw new Error(`${edge.field}: invalid id`);
+                }
+
+                // Existence + scoping en une requête, sur l'ensemble des IDs
+                // soumis. Un compte différent = au moins un ID invalide ou
+                // hors scoping — IDOR bloqué au même titre que pour les FK.
+                if (ids.length > 0) {
+                  const where: Record<string, unknown> = {
+                    [targetPk]: { in: ids },
+                    ...(relConfig?.where ? relConfig.where({ locals: event.locals }) : {})
+                  };
+                  try {
+                    const found: unknown[] = await prisma[toPrismaModel(edge.target)].findMany({ where });
+                    if (found.length !== new Set(ids.map(String)).size) {
+                      throw new Error(`${edge.field}: invalid value`);
+                    }
+                  } catch (e: any) {
+                    if (e?.message?.includes('invalid value')) throw e;
+                    // Client incapable de vérifier : on laisse passer.
+                  }
+                }
+
+                const idRefs = ids.map((id: string | number) => ({ [targetPk]: id }));
+                data[edge.field] =
+                  action === 'create' ? { connect: idRefs } : { set: idRefs };
+              }
             }
 
             if (action === 'create') {
@@ -374,7 +460,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           // toujours défini. La variante 'notFound' ne porte pas de `model` : elle est
           // interceptée en amont et ne peut pas arriver ici.
           const item = await getRecord(prisma, model, route.id!);
-          const relationOptions = await loadRelationOptions(model, { locals: event.locals });
+          const relationOptions = await loadRelationOptions(model, { locals: event.locals }, route.id);
           content = item
             ? render(Form, {
                 props: { mode: 'edit', model: { ...viewModel(model), relationOptions }, basePath, config, item }

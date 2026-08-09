@@ -107,7 +107,7 @@ describe('buildRelationGraph — maps scalaires', () => {
 describe('relationsOf', () => {
   it('retourne les arêtes d\'un modèle dans l\'ordre du schéma', () => {
     const edges = relationsOf(model('Post'), graph);
-    expect(edges.map((e) => e.field)).toEqual(['author', 'reviewer', 'tags']);
+    expect(edges.map((e) => e.field)).toEqual(['author', 'reviewer', 'tags', 'labels']);
   });
 
   it('retourne un tableau vide pour un modèle sans relation', () => {

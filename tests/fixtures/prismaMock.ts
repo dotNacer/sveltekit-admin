@@ -18,11 +18,20 @@ export interface PrismaMock {
 
 type MethodOverride = (args: unknown) => unknown;
 
-/** Égalité simple sur toutes les entrées du where (suffisant pour les tests). */
+/** Égalité simple sur toutes les entrées du where (suffisant pour les tests).
+ *  Supporte aussi `{ in: [...] }`, seul opérateur Prisma utilisé par le code
+ *  applicatif ici (validation d'existence en batch pour les relations N-N). */
 function filterByWhere(records: unknown[], where: unknown): unknown[] {
   const entries = Object.entries((where as Record<string, unknown>) ?? {});
   if (entries.length === 0) return records;
-  return records.filter((r: any) => entries.every(([k, v]) => r[k] === v));
+  return records.filter((r: any) =>
+    entries.every(([k, v]) => {
+      if (v && typeof v === 'object' && 'in' in (v as any)) {
+        return (v as any).in.includes(r[k]);
+      }
+      return r[k] === v;
+    })
+  );
 }
 
 /**
@@ -59,12 +68,9 @@ export function createPrismaMock(
         const [[key, value]] = entries;
         return Promise.resolve(records.find((r: any) => r[key] === value) ?? null);
       }),
-      findFirst: wrap('findFirst', (args: any) => {
-        const entries = Object.entries(args?.where ?? {});
-        return Promise.resolve(
-          records.find((r: any) => entries.every(([k, v]) => r[k] === v)) ?? null
-        );
-      }),
+      findFirst: wrap('findFirst', (args: any) =>
+        Promise.resolve(filterByWhere(records, args?.where)[0] ?? null)
+      ),
       count: wrap('count', (args: any) =>
         Promise.resolve(filterByWhere(records, args?.where).length)
       ),
