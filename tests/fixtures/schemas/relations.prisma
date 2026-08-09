@@ -1,0 +1,74 @@
+// Corpus de relations pour le graphe : 1-N, N-N implicite, self-ref, etc.
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  posts     Post[]   @relation("AuthorPosts")
+  reviews   Post[]   @relation("ReviewerPosts")
+  profile   Profile?
+  followers Follow[] @relation("followers")
+  following Follow[] @relation("following")
+}
+
+model Post {
+  id         String     @id @default(cuid())
+  title      String
+  authorId   Int
+  author     User       @relation("AuthorPosts", fields: [authorId], references: [id])
+  reviewerId Int?
+  reviewer   User?      @relation("ReviewerPosts", fields: [reviewerId], references: [id])
+  tags       Tag[]
+}
+
+model Tag {
+  id    Int    @id @default(autoincrement())
+  name  String
+  posts Post[]
+}
+
+// 1-1
+model Profile {
+  id     Int  @id @default(autoincrement())
+  bio    String?
+  userId Int  @unique
+  user   User @relation(fields: [userId], references: [id])
+}
+
+// Self-referential N-N explicite (pivot visible)
+model Follow {
+  id          Int  @id @default(autoincrement())
+  followerId  Int
+  followingId Int
+  follower    User @relation("followers", fields: [followerId], references: [id])
+  following   User @relation("following", fields: [followingId], references: [id])
+}
+// FK composite
+model Order {
+  id      Int    @id @default(autoincrement())
+  a       Int
+  b       Int
+  lines   Line[]
+  @@unique([a, b])
+}
+
+model Line {
+  id      Int   @id @default(autoincrement())
+  orderA  Int
+  orderB  Int
+  order   Order @relation(fields: [orderA, orderB], references: [a, b])
+}
+
+// Relation unidirectionnelle (pas de back-reference)
+model AuditLog {
+  id       Int  @id @default(autoincrement())
+  actorId  Int
+  actor    User @relation(fields: [actorId], references: [id])
+}

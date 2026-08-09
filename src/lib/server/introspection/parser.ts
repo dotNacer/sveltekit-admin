@@ -193,9 +193,11 @@ function parseFieldLine(
     defaultValue = defaultMatch[1].trim();
   }
   
-  // Parse relation
+  // Parse relation. Le motif accepte un niveau d'imbrication pour les
+  // arguments comme `fields: [authorId]` — sans lui, `[^)]+` s'arrêtait à la
+  // première parenthèse fermante et tronquait `name: "..."` placé après.
   let relation: PrismaField['relation'];
-  const relationMatch = attributes.match(/@relation\s*\(([^)]*)\)/);
+  const relationMatch = attributes.match(/@relation\s*\(((?:[^()]|\([^)]*\))*)\)/);
   if (relationMatch || (!SCALAR_TYPES.includes(type) && !enums.has(type))) {
     relation = {
       model: type,
@@ -203,9 +205,12 @@ function parseFieldLine(
     
     if (relationMatch) {
       const relContent = relationMatch[1];
-      
-      // Parse relation name
-      const nameMatch = relContent.match(/name:\s*"([^"]+)"/);
+
+      // Parse relation name : `name: "X"` (nommé) ou `"X"` en première
+      // position (chaîne positionnelle, forme utilisée côté back-reference).
+      const nameMatch =
+        relContent.match(/name:\s*"([^"]+)"/) ??
+        relContent.match(/^\s*"([^"]+)"/);
       if (nameMatch) relation.name = nameMatch[1];
       
       // Parse fields
