@@ -40,3 +40,4 @@ example/prisma/*.db-journal
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
+.worktrees/
