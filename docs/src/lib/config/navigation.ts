@@ -1,5 +1,5 @@
 import type { DeepPartial, SectionUiConfig } from '$lib/config/content-ui';
-import { AppAssemblyIcon, AppBookIcon } from '$lib/components/icons';
+import { AppBookIcon } from '$lib/components/icons';
 import type { Component } from 'svelte';
 
 export type ContentSectionLink = {
@@ -35,20 +35,33 @@ export const contentSections: ContentSectionConfig[] = [
 		id: 'docs',
 		label: 'Docs',
 		icon: AppBookIcon,
-		description: 'An introduction to using this template',
+		description: 'Documentation for sveltekit-admin',
 		navigation: [
 			{
-				slug: 'reference',
-				name: 'Reference',
+				slug: 'getting-started',
+				name: 'Getting Started',
 				items: [
-					{
-						slug: '',
-						name: 'Text Components'
-					},
-					{
-						slug: 'structure-components',
-						name: 'Structure Components'
-					}
+					{ slug: '', name: 'Introduction' },
+					{ slug: 'installation', name: 'Installation & Quick Start' }
+				]
+			},
+			{
+				slug: 'configuration',
+				name: 'Configuration',
+				items: [
+					{ slug: 'configuration-reference', name: 'Configuration Reference' },
+					{ slug: 'model-configuration', name: 'Model Configuration' },
+					{ slug: 'field-types', name: 'Field Types' },
+					{ slug: 'authentication', name: 'Authentication' }
+				]
+			},
+			{
+				slug: 'advanced',
+				name: 'Advanced',
+				items: [
+					{ slug: 'how-it-works', name: 'How It Works' },
+					{ slug: 'search-filters', name: 'Search & Filters' },
+					{ slug: 'relations', name: 'Relations' }
 				]
 			},
 			{
@@ -56,35 +69,5 @@ export const contentSections: ContentSectionConfig[] = [
 				name: 'Changelog'
 			}
 		]
-	},
-	{
-		id: 'examples',
-		label: 'Examples',
-		icon: AppAssemblyIcon,
-		description: 'Dummy examples to showcase the template’s sections',
-		navigation: [
-			{
-				name: 'Dummy category',
-				slug: 'dummy-category',
-				items: [
-					{
-						slug: '',
-						name: 'Example 1'
-					},
-					{
-						slug: 'example-2',
-						name: 'Example 2'
-					}
-				]
-			}
-		],
-		ui: {
-			toc: {
-				enabled: false
-			},
-			pageActions: {
-				enabled: false
-			}
-		}
 	}
 ];

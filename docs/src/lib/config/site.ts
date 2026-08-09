@@ -1,31 +1,28 @@
 /**
  * Canonical site-level metadata shared across SEO tags, manifests, and feeds.
- * Keep this object project-specific when using the docs template for a new brand.
  */
 export const siteConfig = {
 	/** Primary site name used in titles and Open Graph site fields. */
-	name: 'Motion Core Documentation Template',
+	name: 'sveltekit-admin',
 	/** Compact site name for environments with strict length limits. */
-	shortName: 'Motion Core Documentation Template',
+	shortName: 'sveltekit-admin',
 	/** Public canonical URL used to build absolute links. */
-	url: 'https://motion-gpu.dev',
+	url: 'https://sveltekit-admin.dev',
 	/** Default SEO description for the homepage and fallback metadata. */
 	description:
-		'A reusable documentation template for modern TypeScript projects. Launch branded docs fast with configurable navigation, SEO metadata, and content structure.',
+		'A Django-like admin panel for SvelteKit applications with Prisma. Auto-generated CRUD, list views, and forms from your Prisma schema in three lines of code.',
 	/** Author shown in metadata and structured data. */
-	author: 'Marek Jóźwiak',
+	author: 'dotNacer',
 	/** Primary SEO keywords for indexing and discovery. */
 	keywords: [
-		'documentation',
-		'docs template',
-		'static docs',
-		'typescript',
+		'svelte',
 		'sveltekit',
-		'seo',
-		'developer docs',
-		'knowledge base',
-		'template',
-		'motion core documentation template'
+		'admin',
+		'prisma',
+		'crud',
+		'dashboard',
+		'admin-panel',
+		'documentation'
 	],
 	/** Default social preview image endpoint. */
 	ogImage: '/og',
@@ -36,12 +33,12 @@ export const siteConfig = {
 	},
 	/** External profile links used by docs actions and metadata. */
 	links: {
-		github: 'https://example.com/',
+		github: 'https://github.com/dotNacer/sveltekit-admin',
 		twitter: 'https://example.com/'
 	},
 	/** Package metadata used in installation snippets and docs helpers. */
 	package: {
-		name: '@motion-core/example'
+		name: 'sveltekit-admin'
 	}
 };
 
