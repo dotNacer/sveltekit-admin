@@ -19,8 +19,8 @@ export interface PrismaMock {
 type MethodOverride = (args: unknown) => unknown;
 
 /** Égalité simple sur toutes les entrées du where (suffisant pour les tests).
- *  Supporte aussi `{ in: [...] }`, seul opérateur Prisma utilisé par le code
- *  applicatif ici (validation d'existence en batch pour les relations N-N). */
+ *  Supporte aussi `{ in: [...] }` et `{ contains: "..." }` (insensible à la
+ *  casse), les seuls opérateurs Prisma utilisés par le code applicatif ici. */
 function filterByWhere(records: unknown[], where: unknown): unknown[] {
   const entries = Object.entries((where as Record<string, unknown>) ?? {});
   if (entries.length === 0) return records;
@@ -28,6 +28,9 @@ function filterByWhere(records: unknown[], where: unknown): unknown[] {
     entries.every(([k, v]) => {
       if (v && typeof v === 'object' && 'in' in (v as any)) {
         return (v as any).in.includes(r[k]);
+      }
+      if (v && typeof v === 'object' && 'contains' in (v as any)) {
+        return String(r[k] ?? '').toLowerCase().includes(String((v as any).contains).toLowerCase());
       }
       return r[k] === v;
     })

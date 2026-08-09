@@ -260,6 +260,72 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     return out;
   };
 
+  /**
+   * Endpoint de recherche `GET {basePath}/_search?rel=Model.field&q=...&page=N`.
+   * Sert les options d'une relation to-one-owning ou m2m-implicite en JSON
+   * paginé — la voie prévue pour un futur widget autocomplete côté client
+   * quand le nombre d'options dépasse `selectThreshold`. Respecte le `where`
+   * de scoping configuré sur la relation, comme le select et la validation
+   * POST : même garantie anti-IDOR sur les trois chemins.
+   */
+  const handleSearch = async (event: any): Promise<Response> => {
+    const relParam = event.url.searchParams.get('rel') ?? '';
+    const [modelName, fieldName] = relParam.split('.');
+    const q = event.url.searchParams.get('q') ?? '';
+    const { page } = paginate(event.url.searchParams.get('page'), PER_PAGE);
+
+    const model = findModel(modelName);
+    const edge = model && relationGraph
+      ? relationGraph.edges.get(`${model.name}.${fieldName}`)
+      : undefined;
+
+    if (!model || !edge || (edge.kind !== 'to-one-owning' && edge.kind !== 'm2m-implicit') || edge.unsupported) {
+      return new Response(JSON.stringify({ error: 'unknown relation' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    const targetModel = schema!.models.find((m) => m.name === edge.target)!;
+    const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
+    const configWhere = relConfig?.where ? relConfig.where({ locals: event.locals }) : {};
+
+    // Recherche sur le premier champ String candidat du modèle cible — le
+    // même champ que celui utilisé pour construire le label par défaut.
+    const searchField = labelFieldCandidates.find((c) =>
+      targetModel.fields.some((f) => f.name === c && f.type === 'String')
+    );
+    const where: Record<string, unknown> = {
+      ...configWhere,
+      ...(q && searchField ? { [searchField]: { contains: q } } : {})
+    };
+
+    const prismaKey = toPrismaModel(edge.target);
+    try {
+      const [total, rows] = await Promise.all([
+        prisma[prismaKey].count({ where }),
+        prisma[prismaKey].findMany({
+          where,
+          skip: (page - 1) * PER_PAGE,
+          take: PER_PAGE,
+          orderBy: relConfig?.orderBy
+        })
+      ]);
+      const options = (rows as Record<string, unknown>[]).map((row) => ({
+        id: row[primaryKeyOf(targetModel)],
+        label: resolveLabel(targetModel, row, relConfig?.labelTemplate)
+      }));
+      return new Response(JSON.stringify({ options, total, page }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    } catch {
+      return new Response(JSON.stringify({ error: 'search failed' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  };
+
   return async ({
     event,
     resolve
@@ -285,6 +351,10 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     const route = parseRoute(pathname, basePath);
     let content = '';
     let currentModel: string | undefined;
+
+    if (route.view === 'search') {
+      return handleSearch(event);
+    }
 
     try {
       // Handle POST requests (create, update, delete). Unrecognised actions fall
