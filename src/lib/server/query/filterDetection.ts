@@ -15,6 +15,7 @@
 
 import type { PrismaField, PrismaModel } from '../introspection/parser.js';
 import { isSensitiveFieldName } from '../introspection/parser.js';
+import type { RelationGraph } from '../introspection/relations.js';
 
 const NUMERIC_TYPES = ['Int', 'Float', 'Decimal', 'BigInt'];
 export const DATETIME_PRESETS = ['today', '7d', 'month', 'year'] as const;
@@ -34,11 +35,22 @@ export type ListFilterConfigEntry =
 export interface ResolvedFilterField {
   field: string;
   label: string;
-  kind: 'boolean' | 'enum' | 'datetime' | 'range';
+  kind: 'boolean' | 'enum' | 'datetime' | 'range' | 'fk';
   /** Only present for kind 'enum'. */
   enumValues?: string[];
   /** Only present for kind 'datetime'. */
   presets?: DateTimePreset[];
+}
+
+/** A filter entry that was configured as an FK scalar (e.g. `authorId` on Post), with its target relation resolved. */
+export interface FkFilterSpec {
+  /** Scalar FK field name, e.g. `authorId`. */
+  field: string;
+  label: string;
+  /** Owning relation field name on this model, e.g. `author`. */
+  relationField: string;
+  /** Target model name, e.g. `User`. */
+  targetModel: string;
 }
 
 /** Whether a field is eligible for auto-detection: Boolean or enum, not sensitive/hidden/list/relation. */
@@ -59,7 +71,8 @@ function isAutoDetectable(field: PrismaField): boolean {
 export function validateListFilterConfig(
   modelName: string,
   entries: ListFilterConfigEntry[],
-  model: PrismaModel
+  model: PrismaModel,
+  relationGraph?: RelationGraph
 ): void {
   for (const entry of entries) {
     const fieldName = typeof entry === 'string' ? entry : entry.field;
@@ -107,22 +120,54 @@ export function validateListFilterConfig(
       }
     }
 
+    // Un scalaire FK (to-one owning) est un cas légitime de config explicite
+    // — les options seront chargées et scopées au moment du rendu, jamais
+    // auto-détectées (docs/design §3.5, §6).
+    const isFk = Boolean(relationGraph && findFkEdge(relationGraph, modelName, fieldName));
+
     // Champ finalement supporté par la sidebar si : Boolean, enum, DateTime
-    // (avec ou sans presets), ou numérique avec range:true. Tout le reste
-    // (String libre, Int/Float sans range, Json déjà rejeté plus haut) est
-    // refusé — pas de filtre silencieusement mort.
+    // (avec ou sans presets), numérique avec range:true, ou scalaire FK.
+    // Tout le reste (String libre, Int/Float sans range, Json déjà rejeté
+    // plus haut) est refusé — pas de filtre silencieusement mort.
     const supported =
       field.type === 'Boolean' ||
       field.isEnum ||
       field.type === 'DateTime' ||
-      (range && NUMERIC_TYPES.includes(field.type));
+      (range && NUMERIC_TYPES.includes(field.type)) ||
+      isFk;
     if (!supported) {
       throw new Error(
         `[sveltekit-admin] listFilter: "${modelName}.${fieldName}" has type ${field.type}, ` +
-          `only Boolean, enum, DateTime, and range:true numeric fields are supported by the sidebar filter`
+          `only Boolean, enum, DateTime, range:true numeric, and FK scalar fields are supported by the sidebar filter`
       );
     }
   }
+}
+
+/**
+ * Trouve l'arête to-one-owning qui porte ce scalaire FK sur ce modèle, si
+ * elle existe. Lookup direct sur `edges` avec la clé `"Model.field"` — on ne
+ * passe PAS par `scalarToRelation` (indexée par nom de champ seul, donc
+ * ambiguë si deux modèles ont une FK du même nom, ex: `Post.authorId` et
+ * `Comment.authorId`).
+ */
+export function findFkEdge(
+  relationGraph: RelationGraph,
+  modelName: string,
+  scalarFieldName: string
+) {
+  for (const edge of relationGraph.edges.values()) {
+    if (
+      edge.model === modelName &&
+      edge.kind === 'to-one-owning' &&
+      !edge.unsupported &&
+      edge.scalarFields.length === 1 &&
+      edge.scalarFields[0] === scalarFieldName
+    ) {
+      return edge;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -134,7 +179,8 @@ export function resolveListFilters(
   model: PrismaModel,
   enums: Map<string, string[]>,
   configured: ListFilterConfigEntry[] | undefined,
-  toLabel: (name: string) => string
+  toLabel: (name: string) => string,
+  relationGraph?: RelationGraph
 ): ResolvedFilterField[] {
   const fieldNames = configured
     ? configured.map((e) => (typeof e === 'string' ? e : e.field))
@@ -165,6 +211,8 @@ export function resolveListFilters(
       out.push({ field: fieldName, label, kind: 'boolean' });
     } else if (field.isEnum) {
       out.push({ field: fieldName, label, kind: 'enum', enumValues: enums.get(field.type) ?? [] });
+    } else if (relationGraph && findFkEdge(relationGraph, model.name, fieldName)) {
+      out.push({ field: fieldName, label, kind: 'fk' });
     }
   }
   return out;

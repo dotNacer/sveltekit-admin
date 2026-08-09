@@ -24,7 +24,7 @@ import {
   buildWhere,
   resolveSearchFields
 } from './query/listQuery.js';
-import { resolveListFilters, validateListFilterConfig } from './query/filterDetection.js';
+import { resolveListFilters, validateListFilterConfig, findFkEdge } from './query/filterDetection.js';
 import { escapeHtml, toLabel } from './views/html.js';
 import NotFound from './views/NotFound.svelte';
 import Layout from './views/Layout.svelte';
@@ -91,6 +91,18 @@ export interface AdminHandlerConfig {
     labelFields?: string[];
   };
   /**
+   * Défauts pour la sidebar de filtres (listFilter).
+   * `linkThreshold`: en dessous ou égal à ce nombre d'options, un filtre FK
+   * est rendu en liens dans la sidebar ; au-dessus (et ≤ relationDefaults.selectThreshold),
+   * en `<select>` dans un mini form GET (docs/design/list-search-filters.md §3.2).
+   * `autoDetect`: auto-détection des champs Boolean/enum quand pas de config
+   * `listFilter` explicite (default: true).
+   */
+  listFilterDefaults?: {
+    linkThreshold?: number;
+    autoDetect?: boolean;
+  };
+  /**
    * Recherche texte libre : configuration globale.
    * `mode`: 'auto' détecte le provider du schéma et n'émet `mode: 'insensitive'`
    * que sur postgresql/cockroachdb/mongodb (les seuls où Prisma le supporte —
@@ -152,7 +164,9 @@ export function createAdminHandler(config: AdminHandlerConfig) {
   // relations.ts).
   for (const m of filteredModels) {
     const entries = modelsConfig[m.name]?.listFilter;
-    if (entries) validateListFilterConfig(m.name, entries, m);
+    // Non-null par construction : `filteredModels` n'existe que si le schéma
+    // a été parsé, et le graphe est construit dans la même branche de boot.
+    if (entries) validateListFilterConfig(m.name, entries, m, relationGraph!);
   }
 
   const labelOf = (m: PrismaModel) => modelsConfig[m.name]?.label || toLabel(m.name);
@@ -175,6 +189,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     });
 
   const selectThreshold = config.relationDefaults?.selectThreshold ?? 200;
+  const filterLinkThreshold = config.listFilterDefaults?.linkThreshold ?? 20;
   const labelFieldCandidates = config.relationDefaults?.labelFields ?? [
     'name', 'title', 'label', 'email', 'username', 'slug'
   ];
@@ -285,6 +300,90 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       }
     }
     return out;
+  };
+
+  /**
+   * Options d'un filtre FK : charge et scope les valeurs possibles pour la
+   * sidebar, ET résout le label du chip actif. Doctrine IDOR (docs/design
+   * §6.3) : les options ET le label du chip passent par le `where` de
+   * scoping de la relation — un chip forgé avec un ID hors scope affiche
+   * l'ID brut, jamais le label (sinon c'est un oracle sur le nom d'un
+   * enregistrement d'un autre tenant).
+   */
+  const resolveFkFilterOptions = async (
+    model: PrismaModel,
+    fkFieldName: string,
+    label: string,
+    ctx: { locals?: any },
+    activeRawValue: string | undefined
+  ): Promise<import('./views/types.js').FkFilterMeta> => {
+    // Appelé uniquement pour un filtre `kind: 'fk'` retourné par
+    // resolveListFilters avec CE MÊME graphe : graphe et arête existent donc
+    // par construction. Garder des gardes here masquerait une incohérence
+    // interne et ajouterait du code mort (coverage artificielle).
+    const edge = findFkEdge(relationGraph!, model.name, fkFieldName)!;
+
+    const targetModel = schema!.models.find((m) => m.name === edge.target)!;
+    // Non-null par construction : `edge` vient du graphe dérivé du même
+    // schéma parsé avec succès — une arête ne peut pas cibler un modèle qui
+    // n'existe pas dans `schema.models`.
+
+    const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
+    const scope = relConfig?.where ? relConfig.where(ctx) : undefined;
+    const prismaKey = toPrismaModel(edge.target);
+
+    // Options de la sidebar : scopées, comptées puis chargées si sous le seuil.
+    let options: { id: string | number; label: string }[] = [];
+    let tooMany = false;
+    try {
+      const total: number = await prisma[prismaKey].count({ where: scope });
+      if (total > selectThreshold) {
+        tooMany = true;
+      } else {
+        const rows: Record<string, unknown>[] = await prisma[prismaKey].findMany({
+          where: scope,
+          orderBy: relConfig?.orderBy
+        });
+        options = rows.map((row) => ({
+          id: row[primaryKeyOf(targetModel)] as string | number,
+          label: resolveLabel(targetModel, row, relConfig?.labelTemplate)
+        }));
+      }
+    } catch {
+      tooMany = true;
+    }
+
+    // Label du chip actif : résolu via findFirst scopé (§6.3.b). Un ID hors
+    // scope retourne null ici → le composant affiche l'ID brut, pas de label.
+    let activeLabel: string | undefined;
+    if (activeRawValue !== undefined) {
+      const activeId = coerceId(activeRawValue, targetModel);
+      try {
+        const row = await prisma[prismaKey].findFirst({
+          where: scope ? { AND: [{ [primaryKeyOf(targetModel)]: activeId }, scope] } : { [primaryKeyOf(targetModel)]: activeId }
+        });
+        activeLabel = row ? resolveLabel(targetModel, row, relConfig?.labelTemplate) : undefined;
+      } catch {
+        activeLabel = undefined;
+      }
+    }
+
+    return {
+      field: fkFieldName,
+      label,
+      relationField: edge.field,
+      targetModel: edge.target,
+      options,
+      mode: tooMany ? 'raw-id' : options.length <= filterLinkThreshold ? 'links' : 'select',
+      tooMany,
+      activeLabel,
+      // Une cible exclue/masquée n'a pas de page admin : le chip reste du
+      // texte, jamais un lien mort (docs/design §6.4).
+      activeHref:
+        activeLabel && findModel(edge.target)
+          ? `${basePath}/${edge.target.toLowerCase()}/${encodeURIComponent(activeRawValue!)}`
+          : undefined
+    };
   };
 
   /** IDs liés côté N-N implicite, via une requête sur le join field Prisma. */
@@ -636,8 +735,24 @@ export function createAdminHandler(config: AdminHandlerConfig) {
             model,
             schema!.enums,
             modelsConfig[model.name]?.listFilter,
-            toLabel
+            toLabel,
+            relationGraph!
           );
+          const fkFilterMeta = new Map<string, import('./views/types.js').FkFilterMeta>();
+          for (const filter of listFilters) {
+            if (filter.kind !== 'fk') continue;
+            const activeRawValue = listQuery.filters.find(
+              (f) => f.field === filter.field && f.op === 'equals'
+            )?.raw;
+            const meta = await resolveFkFilterOptions(
+              model,
+              filter.field,
+              filter.label,
+              { locals: event.locals },
+              activeRawValue
+            );
+            fkFilterMeta.set(filter.field, meta);
+          }
           content = render(List, {
             props: {
               model: viewModel(model),
@@ -647,7 +762,8 @@ export function createAdminHandler(config: AdminHandlerConfig) {
               config,
               query: listQuery,
               currentUrl: event.url,
-              listFilters
+              listFilters,
+              fkFilterMeta
             }
           }).body;
         } else if (route.view === 'create') {

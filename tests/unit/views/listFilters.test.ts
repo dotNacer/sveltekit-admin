@@ -2,13 +2,15 @@ import { describe, it, expect } from 'vitest';
 import { render } from 'svelte/server';
 import ListFilters from '../../../src/lib/server/views/ListFilters.svelte';
 import type { ResolvedFilterField } from '../../../src/lib/server/query/filterDetection.js';
+import type { FkFilterMeta } from '../../../src/lib/server/views/types.js';
 
 const renderFilters = (
   filters: ResolvedFilterField[],
   activeValues: Map<string, string>,
   currentUrl: URL,
-  activeRangeValues: Map<string, { gte?: string; lte?: string }> = new Map()
-) => render(ListFilters, { props: { filters, activeValues, activeRangeValues, currentUrl } }).body;
+  activeRangeValues: Map<string, { gte?: string; lte?: string }> = new Map(),
+  fkFilterMeta: Map<string, FkFilterMeta> = new Map()
+) => render(ListFilters, { props: { filters, activeValues, activeRangeValues, fkFilterMeta, currentUrl } }).body;
 
 describe('ListFilters.svelte', () => {
   it('vide : ne rend rien', () => {
@@ -131,6 +133,76 @@ describe('ListFilters.svelte — datetime (presets)', () => {
       new URL('http://localhost/admin/post')
     );
     expect(html).toContain('>unknownPreset<');
+  });
+});
+
+describe('ListFilters.svelte — FK modes and safe degradation', () => {
+  const fkFilter: ResolvedFilterField = { field: 'authorId', label: 'Author', kind: 'fk' };
+
+  it('FK without resolved async metadata renders no dead/inert sidebar group', () => {
+    // resolveFkFilterOptions may be unavailable if a user's Prisma client is
+    // incomplete; hiding the configured FK UI is safer than showing controls
+    // that cannot produce a known-scoped result.
+    const html = renderFilters(
+      [fkFilter], new Map(), new URL('http://localhost/admin/post'), new Map(), new Map()
+    );
+    expect(html).not.toContain('ska-filters__group');
+  });
+
+  it('FK link mode renders scoped option links and a readable active chip', () => {
+    const meta: FkFilterMeta = {
+      field: 'authorId', label: 'Author', relationField: 'author', targetModel: 'User',
+      options: [{ id: 1, label: 'Alice' }], mode: 'links', tooMany: false,
+      activeLabel: 'Alice', activeHref: '/admin/user/1'
+    };
+    const html = renderFilters(
+      [fkFilter], new Map([['authorId', '1']]), new URL('http://localhost/admin/post?f.authorId=1'),
+      new Map(), new Map([['authorId', meta]])
+    );
+    expect(html).toContain('href="/admin/post?f.authorId=1"');
+    expect(html).toContain('href="/admin/user/1"');
+    expect(html).toContain('aria-label="Clear Author"');
+  });
+
+  it('FK select mode renders options with stable raw IDs, not href-derived values', () => {
+    const meta: FkFilterMeta = {
+      field: 'authorId', label: 'Author', relationField: 'author', targetModel: 'User',
+      options: [{ id: 1, label: 'Alice' }, { id: 2, label: 'Bob' }], mode: 'select', tooMany: false
+    };
+    const html = renderFilters(
+      [fkFilter], new Map(), new URL('http://localhost/admin/post?q=hello'),
+      new Map(), new Map([['authorId', meta]])
+    );
+    expect(html).toContain('<select name="f.authorId"');
+    expect(html).toContain('<option value="" selected="">All</option>');
+    expect(html).toContain('<option value="1">Alice</option>');
+    expect(html).toContain('<input type="hidden" name="q" value="hello"');
+  });
+
+  it('FK raw-id mode renders a text input prefilled with the active raw ID', () => {
+    const meta: FkFilterMeta = {
+      field: 'authorId', label: 'Author', relationField: 'author', targetModel: 'User',
+      options: [], mode: 'raw-id', tooMany: true
+    };
+    const html = renderFilters(
+      [fkFilter], new Map([['authorId', '999']]), new URL('http://localhost/admin/post?f.authorId=999'),
+      new Map(), new Map([['authorId', meta]])
+    );
+    expect(html).toContain('type="text" name="f.authorId" value="999"');
+    expect(html).toContain('>999</span>');
+  });
+
+  it('FK active chip without activeHref is plain text — no link to a hidden target model', () => {
+    const meta: FkFilterMeta = {
+      field: 'authorId', label: 'Author', relationField: 'author', targetModel: 'User',
+      options: [{ id: 1, label: 'Alice' }], mode: 'links', tooMany: false, activeLabel: 'Alice'
+    };
+    const html = renderFilters(
+      [fkFilter], new Map([['authorId', '1']]), new URL('http://localhost/admin/post?f.authorId=1'),
+      new Map(), new Map([['authorId', meta]])
+    );
+    expect(html).toContain('<span>Alice</span>');
+    expect(html).not.toContain('href="/admin/user/1"');
   });
 });
 

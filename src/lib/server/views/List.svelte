@@ -3,6 +3,7 @@
   import type { ViewModel } from './types.js';
   import type { ListQuery } from '../query/listQuery.js';
   import type { ResolvedFilterField } from '../query/filterDetection.js';
+  import type { FkFilterMeta } from './types.js';
   import { getDisplayFields } from '../introspection/parser.js';
   import { buildListUrl, hiddenParams } from '../query/urls.js';
   import { escapeHtml, toLabel, formatValue } from './html.js';
@@ -16,7 +17,8 @@
     config,
     query,
     currentUrl,
-    listFilters
+    listFilters,
+    fkFilterMeta
   }: {
     model: ViewModel;
     items: any[];
@@ -27,8 +29,10 @@
     query?: ListQuery;
     /** URL de la requête courante — nécessaire pour construire les liens de pagination et le form GET. Absent = pagination legacy `?page=N` isolée. */
     currentUrl?: URL;
-    /** Filtres sidebar résolus (Boolean/enum), absent = pas de sidebar rendue. */
+    /** Filtres sidebar résolus (Boolean/enum/date/range/FK), absent = pas de sidebar rendue. */
     listFilters?: ResolvedFilterField[];
+    /** Métadonnées async (options scopées + label actif) pour les filtres FK configurés. */
+    fkFilterMeta?: Map<string, FkFilterMeta>;
   } = $props();
 
   const modelConfig = $derived(config.models?.[model.name] || {});
@@ -110,7 +114,13 @@
 </div>
 
 {#if listFilters && listFilters.length > 0 && currentUrl}
-  <ListFilters filters={listFilters} activeValues={activeFilterValues} {activeRangeValues} {currentUrl} />
+  <ListFilters
+    filters={listFilters}
+    activeValues={activeFilterValues}
+    {activeRangeValues}
+    fkFilterMeta={fkFilterMeta ?? new Map()}
+    {currentUrl}
+  />
 {/if}
 
 

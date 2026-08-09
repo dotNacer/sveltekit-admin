@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { parseSchemaContent } from '../../src/lib/server/introspection/parser.js';
+import { buildRelationGraph } from '../../src/lib/server/introspection/relations.js';
 import {
   resolveListFilters,
   validateListFilterConfig
 } from '../../src/lib/server/query/filterDetection.js';
 import { toLabel } from '../../src/lib/server/views/html.js';
-import { SEARCH_SCHEMA_PATH } from '../fixtures/prismaMock.js';
+import { SEARCH_SCHEMA_PATH, RELATIONS_SCHEMA_PATH } from '../fixtures/prismaMock.js';
 
 const schema = parseSchemaContent(readFileSync(SEARCH_SCHEMA_PATH, 'utf-8'));
 const Article = schema.models.find((m) => m.name === 'Article')!;
@@ -159,6 +160,42 @@ describe('resolveListFilters — plages numériques (kind: range)', () => {
   it('un Int configuré SANS range:true n\'est pas résolu du tout (config invalide, mais resolveListFilters ne valide pas elle-même)', () => {
     const filters = resolveListFilters(Article, schema.enums, ['views'], toLabel);
     expect(filters).toEqual([]);
+  });
+});
+
+describe('resolveListFilters — FK scalar (config explicite uniquement)', () => {
+  const relationSchema = parseSchemaContent(readFileSync(RELATIONS_SCHEMA_PATH, 'utf-8'));
+  const Post = relationSchema.models.find((m) => m.name === 'Post')!;
+  const relationGraph = buildRelationGraph(relationSchema);
+
+  it('authorId n\'est jamais auto-détecté (une FK implique des requêtes, donc opt-in)', () => {
+    const filters = resolveListFilters(Post, relationSchema.enums, undefined, toLabel, relationGraph);
+    expect(filters.map((f) => f.field)).not.toContain('authorId');
+  });
+
+  it('authorId configuré explicitement devient kind fk', () => {
+    const filters = resolveListFilters(Post, relationSchema.enums, ['authorId'], toLabel, relationGraph);
+    expect(filters).toEqual([{ field: 'authorId', label: toLabel('authorId'), kind: 'fk' }]);
+  });
+
+  it('label personnalisé sur une FK est conservé', () => {
+    const filters = resolveListFilters(
+      Post, relationSchema.enums, [{ field: 'authorId', label: 'Author' }], toLabel, relationGraph
+    );
+    expect(filters[0].label).toBe('Author');
+  });
+
+  it('config FK est acceptée au boot quand le graphe relationnel est fourni', () => {
+    expect(() => validateListFilterConfig('Post', ['authorId'], Post, relationGraph)).not.toThrow();
+  });
+
+  it('sans graphe relationnel, un Int FK reste rejeté comme un Int libre', () => {
+    expect(() => validateListFilterConfig('Post', ['authorId'], Post)).toThrow(/only Boolean, enum, DateTime/);
+  });
+
+  it('FK composite est refusée : elle n\'a pas de représentation HTML scalaire sûre', () => {
+    const Line = relationSchema.models.find((m) => m.name === 'Line')!;
+    expect(() => validateListFilterConfig('Line', ['orderA'], Line, relationGraph)).toThrow(/only Boolean, enum, DateTime/);
   });
 });
 
