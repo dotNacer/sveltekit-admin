@@ -28,7 +28,8 @@ export default tseslint.config(
       'coverage/',
       'tests/fixtures/prisma/client/',
       'example/',
-      'docs/'
+      'docs/',
+      '.worktrees/'
     ]
   },
   js.configs.recommended,
