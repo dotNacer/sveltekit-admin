@@ -1,0 +1,53 @@
+---
+title: Model Configuration
+name: Model Configuration
+description: Per-model options for hiding fields, marking them readonly, and controlling list view columns.
+---
+
+The `models` option lets you override behavior per Prisma model, keyed by
+model name.
+
+```typescript
+models: {
+  User: {
+    // Fields to hide from all views
+    hidden: ['password', 'hashedPassword', 'twoFactorSecret'],
+
+    // Fields that cannot be edited (shown as readonly)
+    readonly: ['id', 'createdAt', 'updatedAt', 'emailVerified'],
+
+    // Fields to show in list view (default: first 6 non-hidden fields)
+    listFields: ['email', 'name', 'role', 'createdAt'],
+
+    // Custom display name for the model
+    label: 'Users'
+  }
+}
+```
+
+## `hidden`
+
+Fields listed here never appear anywhere in the admin — not in list views,
+not in create/edit forms. Use this for sensitive fields you don't want
+rendered under any circumstance.
+
+## `readonly`
+
+Fields listed here are shown in edit forms but cannot be changed — useful
+for `id`, timestamps, or anything else that should be visible but immutable
+through the admin.
+
+## `listFields`
+
+Controls which columns appear in the list view for a model. Without this,
+sveltekit-admin shows the first six non-hidden fields. Set it explicitly to
+control column order and which fields matter for at-a-glance scanning.
+
+`listFields` is also the escape hatch for the automatic sensitive-field
+detection described in [Field Types](/docs/field-types) — listing a field
+here shows it in the list view regardless of what its name looks like.
+
+## `label`
+
+Overrides the display name used for the model throughout the admin UI
+(navigation, dashboard, page titles). Defaults to the Prisma model name.
