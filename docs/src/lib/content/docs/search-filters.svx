@@ -1,0 +1,50 @@
+---
+title: Search & Filters
+name: Search & Filters
+description: Filtering list views today, and what's planned for a richer search and faceted-filter experience.
+---
+
+## Current behavior: `?filter=`
+
+List views support filtering a single field via a query parameter:
+
+```
+/admin/user?filter=role:admin
+```
+
+This performs an equality (or, for numeric fields, coerced-equality) match
+on the given field and re-renders the list with the filter applied.
+
+### Known limitation
+
+Because there is currently no whitelist restricting which fields can be
+filtered this way, `?filter=` can currently be pointed at any field on a
+model — including ones marked `hidden`. Combined with the fact that only
+`Int` values are coerced correctly today (a `Boolean`, `Float`, `BigInt`,
+or `DateTime` field sent through `?filter=` can produce a server error), we
+recommend not relying on `?filter=` against sensitive or non-`Int` fields
+in its current form. A hardened, whitelisted design is planned — see below.
+
+## Planned: text search and faceted filters
+
+A more capable design is planned for a future release, replacing
+`?filter=` with:
+
+- **Free-text search** (`?q=...`) across a configurable set of `searchFields`
+  per model, matched with `contains` and OR'd across fields.
+- **Faceted filters** (`?f.<field>=<value>`, or `?f.<field>__<op>=<value>`
+  for operators like `gte`/`lte`/`contains`), rendered as a sidebar of
+  filter links for low-cardinality fields (`Boolean`, `enum`) and as a
+  `<select>` beyond a configurable threshold.
+- A closed, type-derived **operator whitelist** — the query string only
+  ever selects from a fixed, per-type set of operators, and never
+  constructs an arbitrary Prisma clause from user input.
+- Sensitive and `hidden` fields are excluded from filtering entirely, the
+  same way they're excluded from list views (see
+  [Field Types](/docs/field-types)).
+- The existing `?filter=` parameter will continue to work during a
+  deprecation period once the new format ships, routed through the same,
+  now-whitelisted, pipeline.
+
+This page will be updated with concrete configuration examples once the
+feature ships. Track `CHANGELOG.md` for the release that adds it.
