@@ -16,9 +16,10 @@ A field like `authorId` — a scalar foreign key — is rendered as a
 of the raw ID. The scalar FK input is replaced entirely by the select; they
 are never shown side by side.
 
-- If the number of candidate options exceeds a configurable threshold (200
-  by default), the select falls back to a raw ID input — loading tens of
-  thousands of options into a dropdown isn't practical.
+- If the number of candidate options exceeds a configurable threshold
+  (`relationDefaults.selectThreshold`, 200 by default), the select falls
+  back to a raw ID input — loading tens of thousands of options into a
+  dropdown isn't practical.
 - The same fallback applies to **composite foreign keys** (a relation
   backed by more than one scalar column) — these can't be represented as a
   single `<option>` value, so they're rendered as a raw ID input instead.
@@ -58,8 +59,8 @@ models: {
         widget: 'select', // 'select' | 'raw-id' | 'hidden'
         labelTemplate: '{firstName} {lastName} <{email}>',
         orderBy: { name: 'asc' },
-        nullLabel: '— none —',
-        readOnly: false
+        where: (ctx) => ({ tenantId: ctx.locals?.tenantId }),
+        nullLabel: '— none —'
       },
       tags: {
         widget: 'select' // same 'select' | 'raw-id' | 'hidden' type — many-to-many
@@ -71,6 +72,11 @@ models: {
   }
 }
 ```
+
+`where` is a function receiving the request context (`ctx.locals`) that
+scopes which related records are offered as options — this is what
+prevents a relation select from leaking records outside a multi-tenant or
+permission boundary.
 
 - `labelTemplate` controls how a related record is displayed (in selects,
   checkboxes, and the read-only "Related" block). Without it, the first

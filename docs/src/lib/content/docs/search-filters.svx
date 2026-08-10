@@ -91,7 +91,7 @@ An invalid `listFilter` entry (unknown field, sensitive field, relation, unsuppo
 { field: 'authorId', label: 'Author' }
 ```
 
-Renders using the same relation-label resolution as [Relations](/docs/relations) — options and the currently-active filter's label are both resolved through the target model's scoping `where`, so a filter can never leak a record from outside that scope. Below a configurable link threshold (default 20) options render as sidebar links; up to the FK select threshold (default 200, shared with relation selects) they render as a `<select>` in a small form; beyond that, no automatic filter UI is offered for that field.
+Renders using the same relation-label resolution as [Relations](/docs/relations) — options and the currently-active filter's label are both resolved through the target model's scoping `where`, so a filter can never leak a record from outside that scope. Below a configurable link threshold (`listFilterDefaults.linkThreshold`, default 20) options render as sidebar links; up to the FK select threshold (`relationDefaults.selectThreshold`, default 200, shared with relation selects) they render as a `<select>` in a small form; beyond that, no automatic filter UI is offered for that field.
 
 ## Case sensitivity
 
