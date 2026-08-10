@@ -1,33 +1,96 @@
 ---
 title: Changelog
-description: This is a mock changelog used only to preview documentation behavior in this template. Entries below are fictional examples that demonstrate changelog formatting and table-of-contents behavior.
+description: All notable changes to this project are documented here.
 ---
 
 > This page is auto-generated from `CHANGELOG.md` in the repository root.
 
-## Unreleased
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
+
+## [0.4.0] - 2026-08-09
+
 ### Added
-- Mock entry: demonstrates how a new section appears before release.
-- Mock entry: shows that nested headings are rendered correctly in docs.
+- **Editable relations in forms**, Django-admin style:
+  - Foreign keys (`to-one`) rendered as a `<select>` with readable labels
+    instead of a raw ID field; automatic fallback to a text input beyond a
+    configurable threshold or for composite FKs (which can't be represented
+    in an `<option>`)
+  - Implicit many-to-many relations (Prisma pivot tables) rendered as
+    checkboxes, with correct `connect`/`set` writes and protection against
+    data loss when a form is submitted with the field unchecked/absent
+  - Read-only "Related" block on edit pages, listing inverse relations
+    (1-N, 1-1) with direct links to the filtered list and to pre-filled
+    creation
+  - List filtering via `?filter=field:value`
+  - `GET {basePath}/_search` endpoint to query a relation's options as JSON
+    (pagination, text search, scoping respected) — groundwork for a future
+    client-side search widget
+- New per-model config option: `relations` (widget, label, sort order,
+  scoping via `where`, threshold for falling back to a text field)
+- Systematic server-side validation of relations before any write: ID
+  consistency, existence in the database, scoping respected — prevents
+  modifying a relation to point at an unauthorized record (IDOR)
 
 ### Changed
-- Mock entry: example wording for non-breaking updates.
+- The Prisma schema parser now correctly recognizes explicitly named
+  relations and inverse relations, including when several relations exist
+  between the same two models (avoids silent mismatches)
 
 ### Fixed
-- Mock entry: example bug-fix note for docs presentation.
+- A Prisma schema with multiple FKs on the same model (e.g. `author` and
+  `reviewer` both pointing at `User`) could previously produce an incorrect
+  relation match
 
-## 0.0.2-mock - 2026-01-15
+## [0.3.0] - 2026-08-06
+
 ### Added
-- Mock entry: sample second release with two feature bullets.
-- Mock entry: another added item to make the section non-trivial.
+- Automatic detection and hiding of pivot tables (implicit many-to-many)
+  from the list of administrable models
+- Migration of internal views to Svelte components
+- Test suite with 100% coverage and continuous integration
 
 ### Changed
-- Mock entry: adjusted wording and structure in demo docs pages.
+- Unified API around `createAdminHandler` (single SvelteKit hook)
 
 ### Fixed
-- Mock entry: corrected placeholder links in sample content.
+- Systematic escaping of values coming from the URL and the database in
+  the rendered HTML (potential XSS vulnerability)
+- ID coercion now consults the primary key's actual type (a fully numeric
+  `String` PK is no longer sent to Prisma as an `Int`)
+- An invalid `?page=` (`abc`, `0`, negative, out of safe integer range)
+  falls back to the first page instead of sending a `NaN` or negative `skip`
+- A URL with three or more segments renders a "not found" page instead of
+  the dashboard
+- Textarea field detection heuristic is now case-insensitive
+- An invalid branding color falls back to the default color instead of
+  rendering black
 
-## 0.0.1-mock - 2026-01-01
+### Removed
+- **Breaking**: removed the old loader-based API (`createAdmin`,
+  `createLayoutLoad`, `createModelListLoad`, etc.) — use
+  `createAdminHandler`
+- **Breaking**: removed the exported Svelte components
+  (`sveltekit-admin/components`) and the `sveltekit-admin/admin` export
+- **Breaking**: removed the exported CRUD utilities
+  (`createListOperation`, `buildSearchWhere`, `createAuthGuard`, …)
+- Removed configuration options that were never implemented
+  (`branding.logo`, `models[].icon`)
+
+## [0.2.1] - 2026-08-05
+
+### Fixed
+- Minor fixes to the standalone handler introduced in 0.2.0
+
+## [0.2.0] - 2026-08-05
+
 ### Added
-- Mock entry: initial fake release used for changelog route previews.
-- Mock entry: baseline section for testing previous/next docs navigation.
+- Standalone admin handler: no more manual route creation, everything goes
+  through a single hook
+
+## [0.1.0] - 2026-08-05
+
+### Added
+- First public release of `sveltekit-admin`
