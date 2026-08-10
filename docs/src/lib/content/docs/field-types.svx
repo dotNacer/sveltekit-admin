@@ -1,0 +1,38 @@
+---
+title: Field Types
+name: Field Types
+description: How Prisma field types map to form inputs, and how sensitive fields are auto-hidden from list views.
+---
+
+sveltekit-admin inspects each field's Prisma type to decide how to render it
+in create/edit forms.
+
+## Supported field types
+
+| Prisma Type                     | Form Input                                    |
+| --------------------------------- | ----------------------------------------------- |
+| `String`                          | text input (textarea for `description`/`content`/`body`) |
+| `Int`, `Float`, `Decimal`, `BigInt` | number input                                  |
+| `Boolean`                          | checkbox                                        |
+| `DateTime`                         | datetime-local input                            |
+| `Json`                             | textarea with JSON                              |
+
+Relations are handled separately — see [Relations](/docs/relations).
+
+## Automatic hiding of sensitive fields
+
+The admin auto-hides common sensitive fields from **list views**: any field
+whose name contains `password`, `hash`, `secret`, or `token`
+(case-insensitive). This covers fields like `hashedPassword`,
+`passwordHash`, and `refreshToken` without any configuration.
+
+Two things worth knowing about this heuristic:
+
+- **It matches on substrings.** It also catches names you might not expect,
+  like `hashtag`, `tokenCount`, or `secretariat`. If the heuristic gets a
+  field wrong, list it explicitly in that model's `listFields`
+  (see [Model Configuration](/docs/model-configuration)) — that's the
+  override, and the only way to show a column the heuristic hides.
+- **It only applies to list views.** Edit forms still render these fields
+  normally, so you can set or update a value. Use `models[].hidden` if you
+  want a field removed from the admin entirely, everywhere.

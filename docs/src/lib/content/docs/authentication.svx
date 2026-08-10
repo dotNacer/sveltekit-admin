@@ -1,0 +1,56 @@
+---
+title: Authentication
+name: Authentication
+description: Gate access to the admin panel with authCheck, or combine it with an existing auth handler.
+---
+
+sveltekit-admin doesn't ship its own auth system — it gives you a single
+hook, `authCheck`, to gate access with whatever auth you already have.
+
+## `authCheck`
+
+```typescript
+createAdminHandler({
+  prisma,
+  authCheck: async (event) => {
+    const session = event.locals.session;
+    return session?.user?.role === 'admin';
+  }
+});
+```
+
+`authCheck` receives the SvelteKit `RequestEvent` and can be sync or async.
+Return `true` to allow the request through to the admin, `false` to deny it.
+If `authCheck` is omitted, the admin panel is open to anyone who can reach
+`basePath` — always set one before deploying anywhere reachable by
+untrusted users.
+
+## Combining with an existing auth handler
+
+If you already have a `handle` function doing session/auth work (for
+example, populating `event.locals.session`), use SvelteKit's `sequence` so
+your auth handler runs first and the admin handler can read what it set:
+
+```typescript
+import { createAdminHandler } from 'sveltekit-admin';
+import { sequence } from '@sveltejs/kit/hooks';
+import { prisma } from '$lib/server/prisma';
+
+const authHandle = async ({ event, resolve }) => {
+  // Your auth logic here
+  event.locals.session = await getSession(event);
+  return resolve(event);
+};
+
+const adminHandle = createAdminHandler({
+  prisma,
+  authCheck: (event) => {
+    return event.locals.session?.user?.role === 'admin';
+  }
+});
+
+export const handle = sequence(authHandle, adminHandle);
+```
+
+The order matters: `authHandle` must run before `adminHandle` so that
+`event.locals.session` is populated by the time `authCheck` reads it.
