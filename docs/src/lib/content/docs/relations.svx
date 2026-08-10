@@ -55,14 +55,17 @@ models: {
   Post: {
     relations: {
       author: {
-        widget: 'select', // 'select' | 'autocomplete' | 'raw-id' | 'hidden'
+        widget: 'select', // 'select' | 'raw-id' | 'hidden'
         labelTemplate: '{firstName} {lastName} <{email}>',
         orderBy: { name: 'asc' },
         nullLabel: '— none —',
         readOnly: false
       },
       tags: {
-        widget: 'checkboxes' // 'checkboxes' | 'multiselect' | 'autocomplete'
+        widget: 'select' // same 'select' | 'raw-id' | 'hidden' type — many-to-many
+                          // relations render as checkboxes automatically by default;
+                          // 'raw-id'/'hidden' are the only overrides, there's no
+                          // separate widget enum for many-to-many
       }
     }
   }
