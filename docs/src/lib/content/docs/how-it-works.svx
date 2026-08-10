@@ -1,0 +1,50 @@
+---
+title: How It Works
+name: How It Works
+description: The request-handling pipeline behind the admin panel — introspection, routing, and server-rendered views.
+---
+
+The admin handler intercepts every request under `basePath` (default
+`/admin`) and generates HTML on the fly. There is no SvelteKit routing
+involved — no route files to create, nothing to register beyond the single
+hook from [Installation](/docs/installation).
+
+## Pipeline
+
+1. **Schema introspection.** On startup, the Prisma schema at
+   `prismaSchemaPath` is parsed to discover every model, its fields, their
+   types and attributes (`@id`, `@unique`, `@default`, `@updatedAt`), and —
+   in a second pass — the relation graph between models (which fields are
+   foreign keys, which relations are one-to-many vs. many-to-many, and so
+   on; see [Relations](/docs/relations)).
+2. **Routing.** Each incoming request path under `basePath` is matched
+   against the model/action it targets (dashboard, list, create, edit,
+   delete) using the models discovered in step 1.
+3. **Data access.** Reads and writes go through a data layer that wraps
+   your Prisma client — applying model configuration (`hidden`, `readonly`,
+   `listFields`, relation `where` scoping), coercing values to the correct
+   types, and building `where` clauses safely from query parameters.
+4. **Rendering.** Pages (dashboard, list, form, not-found) are real Svelte
+   components, server-rendered to HTML for each request — not static
+   templates.
+
+## Routes handled
+
+| Route                | Behavior                            |
+| --------------------- | -------------------------------------- |
+| `/admin`              | Dashboard with per-model statistics    |
+| `/admin/[model]`      | List view, with pagination            |
+| `/admin/[model]/new`  | Create form                           |
+| `/admin/[model]/[id]` | Edit form for that record             |
+
+Any request path that doesn't match one of these shapes renders a
+not-found page rather than falling through to your app's own routing.
+
+## Why a single hook instead of generated route files
+
+Generating actual SvelteKit route files (or injecting them into
+`config.kit.files.routes`) would require build-time codegen tied to your
+Prisma schema, and would need to re-run whenever the schema changes.
+Intercepting requests in a `handle` hook means the admin always reflects
+the current schema at request time, with zero build step and zero
+generated files to keep in sync.
