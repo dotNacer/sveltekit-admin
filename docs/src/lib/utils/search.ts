@@ -1,6 +1,8 @@
 import { contentUiDefaults, type SectionUiConfig } from '$lib/config/content-ui';
 import { contentSections } from '$lib/config/navigation';
 import { parseContentSource } from '$lib/content/frontmatter';
+import { normalizeHeadingText } from '$lib/content/sections';
+import GithubSlugger from 'github-slugger';
 
 type ContentSearchEntry = {
 	title: string;
@@ -13,15 +15,6 @@ type ContentSearchEntry = {
 	content?: string;
 	snippet?: string;
 };
-
-const slugify = (value: string) =>
-	value
-		.normalize('NFD')
-		.replace(/[\u0300-\u036f]/g, '')
-		.toLowerCase()
-		.trim()
-		.replace(/[^a-z0-9]+/g, '-')
-		.replace(/^-+|-+$/g, '');
 
 function stripMdx(content: string): string {
 	return content
@@ -111,8 +104,9 @@ function parseContentIndex() {
 		let currentHeading: string | undefined = undefined;
 		let currentAnchor = '';
 		let currentContentBuffer: string[] = [];
-		const slugCounts = new Map<string, number>();
-		let untitledSectionCount = 0;
+		// Use the same slug source (github-slugger over the mdsvex-escaped code-span text)
+		// as the real rendered heading ids, so search results link to anchors that exist.
+		const slugger = new GithubSlugger();
 
 		const flushBuffer = () => {
 			if (currentContentBuffer.length > 0) {
@@ -139,23 +133,8 @@ function parseContentIndex() {
 				flushBuffer();
 
 				const level = headingMatch[1].length;
-				const text = headingMatch[2].trim();
-				let baseSlug = slugify(text);
-				if (!baseSlug) {
-					untitledSectionCount += 1;
-					baseSlug = `section-${untitledSectionCount.toString()}`;
-				}
-				const count = slugCounts.get(baseSlug);
-				let uniqueSlug = baseSlug;
-
-				if (typeof count === 'number') {
-					const nextCount = count + 1;
-					slugCounts.set(baseSlug, nextCount);
-					uniqueSlug = `${baseSlug}-${nextCount.toString()}`;
-				} else {
-					slugCounts.set(baseSlug, 0);
-				}
-
+				const { display: text, slugSource } = normalizeHeadingText(headingMatch[2].trim());
+				const uniqueSlug = slugger.slug(slugSource || text);
 				const anchor = `#${uniqueSlug}`;
 
 				currentHeading = text;

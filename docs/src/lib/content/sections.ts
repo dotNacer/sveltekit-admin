@@ -270,20 +270,47 @@ function decodeHtmlEntities(value: string) {
 	});
 }
 
-function normalizeHeadingText(rawText: string) {
-	return decodeHtmlEntities(
-		rawText
-			.replace(/\s+#+\s*$/g, '')
-			.replace(/\\([\\`*_[\]{}()#+.!|-])/g, '$1')
-			.replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
-			.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-			.replace(/`([^`]*)`/g, '$1')
-			.replace(/<[^>]+>/g, '')
-			.replace(/\{([^{}]*)\}/g, '$1')
-			.replace(/[*_~]/g, '')
-			.replace(/\s+/g, ' ')
-			.trim()
-	);
+function escapeAngleBracketsForSlug(text: string) {
+	return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+export function normalizeHeadingText(rawText: string): { display: string; slugSource: string } {
+	// Markdown code spans (`...`) are rendered verbatim by mdsvex/remark - their content
+	// is never interpreted as markdown or as an HTML tag for the *visible* text. However,
+	// the actual rehype-slug id computed at render time is derived from a representation
+	// where "<" / ">" / "&" inside code spans have already been HTML-entity-escaped
+	// (mdsvex encodes them so they survive as literal text through the Svelte compiler).
+	// To keep this build-time id in sync with the real one, mirror that escaping only when
+	// computing the slug source, while keeping the display text human-readable/decoded.
+	const codeSpans: string[] = [];
+	const withPlaceholders = rawText.replace(/`([^`]*)`/g, (_match, code: string) => {
+		codeSpans.push(code);
+		return `@@CODESPAN${(codeSpans.length - 1).toString()}@@`;
+	});
+
+	const stripped = withPlaceholders
+		.replace(/\s+#+\s*$/g, '')
+		.replace(/\\([\\`*_[\]{}()#+.!|-])/g, '$1')
+		.replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+		.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+		.replace(/<[^>]+>/g, '')
+		.replace(/\{([^{}]*)\}/g, '$1')
+		.replace(/[*_~]/g, '');
+
+	const display = decodeHtmlEntities(
+		stripped.replace(/@@CODESPAN(\d+)@@/g, (_match, index: string) => codeSpans[Number(index)])
+	)
+		.replace(/\s+/g, ' ')
+		.trim();
+
+	const slugSource = stripped
+		.replace(/@@CODESPAN(\d+)@@/g, (_match, index: string) =>
+			escapeAngleBracketsForSlug(codeSpans[Number(index)])
+		)
+		.replace(/\s+/g, ' ')
+		.trim();
+
+	return { display, slugSource };
 }
 
 function extractTocHeadings(source: string, selector: string): ContentTocHeading[] {
@@ -306,12 +333,12 @@ function extractTocHeadings(source: string, selector: string): ContentTocHeading
 		const level = match[2].length;
 		if (!levels.has(level)) continue;
 
-		const text = normalizeHeadingText(match[3]);
-		if (!text) continue;
+		const { display, slugSource } = normalizeHeadingText(match[3]);
+		if (!display) continue;
 
 		headings.push({
-			id: slugger.slug(text),
-			text,
+			id: slugger.slug(slugSource || display),
+			text: display,
 			level
 		});
 	}

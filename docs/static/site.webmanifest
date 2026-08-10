@@ -1,6 +1,6 @@
 {
-	"name": "Motion Core",
-	"short_name": "Motion Core",
+	"name": "sveltekit-admin",
+	"short_name": "sveltekit-admin",
 	"icons": [
 		{
 			"src": "/web-app-manifest-192x192.png",

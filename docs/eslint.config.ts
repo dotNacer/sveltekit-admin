@@ -22,7 +22,10 @@ export default defineConfig(
 		languageOptions: {
 			globals: { ...globals.browser, ...globals.node },
 			parserOptions: {
-				projectService: true
+				projectService: {
+					allowDefaultProject: ['eslint.config.ts', 'svelte.config.ts']
+				},
+				tsconfigRootDir: import.meta.dirname
 			}
 		},
 		rules: {
@@ -41,6 +44,10 @@ export default defineConfig(
 				svelteConfig
 			}
 		}
+	},
+	{
+		files: ['scripts/**/*.mjs'],
+		...ts.configs.disableTypeChecked
 	},
 	{
 		rules: {
