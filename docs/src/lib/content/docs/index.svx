@@ -1,42 +1,39 @@
 ---
-title: MDSVEX Text Components
-name: Text Components
-description: Reference samples for heading, paragraph, link, inline code, blockquote, divider, lists, and fenced code.
-category: Reference
+title: sveltekit-admin
+name: Introduction
+description: A Django-like admin panel for SvelteKit applications with Prisma. Auto-generated CRUD, list views, and forms from your Prisma schema in three lines of code.
 ---
 
-This page is a compact reference for markdown-to-component mappings used in this documentation app.
+**sveltekit-admin** is a Django-like admin panel for SvelteKit applications
+backed by Prisma. Point it at your Prisma client and it introspects your
+schema to generate a full admin interface — no routes to write, no forms to
+hand-build.
 
-# H1 sample
+## Features
 
-## H2 sample
+- **Auto-introspection** of your Prisma schema
+- **CRUD operations** auto-generated for every model
+- **Standalone UI** — no external CSS required
+- **Zero routes** — everything is handled via a single SvelteKit hook
+- **3 lines of code** to set up
+- **Customizable** — hide fields, mark fields readonly, set custom labels
 
-### H3 sample
+## What you get
 
-#### H4 sample
+Once installed, navigating to `/admin` gives you:
 
-> Blockquote sample: neutral note content for policies, caveats, or status notes.
+- A dashboard with per-model statistics
+- List views with pagination
+- Create/edit forms generated from your Prisma schema
+- Delete with confirmation
+- Editable relations: foreign keys as dropdowns, many-to-many as checkboxes
 
----
+## Requirements
 
-## Unordered list sample
+- SvelteKit 2.x
+- Prisma 5.x or 6.x
 
-- First list item with **strong**.
-- Second list item with `inline code`.
-- Third list item with a [link](https://svelte.dev).
+## Next steps
 
-## Ordered list sample
-
-1. First ordered item.
-2. Second ordered item.
-3. Third ordered item.
-
-## Fenced code sample
-
-```bash
-pnpm --dir apps/web check
-```
-
-```typescript
-type ComponentName = 'h1' | 'h2' | 'h3' | 'h4';
-```
+Head to [Installation & Quick Start](/docs/installation) to add the admin
+panel to your app.

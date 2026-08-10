@@ -1,0 +1,74 @@
+---
+title: Installation & Quick Start
+name: Installation & Quick Start
+description: Install sveltekit-admin and wire it into your SvelteKit hooks in three lines of code.
+---
+
+<script lang="ts">
+	import { InstallationTabs, Steps, Step } from '$lib';
+</script>
+
+## Install
+
+<InstallationTabs pkg="sveltekit-admin" />
+
+## Quick start (3 lines!)
+
+<Steps>
+	<Step title="Add the admin handler to your hooks">
+
+```typescript
+// src/hooks.server.ts
+import { createAdminHandler } from 'sveltekit-admin';
+import { prisma } from '$lib/server/prisma';
+
+export const handle = createAdminHandler({ prisma });
+```
+
+</Step>
+
+	<Step title="Start your dev server">
+
+```bash
+npm run dev
+```
+
+</Step>
+
+	<Step title="Open /admin">
+
+That's it — no routes to create. You'll see a dashboard with model
+statistics, list views with pagination, and auto-generated create/edit forms
+for every model in your Prisma schema.
+
+</Step>
+</Steps>
+
+## Using it alongside existing auth
+
+If you already have an auth handler, combine the two with SvelteKit's
+`sequence`:
+
+```typescript
+import { createAdminHandler } from 'sveltekit-admin';
+import { sequence } from '@sveltejs/kit/hooks';
+import { prisma } from '$lib/server/prisma';
+
+const authHandle = async ({ event, resolve }) => {
+	event.locals.session = await getSession(event);
+	return resolve(event);
+};
+
+const adminHandle = createAdminHandler({
+	prisma,
+	authCheck: (event) => {
+		return event.locals.session?.user?.role === 'admin';
+	}
+});
+
+export const handle = sequence(authHandle, adminHandle);
+```
+
+See [Authentication](/docs/authentication) for more on `authCheck`, and
+[Configuration Reference](/docs/configuration-reference) for the full set of
+options `createAdminHandler` accepts.
