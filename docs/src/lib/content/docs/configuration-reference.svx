@@ -1,0 +1,79 @@
+---
+title: Configuration Reference
+name: Configuration Reference
+description: Every option createAdminHandler accepts, in one place.
+---
+
+`createAdminHandler` takes a single configuration object. Only `prisma` is
+required — everything else has a sensible default.
+
+## Full example
+
+```typescript
+createAdminHandler({
+  // Required: your Prisma client
+  prisma,
+
+  // Path to your Prisma schema (default: './prisma/schema.prisma')
+  prismaSchemaPath: './prisma/schema.prisma',
+
+  // Base path for admin routes (default: '/admin')
+  basePath: '/admin',
+
+  // Authentication check (optional)
+  authCheck: async (event) => {
+    const session = event.locals.session;
+    return session?.user?.role === 'admin';
+  },
+
+  // Per-model configuration
+  models: {
+    User: {
+      hidden: ['password', 'hashedPassword'],
+      readonly: ['id', 'createdAt', 'updatedAt'],
+      listFields: ['email', 'name', 'role', 'createdAt'],
+      label: 'Users'
+    }
+  },
+
+  // Models to exclude from admin
+  exclude: ['Session', 'VerificationToken'],
+
+  // Custom branding
+  branding: {
+    title: 'My Admin',
+    primaryColor: '#6366f1'
+  }
+});
+```
+
+## Options
+
+| Option             | Type                                    | Default                       | Description                                                                 |
+| ------------------ | ---------------------------------------- | ------------------------------ | ----------------------------------------------------------------------------- |
+| `prisma`            | `PrismaClient`                           | —                               | Required. Your Prisma client instance.                                       |
+| `prismaSchemaPath`  | `string`                                  | `'./prisma/schema.prisma'`     | Path to the schema file the admin introspects to discover models and fields. |
+| `basePath`          | `string`                                  | `'/admin'`                     | URL prefix all admin routes are served under.                                |
+| `authCheck`         | `(event: RequestEvent) => boolean \| Promise<boolean>` | none (open access) | Gate that must return `true` for a request to reach the admin. See [Authentication](/docs/authentication). |
+| `models`            | `Record<string, ModelConfig>`             | `{}`                            | Per-model overrides — hiding/readonly fields and list columns (see [Model Configuration](/docs/model-configuration)), relation rendering (see [Relations](/docs/relations)), and search/filter behavior (see [Search & Filters](/docs/search-filters)). |
+| `exclude`           | `string[]`                                | `[]`                             | Model names to hide from the admin entirely.                                 |
+| `hidePivotTables`   | `boolean`                                  | `true`                          | Automatically hides Prisma's implicit many-to-many pivot/junction tables from the admin. Explicit pivot models (ones you defined yourself with their own fields) are never auto-hidden. |
+| `relationDefaults`  | `{ selectThreshold?: number; labelFields?: string[] }` | `{ selectThreshold: 200, labelFields: ['name','title','label','email','username','slug'] }` | Defaults for relation rendering. `selectThreshold` is the option count above which a foreign-key `<select>` falls back to a raw ID input (see [Relations](/docs/relations)); `labelFields` is the field-name preference order used to auto-pick a relation's display label. |
+| `listFilterDefaults` | `{ linkThreshold?: number; autoDetect?: boolean }` | `{ linkThreshold: 20, autoDetect: true }` | Defaults for the list-view filter sidebar. `linkThreshold` is the option count above which a filter renders as a `<select>` instead of a list of links (see [Search & Filters](/docs/search-filters)); `autoDetect` controls whether Boolean/enum fields get an automatic sidebar filter when a model has no explicit `listFilter` config. |
+| `search`            | `{ mode?: 'auto' \| 'insensitive' \| 'default' }` | `{ mode: 'auto' }`      | Global free-text search behavior. Controls whether `contains` search is forced case-insensitive; see [Search & Filters](/docs/search-filters) for the full provider-support breakdown. |
+| `branding`          | `{ title?: string; primaryColor?: string }` | template defaults           | Cosmetic overrides for the admin UI.                                          |
+
+## Routes handled
+
+The handler intercepts every request under `basePath` and generates HTML
+on the fly — there are no SvelteKit route files to create:
+
+| Route                    | Behavior                     |
+| ------------------------- | ----------------------------- |
+| `/admin`                  | Dashboard                     |
+| `/admin/user`             | List all `User` records       |
+| `/admin/user/new`         | Create form                   |
+| `/admin/user/123`         | Edit form for record `123`    |
+
+See [How It Works](/docs/how-it-works) for the request-handling pipeline
+behind these routes.

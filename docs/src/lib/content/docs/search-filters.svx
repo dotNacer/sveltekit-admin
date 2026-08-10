@@ -1,0 +1,110 @@
+---
+title: Search & Filters
+name: Search & Filters
+description: Free-text search and faceted filters on list views — query string format, configuration, and the field-type security model.
+---
+
+List views support a whitelisted free-text search and faceted-filter query string.
+
+## Free-text search: `?q=`
+
+```
+/admin/post?q=svelte
+```
+
+Matches with `contains` (case-insensitive on PostgreSQL, CockroachDB, and MongoDB; case sensitivity elsewhere follows the database's own collation — see below) across a configurable set of fields, OR'd together.
+
+### Which fields are searched
+
+```typescript
+models: {
+  Post: {
+    searchFields: ['title', 'content']
+  }
+}
+```
+
+Without `searchFields`, sveltekit-admin falls back to a conservative heuristic: String fields that aren't sensitive, aren't relations/lists, and whose name matches a small list of common label field names (`name`, `title`, `label`, `email`, `username`, `slug` — the same list used to label relations, see [Relations](/docs/relations)). If no field matches, no search box is rendered — there's no fallback that scans every String column.
+
+`searchFields` — explicit or heuristic — never includes sensitive fields (see [Field Types](/docs/field-types)) or fields listed in `hidden`, even if you list them explicitly; a hidden field being searchable would make it a value-confirmation oracle via `?q=`.
+
+## Faceted filters: `?f.<field>=` and `?f.<field>__<op>=`
+
+```
+/admin/post?f.published=true&f.authorId=12
+/admin/order?f.total__gte=100&f.total__lte=500
+/admin/user?f.deletedAt__isnull=1
+```
+
+Each filter targets exactly one field. Operators are looked up from a fixed table keyed by the field's Prisma type — the query string never supplies a Prisma operator directly, only a string that's checked against this whitelist:
+
+| Field type                         | Allowed operators                  |
+| ------------------------------------ | ------------------------------------- |
+| `String`                             | `equals` (default), `contains`, `startsWith` |
+| `Int`, `BigInt`, `Float`, `Decimal`  | `equals` (default), `gte`, `lte`      |
+| `Boolean`                            | `equals` (default)                    |
+| `DateTime`                           | `equals` (default), `gte`, `lte`      |
+| `enum`                               | `equals` (default)                    |
+| any optional field                   | `isnull` (`1`/`true` = is null, `0`/`false` = is not null) |
+
+A filter targeting an unknown field, a sensitive field, a hidden field, or an operator outside that field's row is silently ignored — never a server error — and surfaced in the UI as an ignored-filter notice so a mistyped URL doesn't fail mysteriously. Sensitive and hidden fields are rejected with the *same* message as an unknown field, so a forged URL can't use the response to confirm a sensitive field's existence.
+
+### DateTime shortcuts
+
+```
+?f.createdAt=today
+?f.createdAt=7d
+?f.createdAt=month
+?f.createdAt=year
+?f.createdAt=2026-08-09      (a specific day)
+?f.createdAt__gte=2026-08-01
+?f.createdAt__lte=2026-08-31
+```
+
+`equals` on a bare day is translated into a day-long interval (`[00:00, next day)`), never a literal equality check — a `DateTime` column stores a time component, so an exact-equals on a date-only value would almost never match anything.
+
+## Sidebar filters (`listFilter`)
+
+Beyond building `where` clauses, sveltekit-admin can render a filter sidebar on list views:
+
+```typescript
+models: {
+  Post: {
+    listFilter: [
+      'published',                                  // short form
+      { field: 'status' },
+      { field: 'createdAt', presets: ['today', '7d', 'month', 'year'] },
+      { field: 'authorId', label: 'Author' },
+      { field: 'price', range: true }                // renders gte + lte inputs
+    ]
+  }
+}
+```
+
+Without explicit `listFilter`, `Boolean` and `enum` fields are auto-detected (their value domain is known statically from the schema, so rendering the sidebar costs zero extra queries). `DateTime`, numeric ranges, and foreign keys are **never** auto-detected — they require explicit config, since a DateTime's shortcut set is an editorial choice, a range needs two inputs, and a foreign-key filter needs a query to load its options.
+
+An invalid `listFilter` entry (unknown field, sensitive field, relation, unsupported type) throws at startup rather than silently producing a dead filter — a config mistake is a developer error and should fail loud.
+
+### Foreign-key filters
+
+```typescript
+{ field: 'authorId', label: 'Author' }
+```
+
+Renders using the same relation-label resolution as [Relations](/docs/relations) — options and the currently-active filter's label are both resolved through the target model's scoping `where`, so a filter can never leak a record from outside that scope. Below a configurable link threshold (`listFilterDefaults.linkThreshold`, default 20) options render as sidebar links; up to the FK select threshold (`relationDefaults.selectThreshold`, default 200, shared with relation selects) they render as a `<select>` in a small form; beyond that, no automatic filter UI is offered for that field.
+
+## Case sensitivity
+
+`contains` search is only made explicitly case-insensitive (`mode: 'insensitive'`) on providers that support it in Prisma — PostgreSQL, CockroachDB, and MongoDB. The provider is auto-detected from your Prisma schema's `datasource` block; override with:
+
+```typescript
+search: {
+  mode: 'auto' | 'insensitive' | 'default'   // default: 'auto'
+}
+```
+
+Use `insensitive`/`default` explicitly if your schema's `provider` is set via an environment variable (so it can't be read from the schema file) or you have a specific index (e.g. `citext`, a functional `lower()` index) that a forced `mode: 'insensitive'` would defeat. On SQLite and MySQL, `mode: 'insensitive'` isn't supported by Prisma at all — case sensitivity there follows the database's own collation instead.
+
+## The legacy `?filter=` parameter
+
+An older, single-field `?filter=field:value` parameter (e.g. `?filter=role:admin`) is still accepted and routed through the exact same whitelist and type-coercion pipeline described above — it gets the same security guarantees as `?f.field=`, just limited to one field and the default operator for that field's type. If both `?filter=` and `?f.<samefield>=` are present for the same field, `?f.` wins.

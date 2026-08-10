@@ -1,0 +1,39 @@
+---
+title: sveltekit-admin
+name: Introduction
+description: A Django-like admin panel for SvelteKit applications with Prisma. Auto-generated CRUD, list views, and forms from your Prisma schema in three lines of code.
+---
+
+**sveltekit-admin** is a Django-like admin panel for SvelteKit applications
+backed by Prisma. Point it at your Prisma client and it introspects your
+schema to generate a full admin interface — no routes to write, no forms to
+hand-build.
+
+## Features
+
+- **Auto-introspection** of your Prisma schema
+- **CRUD operations** auto-generated for every model
+- **Standalone UI** — no external CSS required
+- **Zero routes** — everything is handled via a single SvelteKit hook
+- **3 lines of code** to set up
+- **Customizable** — hide fields, mark fields readonly, set custom labels
+
+## What you get
+
+Once installed, navigating to `/admin` gives you:
+
+- A dashboard with per-model statistics
+- List views with pagination
+- Create/edit forms generated from your Prisma schema
+- Delete with confirmation
+- Editable relations: foreign keys as dropdowns, many-to-many as checkboxes
+
+## Requirements
+
+- SvelteKit 2.x
+- Prisma 5.x or 6.x
+
+## Next steps
+
+Head to [Installation & Quick Start](/docs/installation) to add the admin
+panel to your app.

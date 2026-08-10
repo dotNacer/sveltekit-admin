@@ -1,0 +1,88 @@
+---
+title: Relations
+name: Relations
+description: How foreign keys and many-to-many relations are detected, rendered, and validated in forms.
+---
+
+sveltekit-admin resolves your Prisma schema's relations into a graph during
+schema introspection (see [How It Works](/docs/how-it-works)), and uses it
+to render editable relation widgets in forms instead of raw foreign-key
+inputs.
+
+## Foreign keys (to-one relations)
+
+A field like `authorId` — a scalar foreign key — is rendered as a
+`<select>` of the related model's records, using a readable label instead
+of the raw ID. The scalar FK input is replaced entirely by the select; they
+are never shown side by side.
+
+- If the number of candidate options exceeds a configurable threshold
+  (`relationDefaults.selectThreshold`, 200 by default), the select falls
+  back to a raw ID input — loading tens of thousands of options into a
+  dropdown isn't practical.
+- The same fallback applies to **composite foreign keys** (a relation
+  backed by more than one scalar column) — these can't be represented as a
+  single `<option>` value, so they're rendered as a raw ID input instead.
+- Required relations don't render an empty option; optional ones do, to let
+  you clear the relation.
+
+## Many-to-many relations
+
+Implicit many-to-many relations (Prisma's automatically-managed pivot
+tables) are rendered as a set of checkboxes. Submitting the form always
+writes the complete new set of selections — checking/unchecking a box and
+saving reliably reflects what you see, with protection against accidentally
+clearing every relation just because a checkbox happened to be unchecked
+when the form was submitted.
+
+Explicit many-to-many relations (a pivot model with its own fields, like
+`role` or `addedAt` on a join table) are **not** edited from the parent
+record's form — the pivot model has its own full CRUD in the admin like any
+other model, and the parent's form shows a read-only summary of existing
+links with a link to add a new one.
+
+## Inverse (one-to-many) relations
+
+Viewing a record shows a read-only "Related" block listing records that
+point back at it (for example, a `User`'s form shows a summary of their
+`Post`s), with a link to the filtered list and a link to create a new
+related record with the foreign key pre-filled. These are not editable
+inline from the parent form.
+
+## Configuration
+
+```typescript
+models: {
+  Post: {
+    relations: {
+      author: {
+        widget: 'select', // 'select' | 'raw-id' | 'hidden'
+        labelTemplate: '{firstName} {lastName} <{email}>',
+        orderBy: { name: 'asc' },
+        where: (ctx) => ({ tenantId: ctx.locals?.tenantId }),
+        nullLabel: '— none —'
+      },
+      tags: {
+        widget: 'select' // same 'select' | 'raw-id' | 'hidden' type — many-to-many
+                          // relations render as checkboxes automatically by default;
+                          // 'raw-id'/'hidden' are the only overrides, there's no
+                          // separate widget enum for many-to-many
+      }
+    }
+  }
+}
+```
+
+`where` is a function receiving the request context (`ctx.locals`) that
+scopes which related records are offered as options — this is what
+prevents a relation select from leaking records outside a multi-tenant or
+permission boundary.
+
+- `labelTemplate` controls how a related record is displayed (in selects,
+  checkboxes, and the read-only "Related" block). Without it, the first
+  string field found (checked against a small list of common label field
+  names like `name`, `title`, `email`, `slug`) is used, falling back to the
+  primary key.
+- `widget: 'raw-id'` is always available as an escape hatch for relations
+  the automatic detection can't confidently handle (composite foreign keys,
+  ambiguous relation matches).

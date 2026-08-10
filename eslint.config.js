@@ -27,7 +27,8 @@ export default tseslint.config(
       '.svelte-kit/',
       'coverage/',
       'tests/fixtures/prisma/client/',
-      'example/'
+      'example/',
+      'docs/'
     ]
   },
   js.configs.recommended,

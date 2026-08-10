@@ -28,7 +28,6 @@ npm-debug.log*
 coverage/
 tests/fixtures/prisma/client/
 tests/fixtures/prisma/*.db
-docs/superpowers/
 
 # Example app specific
 example/node_modules/
@@ -40,3 +39,4 @@ example/prisma/*.db-journal
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
+.worktrees/

@@ -1,0 +1,48 @@
+<script lang="ts">
+	import { resolve } from '$app/paths';
+	import { brandingConfig } from '$lib';
+</script>
+
+<a
+	href="#main-content"
+	class="focus-ring sr-only fixed top-3 left-3 z-100 rounded-sm bg-foreground px-4 py-2 text-sm text-background-inset outline-none focus:not-sr-only focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+>
+	Skip to main content
+</a>
+
+<main
+	id="main-content"
+	tabindex="-1"
+	class="relative flex min-h-dvh w-full items-center justify-center overflow-hidden bg-background p-8"
+>
+	<section
+		class="relative aspect-4/3 w-200 before:pointer-events-none before:absolute before:-top-px before:left-1/2 before:w-screen before:-translate-x-1/2 before:border-t before:border-dashed before:guide before:content-[''] after:pointer-events-none after:absolute after:right-1/2 after:-bottom-px after:w-screen after:translate-x-1/2 after:border-t after:border-dashed after:guide after:content-['']"
+	>
+		<div
+			class="relative flex h-full w-full flex-col items-center justify-center gap-4 p-10 text-center before:pointer-events-none before:absolute before:top-1/2 before:-left-px before:h-dvh before:-translate-y-1/2 before:border-l before:border-dashed before:guide before:content-[''] after:pointer-events-none after:absolute after:top-1/2 after:-right-px after:h-dvh after:-translate-y-1/2 after:border-l after:border-dashed after:guide after:content-['']"
+		>
+			<span
+				class="inline-flex text-accent [&_svg]:size-14 [&_svg]:fill-current md:[&_svg]:size-22"
+				aria-hidden="true"
+			>
+				<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+				{@html brandingConfig.logoRaw}
+			</span>
+
+			<h1 class="text-4xl leading-none font-medium tracking-tight text-foreground md:text-6xl">
+				{brandingConfig.name}
+			</h1>
+			<p class="text-lg font-medium text-foreground-muted">Documentation</p>
+
+			<div class="card-outer rounded-md bg-background-inset p-1.5">
+				<a
+					// @ts-expect-error arg cannot be cast as `resolve`s expected type
+					href={resolve('/docs')}
+					class="focus-ring focus-outline inline-flex items-center justify-center rounded-sm bg-background px-4 py-2.5 text-sm font-medium text-foreground no-underline card transition-[background-color,box-shadow] duration-150 ease-out outline-none hover:bg-background-muted motion-reduce:transition-none"
+				>
+					Open Docs
+				</a>
+			</div>
+		</div>
+	</section>
+</main>
