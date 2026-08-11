@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Logout support**, same "bring your own auth" philosophy as `authCheck`:
+  - New `logout` config option — a function you provide to clear your
+    session (a cookie, an auth library's sign-out call, whatever your app
+    uses). The library has no session system of its own, so it can't know
+    how to clear yours.
+  - A "Log out" sidebar button is rendered automatically when `logout` is
+    configured, and omitted entirely otherwise — no behavioural change for
+    existing users of the option who don't set it.
+  - New `logoutRedirectTo` config option (default: `'/'`).
+  - The button submits a `POST {basePath}/_logout` form, never a bare link:
+    logging out must never be triggerable by a GET (a crawler, a link
+    prefetch). This route is checked *before* `authCheck`, so a user whose
+    session already expired can still use it to clean up client-side state
+    instead of being stuck behind a 401 with no way back.
+
 ## [0.4.0] - 2026-08-09
 
 ### Added

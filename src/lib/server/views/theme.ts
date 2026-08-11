@@ -29,6 +29,8 @@ export function styles(primaryColor: string): string {
       position: fixed;
       height: 100vh;
       overflow-y: auto;
+      display: flex;
+      flex-direction: column;
     }
 
     .ska-logo {
@@ -67,6 +69,33 @@ export function styles(primaryColor: string): string {
       background: #eef2ff;
       color: var(--ska-primary);
       font-weight: 500;
+    }
+
+    .ska-logout {
+      margin-top: auto;
+      padding-top: 1rem;
+    }
+
+    .ska-logout__btn {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      width: 100%;
+      padding: 0.625rem 0.875rem;
+      background: none;
+      border: none;
+      color: #64748b;
+      font-size: 0.875rem;
+      font-family: inherit;
+      border-radius: 0.375rem;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: left;
+    }
+
+    .ska-logout__btn:hover {
+      background: #fef2f2;
+      color: #dc2626;
     }
 
     .ska-main {

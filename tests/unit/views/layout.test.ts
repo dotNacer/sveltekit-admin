@@ -74,3 +74,27 @@ describe('Layout.svelte', () => {
     expect(html).not.toContain('<i>U');
   });
 });
+
+describe('Layout.svelte — bouton de déconnexion', () => {
+  it('sans `logout` configuré : aucun bouton, layout inchangé', () => {
+    const html = renderLayout('X', { prisma: {} });
+    // ska-logout__btn apparaît aussi tel quel dans le CSS inline du layout
+    // (règle .ska-logout__btn { ... }) — un simple toContain sur ce nom de
+    // classe passerait toujours, qu'un bouton soit rendu ou non. Seule la
+    // forme réelle de balisage `class="ska-logout__btn"` discrimine.
+    expect(html).not.toMatch(/class="ska-logout__btn"/);
+    expect(html).not.toContain('<form method="POST" action="/admin/_logout"');
+  });
+
+  it('avec `logout` configuré : le bouton est rendu, form POST vers {basePath}/_logout', () => {
+    const html = renderLayout('X', { prisma: {}, logout: () => {} });
+    expect(html).toMatch(/class="ska-logout__btn"/);
+    expect(html).toContain('<form method="POST" action="/admin/_logout"');
+    expect(html).toContain('Log out');
+  });
+
+  it('respecte un basePath personnalisé pour l\'action du form', () => {
+    const html = renderLayout('X', { prisma: {}, logout: () => {}, basePath: '/back' });
+    expect(html).toContain('action="/back/_logout"');
+  });
+});

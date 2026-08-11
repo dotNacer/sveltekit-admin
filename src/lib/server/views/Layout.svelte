@@ -18,6 +18,9 @@
   const title = $derived(branding.title || 'Admin');
   const primaryColor = $derived(branding.primaryColor || '#6366f1');
   const basePath = $derived(config.basePath || '/admin');
+  // No button at all if `logout` isn't configured — an admin that never
+  // opted into this option looks exactly as it did before it existed.
+  const showLogout = $derived(Boolean(config.logout));
 </script>
 
 <!doctype html>
@@ -57,6 +60,14 @@
           {/each}
         </ul>
       </nav>
+      {#if showLogout}
+        <form method="POST" action="{basePath}/_logout" class="ska-logout">
+          <button type="submit" class="ska-logout__btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            Log out
+          </button>
+        </form>
+      {/if}
     </aside>
     <main class="ska-main">
       <!-- eslint-disable-next-line svelte/no-at-html-tags -- content is pre-rendered HTML from sibling view components / the handler's own escaped error string -->

@@ -11,7 +11,13 @@ describe('parseRoute avec basePath /admin', () => {
     ['/admin/User', { view: 'list', model: 'User' }],
     ['/admin/user/new', { view: 'create', model: 'user' }],
     ['/admin/user/1', { view: 'edit', model: 'user', id: '1' }],
-    ['/admin/post/ckabc123', { view: 'edit', model: 'post', id: 'ckabc123' }]
+    ['/admin/post/ckabc123', { view: 'edit', model: 'post', id: 'ckabc123' }],
+    ['/admin/_logout', { view: 'logout' }],
+    // `_logout` n'est spécial qu'en position racine à un segment : un
+    // modèle nommé littéralement `_logout` (improbable mais possible en
+    // théorie) resterait dispatché en `list`/`edit` normalement dès qu'il
+    // y a un deuxième segment — seule la route à un segment est réservée.
+    ['/admin/_logout/1', { view: 'edit', model: '_logout', id: '1' }]
   ])('%s', (pathname, expected) => {
     expect(parseRoute(pathname, '/admin')).toEqual(expected);
   });

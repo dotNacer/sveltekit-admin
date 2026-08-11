@@ -1,5 +1,5 @@
 export interface ParsedRoute {
-  view: 'dashboard' | 'list' | 'create' | 'edit' | 'notFound' | 'search';
+  view: 'dashboard' | 'list' | 'create' | 'edit' | 'notFound' | 'search' | 'logout';
   model?: string;
   id?: string;
 }
@@ -19,6 +19,9 @@ export function parseRoute(pathname: string, basePath: string): ParsedRoute {
   if (segments.length === 1) {
     if (segments[0] === '_search') {
       return { view: 'search' };
+    }
+    if (segments[0] === '_logout') {
+      return { view: 'logout' };
     }
     return { view: 'list', model: segments[0] };
   }
