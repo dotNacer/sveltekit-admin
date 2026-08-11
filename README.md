@@ -107,6 +107,31 @@ const adminHandle = createAdminHandler({
 export const handle = sequence(authHandle, adminHandle);
 ```
 
+### Logout
+
+Same philosophy as `authCheck`: the library has no session system of its
+own, so it can't clear one for you. Provide the side effect (clear a
+cookie, invalidate a session, call your auth library's sign-out...) and a
+"Log out" button appears in the sidebar automatically — no button is
+rendered at all if `logout` isn't set.
+
+```typescript
+const adminHandle = createAdminHandler({
+  prisma,
+  authCheck: (event) => event.locals.session?.user?.role === 'admin',
+  logout: (event) => {
+    event.cookies.delete('session', { path: '/' });
+  },
+  logoutRedirectTo: '/login' // default: '/'
+});
+```
+
+The button submits a `POST {basePath}/_logout` form (never a bare link —
+logging out must never be triggerable by a GET, unlike a crawler or link
+prefetch would allow), and this route is checked *before* `authCheck`, so
+a user whose session already expired can still use it to clean up
+client-side state instead of being stuck behind a 401 with no way back.
+
 ## How It Works
 
 The admin handler intercepts all requests to `/admin/*` and:

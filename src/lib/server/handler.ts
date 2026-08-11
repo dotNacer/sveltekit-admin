@@ -44,6 +44,27 @@ export interface AdminHandlerConfig {
   basePath?: string;
   /** Authentication check - return true if user can access admin */
   authCheck?: (event: any) => boolean | Promise<boolean>;
+  /**
+   * Logout logic — same "bring your own auth" philosophy as `authCheck`:
+   * this library has no session system of its own, so it can't know how
+   * to clear yours (a cookie, a Lucia/Better-Auth/Auth.js call, whatever).
+   * You provide the side effect (clear the cookie, invalidate the
+   * session...); the handler wires it to a POST-only route and a sidebar
+   * button. No button is rendered at all if this isn't set — an admin
+   * with no `logout` configured looks exactly as it did before this
+   * option existed.
+   *
+   * POST-only, never a bare link: logging out must never be triggerable
+   * by a GET (a crawler, a link prefetch, `<img src>`), which a plain
+   * `<a href="/admin/_logout">` would allow. Runs BEFORE `authCheck` — a
+   * user whose session already expired (so `authCheck` would now reject
+   * them) must still be able to hit the logout route to clean up
+   * client-side state (e.g. clear a stale cookie) without being stuck
+   * behind a 401 first.
+   */
+  logout?: (event: any) => void | Promise<void>;
+  /** Where to redirect after logout (default: '/') */
+  logoutRedirectTo?: string;
   /** Per-model configuration */
   models?: Record<string, {
     hidden?: string[];
@@ -166,6 +187,8 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     prismaSchemaPath = './prisma/schema.prisma',
     basePath = '/admin',
     authCheck,
+    logout,
+    logoutRedirectTo = '/',
     exclude = [],
     hidePivotTables = true,
     models: modelsConfig = {}
@@ -566,6 +589,25 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       return resolve(event);
     }
 
+    const route = parseRoute(pathname, basePath);
+
+    // Logout: dispatched BEFORE authCheck, deliberately. A user whose
+    // session already expired (authCheck would now reject them) must
+    // still be able to hit this route to clear client-side state (a
+    // stale cookie, for instance) instead of being stuck behind a 401
+    // with no way to reach the very thing that would let them log back
+    // in cleanly. POST-only: a GET (crawler, link prefetch, <img src>)
+    // must never be able to trigger a logout side effect.
+    if (route.view === 'logout') {
+      if (event.request.method !== 'POST') {
+        return new Response('Method Not Allowed', { status: 405, headers: { Allow: 'POST' } });
+      }
+      if (logout) {
+        await logout(event);
+      }
+      return new Response(null, { status: 303, headers: { Location: logoutRedirectTo } });
+    }
+
     // Auth check
     if (authCheck) {
       const allowed = await authCheck(event);
@@ -574,7 +616,6 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       }
     }
 
-    const route = parseRoute(pathname, basePath);
     let content = '';
     let currentModel: string | undefined;
 
