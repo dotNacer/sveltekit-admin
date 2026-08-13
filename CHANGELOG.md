@@ -5,6 +5,16 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.2] - 2026-08-13
+
+### Changed
+- Redesigned the list-view filter sidebar: options render as compact,
+  wrapping pill buttons instead of a vertical list of links, cutting the
+  filter card's height dramatically on models with several facets or
+  many enum values. Also styled the FK select/raw-id inputs, the active
+  FK chip, and the numeric range inputs, which previously had no CSS at
+  all (unstyled browser defaults).
+
 ## [0.5.1] - 2026-08-13
 
 ### Changed
