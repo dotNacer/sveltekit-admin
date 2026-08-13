@@ -10,13 +10,9 @@ import { buildRelationGraph, type RelationGraph } from './introspection/relation
 import { parseRoute } from './router.js';
 import {
   primaryKeyOf,
-  toPrismaModel,
   coerceId,
   formDataToPrisma,
-  paginate,
-  createRecord,
-  updateRecord,
-  deleteRecord
+  paginate
 } from './data.js';
 import {
   parseListQuery,
@@ -672,12 +668,13 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           }
 
           if (action === 'delete' && route.id) {
-            await deleteRecord(prisma, model, route.id);
+            await adapter.data.deleteRecord(model, route.id);
             return redirectToList(route.model);
           }
 
           if (action === 'create' || action === 'update') {
             const data = formDataToPrisma(formData, model);
+            const m2mInput: Record<string, { targetPkField: string; ids: Array<string | number> }> = {};
 
             // Validation des FK owning : coercion + existence + self-ref.
             // Rejoue le `where` de scoping : un ID hors du where est rejeté,
@@ -723,11 +720,10 @@ export function createAdminHandler(config: AdminHandlerConfig) {
                 // peut porter des conditions arbitraires (scoping multi-tenant).
                 // Si le client ne sait pas répondre, on ne bloque pas l'écriture.
                 try {
-                  const where: Record<string, unknown> = {
-                    [primaryKeyOf(targetModel)]: coerced,
-                    ...(relConfig?.where ? relConfig.where({ locals: event.locals }) : {})
-                  };
-                  const found = await prisma[toPrismaModel(edge.target)].findFirst({ where });
+                  const idFilter = { op: 'eq' as const, field: primaryKeyOf(targetModel), value: coerced };
+                  const scopeFilter = relConfig?.where ? (relConfig.where({ locals: event.locals }) as any) : undefined;
+                  const filter = scopeFilter ? ({ op: 'and', clauses: [idFilter, scopeFilter] } as any) : idFilter;
+                  const found = await adapter.data.findFirst(targetModel, filter);
                   if (!found) {
                     throw new Error(`${edge.field}: invalid value`);
                   }
@@ -776,12 +772,11 @@ export function createAdminHandler(config: AdminHandlerConfig) {
                 // soumis. Un compte différent = au moins un ID invalide ou
                 // hors scoping — IDOR bloqué au même titre que pour les FK.
                 if (ids.length > 0) {
-                  const where: Record<string, unknown> = {
-                    [targetPk]: { in: ids },
-                    ...(relConfig?.where ? relConfig.where({ locals: event.locals }) : {})
-                  };
+                  const inFilter = { op: 'in' as const, field: targetPk, value: ids };
+                  const scopeFilter = relConfig?.where ? (relConfig.where({ locals: event.locals }) as any) : undefined;
+                  const filter = scopeFilter ? ({ op: 'and', clauses: [inFilter, scopeFilter] } as any) : inFilter;
                   try {
-                    const found: unknown[] = await prisma[toPrismaModel(edge.target)].findMany({ where });
+                    const found = await adapter.data.findMany(targetModel, { filter });
                     if (found.length !== new Set(ids.map(String)).size) {
                       throw new Error(`${edge.field}: invalid value`);
                     }
@@ -791,16 +786,14 @@ export function createAdminHandler(config: AdminHandlerConfig) {
                   }
                 }
 
-                const idRefs = ids.map((id: string | number) => ({ [targetPk]: id }));
-                data[edge.field] =
-                  action === 'create' ? { connect: idRefs } : { set: idRefs };
+                m2mInput[edge.field] = { targetPkField: targetPk, ids };
               }
             }
 
             if (action === 'create') {
-              await createRecord(prisma, model, data);
+              await adapter.data.createRecord(model, { scalars: data, m2m: m2mInput });
             } else if (route.id) {
-              await updateRecord(prisma, model, route.id, data);
+              await adapter.data.updateRecord(model, route.id, { scalars: data, m2m: m2mInput });
             }
 
             return redirectToList(route.model);
