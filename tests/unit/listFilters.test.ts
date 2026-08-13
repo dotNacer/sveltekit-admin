@@ -163,9 +163,15 @@ describe('PR3 — filtre DateTime (presets, config explicite)', () => {
     const { event, resolve } = createEvent({ url: '/admin/article?f.createdAt=year' });
     await h({ event, resolve } as any);
     const call = callsTo(prisma, 'article', 'findMany')[0].args as any;
-    expect(call.where.createdAt.gte).toBeInstanceOf(Date);
-    expect(call.where.createdAt.lt).toBeInstanceOf(Date);
-    expect(call.where.createdAt.gte.getUTCFullYear()).toBe(currentYear);
+    // A date-shortcut range now compiles to two AND-ed clauses (gte + lt)
+    // instead of a single { createdAt: { gte, lt } } object — see
+    // filterCompiler.ts / listQuery.ts#buildWhere's Filter AST (Task 2 of
+    // the db-adapter-abstraction refactor). Same semantics, different shape.
+    const gte = call.where.AND.find((c: any) => c.createdAt?.gte)?.createdAt.gte;
+    const lt = call.where.AND.find((c: any) => c.createdAt?.lt)?.createdAt.lt;
+    expect(gte).toBeInstanceOf(Date);
+    expect(lt).toBeInstanceOf(Date);
+    expect(gte.getUTCFullYear()).toBe(currentYear);
   });
 
   it('date invalide (2026-13-45) est ignorée de bout en bout, pas de 500', async () => {

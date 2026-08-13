@@ -24,6 +24,7 @@ import {
   buildWhere,
   resolveSearchFields
 } from './query/listQuery.js';
+import { compileFilterToPrismaWhere } from './adapters/prisma/filterCompiler.js';
 import { resolveListFilters, validateListFilterConfig, findFkEdge } from './query/filterDetection.js';
 import { escapeHtml, toLabel } from './views/html.js';
 import NotFound from './views/NotFound.svelte';
@@ -855,7 +856,8 @@ export function createAdminHandler(config: AdminHandlerConfig) {
                 `condition that actually restricts rows otherwise.`
             );
           }
-          const where = buildWhere(listQuery, listScope, caseInsensitiveSearch, model);
+          const filter = buildWhere(listQuery, listScope, caseInsensitiveSearch, model);
+          const where = compileFilterToPrismaWhere(filter, caseInsensitiveSearch);
           const { items, total } = await listRecords(prisma, model, page, PER_PAGE, where);
           const listFilters = resolveListFilters(
             model,
