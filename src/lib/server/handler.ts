@@ -572,10 +572,20 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     const searchField = labelFieldCandidates.find((c) =>
       targetModel.fields.some((f) => f.name === c && f.type === 'String')
     );
-    const searchFilter =
+    // `contains` passed as a raw Prisma object literal here (not a `Filter`
+    // leaf) is deliberate: `compileFilterToPrismaWhere` only adds
+    // `mode: 'insensitive'` for a `{ op: 'contains', ... }` leaf, which would
+    // make this endpoint's case-sensitivity depend on the adapter-wide
+    // `caseInsensitiveSearch` setting — this endpoint was always
+    // case-sensitive regardless of provider, and must stay that way (zero
+    // observable behavior change is a hard constraint of this refactor).
+    // `compile()` treats any node without a recognized `op` key as an opaque
+    // pass-through, so this raw object flows through unchanged, exactly like
+    // `configWhere` already does.
+    const searchFilter: any =
       q && searchField
-        ? ({ op: 'and', clauses: [configWhere, { op: 'contains', field: searchField, value: q }] } as any)
-        : (configWhere as any);
+        ? { op: 'and', clauses: [configWhere, { [searchField]: { contains: q } }] }
+        : configWhere;
 
     try {
       const total = await adapter.data.countRecords(targetModel, searchFilter);

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createAdminHandler } from '../../src/lib/server/handler.js';
-import { createPrismaMock, RELATIONS_SCHEMA_PATH } from '../fixtures/prismaMock.js';
+import { createPrismaMock, callsTo, RELATIONS_SCHEMA_PATH } from '../fixtures/prismaMock.js';
 import { createEvent } from '../fixtures/events.js';
 
 const users = [
@@ -46,6 +46,31 @@ describe('PR4 — endpoint de recherche /_search', () => {
     const { event, resolve } = createEvent({ url: '/admin/_search?rel=Post.author&q=ALI' });
     const body = await json(await handler(prisma)({ event, resolve } as any));
     expect(body.options).toEqual([{ id: 1, label: 'Alice' }]);
+  });
+
+  // Regression (post-review, Task 6 fix round 1): RELATIONS_SCHEMA_PATH is
+  // provider=postgresql, so the adapter-wide `caseInsensitiveSearch` resolves
+  // `true` at boot (see `resolveCaseInsensitiveSearch`) — but `_search`'s own
+  // `q=` clause must NEVER gain `mode: 'insensitive'` from that, on any
+  // provider. Before this refactor, `_search` was always case-sensitive at
+  // the Prisma-call level (the test above only passes because the MOCK's own
+  // `contains` comparison is unconditionally case-insensitive, matching real
+  // Prisma's behavior on Postgres with `mode: 'insensitive'` OR without it on
+  // a case-insensitive collation — it says nothing about which `where` shape
+  // was actually sent). This test inspects the raw call args sent to the
+  // Prisma client to prove no `mode` key is ever emitted for this endpoint.
+  it("n'émet jamais mode: 'insensitive' sur le where du contains, même avec un provider postgresql (case-sensitive verbatim, comportement inchangé)", async () => {
+    const prisma = createPrismaMock(baseData());
+    const { event, resolve } = createEvent({ url: '/admin/_search?rel=Post.author&q=ALI' });
+    await handler(prisma)({ event, resolve } as any);
+
+    const findManyCalls = callsTo(prisma, 'user', 'findMany');
+    const countCalls = callsTo(prisma, 'user', 'count');
+    expect(findManyCalls.length).toBeGreaterThan(0);
+    expect(countCalls.length).toBeGreaterThan(0);
+    for (const call of [...findManyCalls, ...countCalls]) {
+      expect(JSON.stringify(call.args)).not.toContain('mode');
+    }
   });
 
   it('fonctionne aussi pour une relation m2m-implicite', async () => {
