@@ -53,8 +53,19 @@ interface SchemaIntrospector {
 }
 
 interface DataAdapter {
+  /** Vue liste paginée d'un modèle : toujours tri PK desc, toujours count + fetch ensemble. */
   listRecords(model: Model, opts: { filter?: Filter; skip: number; take: number }):
     Promise<{ rows: Record<string, unknown>[]; total: number }>;
+  /**
+   * Lecture générale sans pagination forcée : options de relation FK/m2m,
+   * options de filtre FK sidebar, endpoint `_search`. `orderBy` est le
+   * `Record<string, 'asc'|'desc'>` déjà exposé tel quel dans
+   * `AdminHandlerConfig.models[].relations[field].orderBy` (shape Prisma
+   * publique existante, inchangée par cette spec) — l'adapter le transmet
+   * de façon opaque.
+   */
+  findMany(model: Model, opts: { filter?: Filter; orderBy?: Record<string, 'asc' | 'desc'>; skip?: number; take?: number }):
+    Promise<Record<string, unknown>[]>;
   getRecord(model: Model, id: string | number): Promise<Record<string, unknown> | null>;
   findFirst(model: Model, filter: Filter): Promise<Record<string, unknown> | null>;
   countRecords(model: Model, filter?: Filter): Promise<number>;
@@ -63,7 +74,8 @@ interface DataAdapter {
   updateRecord(model: Model, id: string | number, input: { scalars: Record<string, unknown>; m2m?: Record<string, Array<string | number>> }):
     Promise<Record<string, unknown>>;
   deleteRecord(model: Model, id: string | number): Promise<void>;
-  getM2mSelectedIds(edge: RelationEdge, recordId: string | number): Promise<Array<string | number>>;
+  /** `targetModel` est fourni par l'appelant (déjà résolu côté handler.ts dans tous les sites d'appel actuels) : évite de faire porter au Schema complet par l'adapter juste pour cette résolution de PK. */
+  getM2mSelectedIds(model: Model, edge: RelationEdge, targetModel: Model, recordId: string | number): Promise<Array<string | number>>;
 }
 
 type Filter =
@@ -76,7 +88,7 @@ type Filter =
 **`src/lib/server/adapters/prisma/`** *(nouveau)*
 - `introspector.ts` — enrobe `parsePrismaSchema` existant tel quel (implémente `SchemaIntrospector`).
 - `filterCompiler.ts` — compile `Filter` → objet `where` Prisma (`AND`/`OR`/`contains`/`startsWith`/`gte`/`lte`/`equals`/`not`/`mode: insensitive`). C'est l'ancien code de fin de pipeline de `listQuery.ts#buildWhere`, déplacé tel quel, comportement inchangé.
-- `dataAdapter.ts` — implémente `DataAdapter` : les 5 fonctions actuelles de `data.ts` deviennent des méthodes ; `createRecord`/`updateRecord` enrobent l'écriture des scalaires + `connect`/`set` m2m dans `prisma.$transaction(...)` ; `getM2mSelectedIds` reprend la logique actuelle de `loadSelectedIds` (`findUnique({ include: { [field]: true } })`). Le tri par clé primaire descendante (seul ordre utilisé aujourd'hui, jamais configurable) reste interne à `listRecords` — pas de paramètre `orderBy` dans l'interface, puisqu'aucune valeur autre que "PK desc" n'est jamais produite par le reste du code.
+- `dataAdapter.ts` — implémente `DataAdapter` : les 5 fonctions actuelles de `data.ts` deviennent des méthodes ; `createRecord`/`updateRecord` n'enrobent l'écriture dans `prisma.$transaction(...)` que si `input.m2m` porte au moins une clé (le cas scalaire seul, très majoritaire, garde un `create`/`update` direct — pas de transaction inutile) ; `getM2mSelectedIds` reprend la logique actuelle de `loadSelectedIds` (`findUnique({ include: { [field]: true } })`). Le tri par clé primaire descendante (seul ordre utilisé par la vue liste, jamais configurable) reste interne à `listRecords` — pas de paramètre `orderBy` sur cette méthode, puisqu'aucune valeur autre que "PK desc" n'est jamais produite pour elle par le reste du code.
 - `index.ts` — exporte `createPrismaAdapter({ prisma, schemaPath }): { introspector, data }`.
 
 **`introspection/relations.ts`** — inchangé dans son algorithme de pairing, prend désormais `Schema` (alias, même shape) en entrée. Renommage interne `'m2m-implicit'` → `'m2m'` : `RelationKind` n'est pas exporté publiquement (seuls `PrismaSchema`/`PrismaModel`/`PrismaField`/`createAdminHandler`/`AdminHandlerConfig`/`defaultAdminCheck`/`parsePrismaSchema`/`parseSchemaContent` le sont), donc pas de breaking change. Le nom "implicite" est spécifique à Prisma (table de jointure auto-générée) et deviendra trompeur une fois Drizzle dans la boucle (toujours une table pivot explicite) — le renommage se fait maintenant pour éviter de le refaire dans la spec suivante.
@@ -99,7 +111,7 @@ createAdminHandler({ adapter: createPrismaAdapter({ prisma, schemaPath: './schem
 
 ## Tests
 
-- `tests/fixtures/prismaMock.ts` reste le substrat de mock inchangé — `createPrismaAdapter` l'enrobe d'une couche supplémentaire, il ne le remplace pas. Aucune réécriture de mock nécessaire pour cette spec.
+- `tests/fixtures/prismaMock.ts` reste le substrat de mock — `createPrismaAdapter` l'enrobe d'une couche supplémentaire, il ne le remplace pas. Un seul ajout nécessaire : `mock.$transaction(fn)` qui invoque `fn(mock)` directement (transaction interactive triviale — le mock n'a pas de vraie isolation transactionnelle, seule la forme d'appel compte pour les tests). Toutes les assertions existantes sur `callsTo(prisma, model, method)` restent valides à l'identique : `tx` passé au callback est le même objet mock, donc les mêmes `calls` sont journalisés que sans transaction.
 - Nouveaux tests unitaires ciblés : `filterCompiler.ts` (port direct des tests actuels de `buildWhere`, mêmes cas, assertions sur la forme `Filter` puis sur le `where` Prisma compilé), `dataAdapter.ts` (chaque méthode contre `prismaMock`, y compris le chemin transactionnel m2m).
 - `tests/characterization/*` et `tests/integration/handler.db.test.ts` (SQLite réel) doivent passer sans aucune modification — c'est le critère d'acceptation du "zéro changement de comportement".
 - Coverage 100% sans exception : chaque nouvelle branche (notamment dans `dataAdapter.ts` pour les chemins m2m create vs update, et dans `filterCompiler.ts` pour chaque opérateur) a un test dédié.
