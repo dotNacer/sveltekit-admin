@@ -5,6 +5,15 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.1] - 2026-08-13
+
+### Changed
+- Widened the default free-text search heuristic: `description`, `content`,
+  `body`, and `text` are now recognized alongside `name`, `title`, `label`,
+  `email`, `username`, `slug` when auto-detecting searchable String fields
+  (no `searchFields` configured). This list is separate from — and no
+  longer described as identical to — the one used to label relations.
+
 ## [0.5.0] - 2026-08-12
 
 ### Added

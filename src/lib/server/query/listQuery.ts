@@ -42,8 +42,22 @@ export interface ListQuery {
 /** Max length accepted for the free-text search term. Longer input is truncated. */
 const MAX_SEARCH_LENGTH = 200;
 
-/** Field-name candidates used both for relation labels and for the default search heuristic (§2.1). */
-export const DEFAULT_LABEL_FIELDS = ['name', 'title', 'label', 'email', 'username', 'slug'];
+/**
+ * Field-name candidates for the default search heuristic (§2.1). Relation-label
+ * resolution (handler.ts) keeps its own separate list — the two are not shared.
+ */
+export const DEFAULT_LABEL_FIELDS = [
+  'name',
+  'title',
+  'label',
+  'email',
+  'username',
+  'slug',
+  'description',
+  'content',
+  'body',
+  'text'
+];
 
 /** Types eligible for the free-text search heuristic (String only, see §2.1). */
 function isSearchableByHeuristic(field: PrismaField): boolean {

@@ -24,7 +24,7 @@ models: {
 }
 ```
 
-Without `searchFields`, sveltekit-admin falls back to a conservative heuristic: String fields that aren't sensitive, aren't relations/lists, and whose name matches a small list of common label field names (`name`, `title`, `label`, `email`, `username`, `slug` — the same list used to label relations, see [Relations](/docs/relations)). If no field matches, no search box is rendered — there's no fallback that scans every String column.
+Without `searchFields`, sveltekit-admin falls back to a conservative heuristic: String fields that aren't sensitive, aren't relations/lists, and whose name matches a small list of common label/content field names (`name`, `title`, `label`, `email`, `username`, `slug`, `description`, `content`, `body`, `text`). This list is separate from the one used to label relations (see [Relations](/docs/relations)) — a field name can be searchable without being picked as a relation's display label. If no field matches, no search box is rendered — there's no fallback that scans every String column.
 
 `searchFields` — explicit or heuristic — never includes sensitive fields (see [Field Types](/docs/field-types)) or fields listed in `hidden`, even if you list them explicitly; a hidden field being searchable would make it a value-confirmation oracle via `?q=`.
 

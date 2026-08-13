@@ -25,9 +25,9 @@ function qs(query: string): URLSearchParams {
 const FIXED_NOW = () => new Date('2026-08-09T15:30:00.000Z');
 
 describe('resolveSearchFields — heuristique par défaut (labelFields)', () => {
-  it('sans config : reprend name/title/label/email/username/slug parmi les String non sensibles', () => {
+  it('sans config : reprend les champs DEFAULT_LABEL_FIELDS parmi les String non sensibles', () => {
     const fields = resolveSearchFields(Article, undefined);
-    expect(fields.sort()).toEqual(['slug', 'title']);
+    expect(fields.sort()).toEqual(['content', 'slug', 'title']);
   });
 
   it('exclut les champs sensibles même s\'ils matchent labelFields', () => {
@@ -74,7 +74,7 @@ describe('resolveSearchFields — config explicite searchFields', () => {
   });
 
   it('l\'heuristique par défaut aussi exclut un champ `hidden` (title serait sinon détecté)', () => {
-    expect(resolveSearchFields(Article, undefined, undefined, new Set(['title']))).toEqual(['slug']);
+    expect(resolveSearchFields(Article, undefined, undefined, new Set(['title']))).toEqual(['content', 'slug']);
   });
 
   it('rejette un champ Json/Bytes/relation configuré explicitement', () => {
@@ -626,7 +626,18 @@ describe('buildWhere — composition AND, jamais de spread', () => {
 });
 
 describe('DEFAULT_LABEL_FIELDS', () => {
-  it('contient les candidats attendus, réutilisés depuis les labels de relation', () => {
-    expect(DEFAULT_LABEL_FIELDS).toEqual(['name', 'title', 'label', 'email', 'username', 'slug']);
+  it('contient les candidats attendus pour la recherche libre', () => {
+    expect(DEFAULT_LABEL_FIELDS).toEqual([
+      'name',
+      'title',
+      'label',
+      'email',
+      'username',
+      'slug',
+      'description',
+      'content',
+      'body',
+      'text'
+    ]);
   });
 });
