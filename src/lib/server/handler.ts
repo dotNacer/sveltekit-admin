@@ -14,8 +14,6 @@ import {
   coerceId,
   formDataToPrisma,
   paginate,
-  listRecords,
-  getRecord,
   createRecord,
   updateRecord,
   deleteRecord
@@ -25,7 +23,6 @@ import {
   buildWhere,
   resolveSearchFields
 } from './query/listQuery.js';
-import { compileFilterToPrismaWhere } from './adapters/prisma/filterCompiler.js';
 import { createPrismaIntrospector } from './adapters/prisma/introspector.js';
 import { createPrismaDataAdapter } from './adapters/prisma/dataAdapter.js';
 import { resolveCaseInsensitiveSearch } from './adapters/prisma/index.js';
@@ -300,11 +297,6 @@ export function createAdminHandler(config: AdminHandlerConfig) {
 
   const adapter: { introspector: SchemaIntrospector; data: DataAdapter } =
     config.adapter ?? { introspector, data: createPrismaDataAdapter(prisma, { caseInsensitiveSearch }) };
-  // Not read anywhere else yet in this file: every per-request call site still
-  // talks to `prisma[...]`/`data.ts` directly, unchanged, until Tasks 6-7 switch
-  // them over to `adapter.data.*`. `void` only silences `no-unused-vars` in the
-  // meantime — it has no runtime effect of its own.
-  void adapter;
 
   /**
    * Champs qu'un `?f.<field>=` est autorisé à cibler pour ce modèle : tout
@@ -383,30 +375,26 @@ export function createAdminHandler(config: AdminHandlerConfig) {
         const key = `${edge.model}.${edge.field}`;
         const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
         const targetModel = schema!.models.find((m) => m.name === edge.target)!;
-        const where = relConfig?.where ? relConfig.where(ctx) : undefined;
-        const prismaKey = toPrismaModel(edge.target);
+        const filter = relConfig?.where ? (relConfig.where(ctx) as any) : undefined;
 
         try {
-          const total: number = await prisma[prismaKey].count({ where });
+          const total = await adapter.data.countRecords(targetModel, filter);
           if (total > selectThreshold || relConfig?.widget === 'raw-id') {
             const selectedIds =
               edge.kind === 'm2m-implicit' && currentId
-                ? await loadSelectedIds(model, edge, currentId, targetModel)
+                ? await adapter.data.getM2mSelectedIds(model, edge, targetModel, currentId)
                 : undefined;
             return [key, { tooMany: true, options: [], selectedIds }];
           }
 
-          const rows: Record<string, unknown>[] = await prisma[prismaKey].findMany({
-            where,
-            orderBy: relConfig?.orderBy
-          });
+          const rows = await adapter.data.findMany(targetModel, { filter, orderBy: relConfig?.orderBy });
           const options = rows.map((row) => ({
             id: row[primaryKeyOf(targetModel)] as string | number,
             label: resolveLabel(targetModel, row, relConfig?.labelTemplate)
           }));
           const selectedIds =
             edge.kind === 'm2m-implicit' && currentId
-              ? await loadSelectedIds(model, edge, currentId, targetModel)
+              ? await adapter.data.getM2mSelectedIds(model, edge, targetModel, currentId)
               : undefined;
           return [key, { tooMany: false, options, selectedIds }];
         } catch {
@@ -446,8 +434,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     // n'existe pas dans `schema.models`.
 
     const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
-    const scope = relConfig?.where ? relConfig.where(ctx) : undefined;
-    const prismaKey = toPrismaModel(edge.target);
+    const scope = relConfig?.where ? (relConfig.where(ctx) as any) : undefined;
 
     // Options de la sidebar (comptées puis chargées si sous le seuil) et
     // label du chip actif (§6.3.b) sont deux requêtes indépendantes — l'une
@@ -458,14 +445,11 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       tooMany: boolean;
     }> => {
       try {
-        const total: number = await prisma[prismaKey].count({ where: scope });
+        const total = await adapter.data.countRecords(targetModel, scope);
         if (total > selectThreshold) {
           return { options: [], tooMany: true };
         }
-        const rows: Record<string, unknown>[] = await prisma[prismaKey].findMany({
-          where: scope,
-          orderBy: relConfig?.orderBy
-        });
+        const rows = await adapter.data.findMany(targetModel, { filter: scope, orderBy: relConfig?.orderBy });
         const options = rows.map((row) => ({
           id: row[primaryKeyOf(targetModel)] as string | number,
           label: resolveLabel(targetModel, row, relConfig?.labelTemplate)
@@ -483,9 +467,9 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       if (activeRawValue === undefined) return undefined;
       const activeId = coerceId(activeRawValue, targetModel);
       try {
-        const row = await prisma[prismaKey].findFirst({
-          where: scope ? { AND: [{ [primaryKeyOf(targetModel)]: activeId }, scope] } : { [primaryKeyOf(targetModel)]: activeId }
-        });
+        const idFilter = { op: 'eq', field: primaryKeyOf(targetModel), value: activeId } as const;
+        const filter = scope ? ({ op: 'and', clauses: [idFilter, scope] } as any) : idFilter;
+        const row = await adapter.data.findFirst(targetModel, filter);
         return row ? resolveLabel(targetModel, row, relConfig?.labelTemplate) : undefined;
       } catch {
         return undefined;
@@ -510,25 +494,6 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           ? `${basePath}/${edge.target.toLowerCase()}/${encodeURIComponent(activeRawValue!)}`
           : undefined
     };
-  };
-
-  /** IDs liés côté N-N implicite, via une requête sur le join field Prisma. */
-  const loadSelectedIds = async (
-    model: PrismaModel,
-    edge: import('./introspection/relations.js').RelationEdge,
-    currentId: string,
-    targetModel: PrismaModel
-  ): Promise<(string | number)[]> => {
-    try {
-      const current = await prisma[toPrismaModel(model.name)].findUnique({
-        where: { [primaryKeyOf(model)]: coerceId(currentId, model) },
-        include: { [edge.field]: true }
-      });
-      const linked: Record<string, unknown>[] = current?.[edge.field] ?? [];
-      return linked.map((row) => row[primaryKeyOf(targetModel)] as string | number);
-    } catch {
-      return [];
-    }
   };
 
   /**
@@ -556,9 +521,12 @@ export function createAdminHandler(config: AdminHandlerConfig) {
 
         const scalarName = owning.scalarFields[0];
         const key = `${edge.model}.${edge.field}`;
+        const targetModel = schema!.models.find((m) => m.name === edge.target)!;
         try {
-          const count: number = await prisma[toPrismaModel(edge.target)].count({
-            where: { [scalarName]: coerceId(currentId, model) }
+          const count = await adapter.data.countRecords(targetModel, {
+            op: 'eq',
+            field: scalarName,
+            value: coerceId(currentId, model)
           });
           return [key, count];
         } catch {
@@ -604,23 +572,20 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     const searchField = labelFieldCandidates.find((c) =>
       targetModel.fields.some((f) => f.name === c && f.type === 'String')
     );
-    const where: Record<string, unknown> = {
-      ...configWhere,
-      ...(q && searchField ? { [searchField]: { contains: q } } : {})
-    };
+    const searchFilter =
+      q && searchField
+        ? ({ op: 'and', clauses: [configWhere, { op: 'contains', field: searchField, value: q }] } as any)
+        : (configWhere as any);
 
-    const prismaKey = toPrismaModel(edge.target);
     try {
-      const [total, rows] = await Promise.all([
-        prisma[prismaKey].count({ where }),
-        prisma[prismaKey].findMany({
-          where,
-          skip: (page - 1) * PER_PAGE,
-          take: PER_PAGE,
-          orderBy: relConfig?.orderBy
-        })
-      ]);
-      const options = (rows as Record<string, unknown>[]).map((row) => ({
+      const total = await adapter.data.countRecords(targetModel, searchFilter);
+      const rows = await adapter.data.findMany(targetModel, {
+        filter: searchFilter,
+        orderBy: relConfig?.orderBy,
+        skip: (page - 1) * PER_PAGE,
+        take: PER_PAGE
+      });
+      const options = rows.map((row) => ({
         id: row[primaryKeyOf(targetModel)],
         label: resolveLabel(targetModel, row, relConfig?.labelTemplate)
       }));
@@ -841,7 +806,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           filteredModels.map(async (m) => {
             let count = 0;
             try {
-              count = await prisma[toPrismaModel(m.name)].count();
+              count = await adapter.data.countRecords(m);
             } catch {
               // model absent from the database
             }
@@ -895,9 +860,8 @@ export function createAdminHandler(config: AdminHandlerConfig) {
                 `condition that actually restricts rows otherwise.`
             );
           }
-          const filter = buildWhere(listQuery, listScope, caseInsensitiveSearch, model);
-          const where = compileFilterToPrismaWhere(filter, caseInsensitiveSearch);
-          const { items, total } = await listRecords(prisma, model, page, PER_PAGE, where);
+          const filter = buildWhere(listQuery, listScope, caseInsensitiveSearch, model) as any;
+          const { rows: items, total } = await adapter.data.listRecords(model, { filter, skip: (page - 1) * PER_PAGE, take: PER_PAGE });
           const listFilters = resolveListFilters(
             model,
             schema!.enums,
@@ -967,7 +931,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           // atteint ce `else` — or 'edit' est la branche à 2 segments, donc `id` y est
           // toujours défini. La variante 'notFound' ne porte pas de `model` : elle est
           // interceptée en amont et ne peut pas arriver ici.
-          const item = await getRecord(prisma, model, route.id!);
+          const item = await adapter.data.getRecord(model, route.id!);
           const relationOptions = await loadRelationOptions(model, { locals: event.locals }, route.id);
           const relatedCounts = item ? await loadRelatedCounts(model, route.id!) : undefined;
           content = item
