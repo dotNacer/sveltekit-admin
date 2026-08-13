@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.3
+
+      - run: bun install --frozen-lockfile
+
+      - name: Create release PR or publish to npm
+        uses: changesets/action@v1
+        with:
+          publish: bun run release
+          version: bun run version-packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # setup-node's registry-url step writes an .npmrc that reads the auth
+          # token from NODE_AUTH_TOKEN specifically — NPM_TOKEN is just the
+          # secret's name in GitHub settings, mapped here to the var npm expects.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

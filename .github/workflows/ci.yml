@@ -41,3 +41,22 @@ jobs:
       - run: bun run lint
       - run: bun run test:coverage
       - run: bun run package
+
+  changeset-check:
+    # Only meaningful on PRs: a push to main is often the merge of a
+    # "Version Packages" PR, which legitimately consumes changesets rather
+    # than adding one.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.3
+      - run: bun install --frozen-lockfile
+      # Fails if src/ (or any published file) changed since main without a
+      # matching .changeset/*.md — catches changes that landed without one,
+      # regardless of who wrote them.
+      - run: bunx changeset status --since=origin/main

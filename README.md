@@ -5,7 +5,8 @@
 ![Version](https://img.shields.io/npm/v/sveltekit-admin)
 ![License](https://img.shields.io/npm/l/sveltekit-admin)
 
-See [CHANGELOG.md](./CHANGELOG.md) for release notes and breaking changes.
+See [CHANGELOG.md](./CHANGELOG.md) for release notes and breaking changes, and
+[CONTRIBUTING.md](./CONTRIBUTING.md) for the versioning policy and release process.
 
 ## Features
 
