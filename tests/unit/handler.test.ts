@@ -52,6 +52,12 @@ describe('createAdminHandler — config.adapter explicite', () => {
     // Même dégradation que pour un schéma illisible : aucun modèle connu.
     expect(html).not.toContain('href="/admin/user"');
   });
+
+  it('lève une erreur claire à la création si ni `prisma` ni `adapter` ne sont fournis', () => {
+    expect(() => createAdminHandler({} as any)).toThrow(
+      /createAdminHandler requires either `prisma`.*or `adapter`/
+    );
+  });
 });
 
 describe('périmètre du handler', () => {

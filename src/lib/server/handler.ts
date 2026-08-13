@@ -212,6 +212,12 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     models: modelsConfig = {}
   } = config;
 
+  if (!config.adapter && !prisma) {
+    throw new Error(
+      '[sveltekit-admin] createAdminHandler requires either `prisma` (with optional `prismaSchemaPath`) or `adapter` — neither was provided.'
+    );
+  }
+
   const introspector: SchemaIntrospector =
     config.adapter?.introspector ?? createPrismaIntrospector({ schemaPath: prismaSchemaPath });
 
