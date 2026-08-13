@@ -4,7 +4,8 @@
  */
 
 import { render } from 'svelte/server';
-import { parsePrismaSchema, type PrismaSchema, type PrismaModel, isSensitiveFieldName } from './introspection/parser.js';
+import { type PrismaModel, isSensitiveFieldName } from './introspection/parser.js';
+import type { Schema } from './types/schema.js';
 import { buildRelationGraph, type RelationGraph } from './introspection/relations.js';
 import { parseRoute } from './router.js';
 import {
@@ -25,6 +26,10 @@ import {
   resolveSearchFields
 } from './query/listQuery.js';
 import { compileFilterToPrismaWhere } from './adapters/prisma/filterCompiler.js';
+import { createPrismaIntrospector } from './adapters/prisma/introspector.js';
+import { createPrismaDataAdapter } from './adapters/prisma/dataAdapter.js';
+import { resolveCaseInsensitiveSearch } from './adapters/prisma/index.js';
+import type { DataAdapter, SchemaIntrospector } from './adapters/types.js';
 import { resolveListFilters, validateListFilterConfig, findFkEdge } from './query/filterDetection.js';
 import { escapeHtml, toLabel } from './views/html.js';
 import NotFound from './views/NotFound.svelte';
@@ -37,10 +42,22 @@ import type { ViewModel } from './views/types.js';
 const PER_PAGE = 20;
 
 export interface AdminHandlerConfig {
-  /** Prisma client instance */
-  prisma: any;
+  /**
+   * Prisma client instance. Required unless `adapter` is provided directly —
+   * exactly one of the two must be set. Kept required-looking here (not `?`)
+   * for source compatibility with every existing call site; passing neither
+   * throws at handler-creation time (see the boot block).
+   */
+  prisma?: any;
   /** Path to Prisma schema file */
   prismaSchemaPath?: string;
+  /**
+   * Explicit adapter, built via `createPrismaAdapter(...)` (or, in a future
+   * release, a Drizzle/other adapter). Takes priority over `prisma`/
+   * `prismaSchemaPath` when both are somehow set. Most consumers never touch
+   * this — passing `prisma`/`prismaSchemaPath` builds one internally.
+   */
+  adapter?: { introspector: SchemaIntrospector; data: DataAdapter };
   /** Base path for admin routes (default: /admin) */
   basePath?: string;
   /** Authentication check - return true if user can access admin */
@@ -195,11 +212,23 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     models: modelsConfig = {}
   } = config;
 
-  // Parse schema once at startup
-  let schema: PrismaSchema | null = null;
+  const introspector: SchemaIntrospector =
+    config.adapter?.introspector ?? createPrismaIntrospector({ schemaPath: prismaSchemaPath });
+
+  // Introspect the schema once at startup — same failure handling as before:
+  // a broken/missing schema source degrades to "no models known" rather than
+  // throwing out of `createAdminHandler` itself.
+  let schema: Schema | null = null;
   let relationGraph: RelationGraph | null = null;
   try {
-    schema = parsePrismaSchema(prismaSchemaPath);
+    const introspected = introspector.introspect();
+    if (introspected instanceof Promise) {
+      throw new Error(
+        '[sveltekit-admin] SchemaIntrospector.introspect() returned a Promise — ' +
+          'createAdminHandler only supports synchronous introspection today.'
+      );
+    }
+    schema = introspected;
     relationGraph = buildRelationGraph(schema);
     for (const d of relationGraph.diagnostics) {
       console.warn(`[sveltekit-admin] ${d}`);
@@ -261,11 +290,15 @@ export function createAdminHandler(config: AdminHandlerConfig) {
   // lève une erreur Prisma dure. Détection auto via le provider extrait du
   // schéma ; `search.mode` permet de forcer le comportement (provider non
   // littéral dans le schéma, index citext, etc.). Voir docs/design §2.5.
-  const searchMode = config.search?.mode ?? 'auto';
-  const caseInsensitiveSearch =
-    searchMode === 'insensitive' ||
-    (searchMode === 'auto' &&
-      ['postgresql', 'cockroachdb', 'mongodb'].includes(schema?.provider ?? ''));
+  const caseInsensitiveSearch = resolveCaseInsensitiveSearch(schema, config.search?.mode);
+
+  const adapter: { introspector: SchemaIntrospector; data: DataAdapter } =
+    config.adapter ?? { introspector, data: createPrismaDataAdapter(prisma, { caseInsensitiveSearch }) };
+  // Not read anywhere else yet in this file: every per-request call site still
+  // talks to `prisma[...]`/`data.ts` directly, unchanged, until Tasks 6-7 switch
+  // them over to `adapter.data.*`. `void` only silences `no-unused-vars` in the
+  // meantime — it has no runtime effect of its own.
+  void adapter;
 
   /**
    * Champs qu'un `?f.<field>=` est autorisé à cibler pour ce modèle : tout
