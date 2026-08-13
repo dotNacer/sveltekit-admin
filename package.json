@@ -71,7 +71,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dotNacer/sveltekit-admin.git"
+    "url": "git+https://github.com/dotNacer/sveltekit-admin.git"
   },
   "homepage": "https://github.com/dotNacer/sveltekit-admin#readme",
   "bugs": {
