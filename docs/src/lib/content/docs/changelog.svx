@@ -8,7 +8,80 @@ description: All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.5.3] - 2026-08-13
+
+### Changed
+- Parallelized independent Prisma queries that were previously awaited
+  sequentially in a loop: relation options on create/edit forms
+  (`loadRelationOptions`), inverse-relation counts on the "Related" block
+  (`loadRelatedCounts`), FK list filters on list views, and the
+  options/active-label resolution within a single FK filter. A model with
+  several relations or FK filters no longer stacks one DB round trip per
+  relation/filter on a single request.
+
+### Fixed
+- `scripts/package-size.mjs` (dev tooling, not published) failed to parse
+  `bun pm pack --dry-run` output because `bun` emits ANSI color codes even
+  when not attached to a TTY — every release since this script was added
+  silently had no real gzip size measurement. Package size itself is
+  unaffected: 48.31KB gzip / 180.66KB unpacked, zero runtime dependencies.
+
+## [0.5.2] - 2026-08-13
+
+### Changed
+- Redesigned the list-view filter sidebar: options render as compact,
+  wrapping pill buttons instead of a vertical list of links, cutting the
+  filter card's height dramatically on models with several facets or
+  many enum values. Also styled the FK select/raw-id inputs, the active
+  FK chip, and the numeric range inputs, which previously had no CSS at
+  all (unstyled browser defaults).
+
+## [0.5.1] - 2026-08-13
+
+### Changed
+- Widened the default free-text search heuristic: `description`, `content`,
+  `body`, and `text` are now recognized alongside `name`, `title`, `label`,
+  `email`, `username`, `slug` when auto-detecting searchable String fields
+  (no `searchFields` configured). This list is separate from — and no
+  longer described as identical to — the one used to label relations.
+
+## [0.5.0] - 2026-08-12
+
+### Added
+- **Free-text search and query pipeline for list views**:
+  - `?q=` search box on list views, matching `searchFields` configured
+    per model (or auto-detected String fields when unspecified)
+  - Per-field-type operator rules: `contains` on plain String fields,
+    `equals` (never `contains`) on `@id` fields — a field being coercible
+    to a search-friendly comparison is checked per type, never assumed
+- **Boolean and enum filter sidebar** on list views: auto-detected
+  Boolean/enum fields (or explicitly configured via `listFilter`) render
+  as sidebar filter groups, composed via `AND` with active search/other
+  filters
+- **DateTime presets and numeric range filters**: quick date-range chips
+  (today/7 days/this month/this year) plus manual `gte`/`lte` bounds for
+  DateTime and numeric fields
+- **FK scalar list filter**, IDOR-safe: filtering a list by a foreign-key
+  column resolves the active filter's chip label via a scoped `findFirst`
+  (never a bare `findUnique`, never trusts a raw ID as identity proof) —
+  a filter can never leak another tenant's row label even when the
+  underlying FK column itself isn't tenant-scoped
+- New per-model config options: `searchFields`, `listFilter`,
+  `listFilterDefaults` (thresholds, presets, ordering)
+- **Logout support**, same "bring your own auth" philosophy as `authCheck`:
+  - New `logout` config option — a function you provide to clear your
+    session (a cookie, an auth library's sign-out call, whatever your app
+    uses). The library has no session system of its own, so it can't know
+    how to clear yours.
+  - A "Log out" sidebar button is rendered automatically when `logout` is
+    configured, and omitted entirely otherwise — no behavioural change for
+    existing users of the option who don't set it.
+  - New `logoutRedirectTo` config option (default: `'/'`).
+  - The button submits a `POST {basePath}/_logout` form, never a bare link:
+    logging out must never be triggerable by a GET (a crawler, a link
+    prefetch). This route is checked *before* `authCheck`, so a user whose
+    session already expired can still use it to clean up client-side state
+    instead of being stuck behind a 401 with no way back.
 
 ## [0.4.0] - 2026-08-09
 
