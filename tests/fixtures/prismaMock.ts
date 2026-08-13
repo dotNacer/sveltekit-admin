@@ -81,7 +81,14 @@ export function createPrismaMock(
   overrides: Record<string, Record<string, MethodOverride>> = {}
 ): PrismaMock {
   const calls: PrismaCall[] = [];
-  const mock: PrismaMock = { calls };
+  const mock: PrismaMock = {
+    calls,
+    // Transaction interactive triviale : le mock n'a pas de vraie isolation
+    // transactionnelle (pas de rollback simulé), seule la forme d'appel
+    // compte pour les tests — `tx` EST `mock`, donc les mêmes `calls` sont
+    // journalisés qu'avec ou sans transaction.
+    $transaction: (fn: (tx: PrismaMock) => unknown) => Promise.resolve(fn(mock))
+  };
 
   for (const modelKey of new Set([...Object.keys(data), ...Object.keys(overrides)])) {
     const records = data[modelKey] ?? [];
