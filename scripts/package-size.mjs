@@ -23,7 +23,14 @@ function categorize(path) {
   return 'Other (metadata)';
 }
 
-const output = execSync('bun pm pack --dry-run', { encoding: 'utf-8' });
+// `execSync` isn't a TTY, but bun still emits ANSI color codes regardless —
+// strip them before line-matching or `parsePackedLine` never matches. Built
+// from `fromCharCode` rather than a `\x1b` literal so the regex doesn't trip
+// `no-control-regex`.
+const ESC = String.fromCharCode(27);
+const stripAnsi = (s) => s.replace(new RegExp(`${ESC}\\[[0-9;]*m`, 'g'), '');
+
+const output = stripAnsi(execSync('bun pm pack --dry-run', { encoding: 'utf-8' }));
 const files = output
   .split('\n')
   .map(parsePackedLine)

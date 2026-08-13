@@ -327,50 +327,56 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     ctx: { locals?: any },
     currentId?: string
   ): Promise<Map<string, import('./views/types.js').RelationMeta>> => {
-    const out = new Map<string, import('./views/types.js').RelationMeta>();
-    for (const edge of relationGraph!.edges.values()) {
-      if (edge.model !== model.name) continue;
-      if (edge.kind !== 'to-one-owning' && edge.kind !== 'm2m-implicit') continue;
-      if (edge.unsupported) continue;
-
+    const edges = [...relationGraph!.edges.values()].filter((edge) => {
+      if (edge.model !== model.name) return false;
+      if (edge.kind !== 'to-one-owning' && edge.kind !== 'm2m-implicit') return false;
+      if (edge.unsupported) return false;
       const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
-      if (relConfig?.widget === 'hidden') continue;
+      return relConfig?.widget !== 'hidden';
+    });
 
-      const targetModel = schema!.models.find((m) => m.name === edge.target)!;
-      const where = relConfig?.where ? relConfig.where(ctx) : undefined;
-      const prismaKey = toPrismaModel(edge.target);
+    // Une relation ne dépend pas de l'autre : chargées en parallèle plutôt
+    // qu'en série (un modèle avec N relations ne doit pas payer N
+    // aller-retours DB empilés pour afficher un seul formulaire).
+    const entries = await Promise.all(
+      edges.map(async (edge): Promise<[string, import('./views/types.js').RelationMeta]> => {
+        const key = `${edge.model}.${edge.field}`;
+        const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
+        const targetModel = schema!.models.find((m) => m.name === edge.target)!;
+        const where = relConfig?.where ? relConfig.where(ctx) : undefined;
+        const prismaKey = toPrismaModel(edge.target);
 
-      try {
-        const total: number = await prisma[prismaKey].count({ where });
-        if (total > selectThreshold || relConfig?.widget === 'raw-id') {
+        try {
+          const total: number = await prisma[prismaKey].count({ where });
+          if (total > selectThreshold || relConfig?.widget === 'raw-id') {
+            const selectedIds =
+              edge.kind === 'm2m-implicit' && currentId
+                ? await loadSelectedIds(model, edge, currentId, targetModel)
+                : undefined;
+            return [key, { tooMany: true, options: [], selectedIds }];
+          }
+
+          const rows: Record<string, unknown>[] = await prisma[prismaKey].findMany({
+            where,
+            orderBy: relConfig?.orderBy
+          });
+          const options = rows.map((row) => ({
+            id: row[primaryKeyOf(targetModel)] as string | number,
+            label: resolveLabel(targetModel, row, relConfig?.labelTemplate)
+          }));
           const selectedIds =
             edge.kind === 'm2m-implicit' && currentId
               ? await loadSelectedIds(model, edge, currentId, targetModel)
               : undefined;
-          out.set(`${edge.model}.${edge.field}`, { tooMany: true, options: [], selectedIds });
-          continue;
+          return [key, { tooMany: false, options, selectedIds }];
+        } catch {
+          // Cible absente de la base ou client incomplet : repli raw-id pour
+          // garder le champ éditable plutôt que de faire échouer tout le form.
+          return [key, { tooMany: true, options: [] }];
         }
-
-        const rows: Record<string, unknown>[] = await prisma[prismaKey].findMany({
-          where,
-          orderBy: relConfig?.orderBy
-        });
-        const options = rows.map((row) => ({
-          id: row[primaryKeyOf(targetModel)] as string | number,
-          label: resolveLabel(targetModel, row, relConfig?.labelTemplate)
-        }));
-        const selectedIds =
-          edge.kind === 'm2m-implicit' && currentId
-            ? await loadSelectedIds(model, edge, currentId, targetModel)
-            : undefined;
-        out.set(`${edge.model}.${edge.field}`, { tooMany: false, options, selectedIds });
-      } catch {
-        // Cible absente de la base ou client incomplet : repli raw-id pour
-        // garder le champ éditable plutôt que de faire échouer tout le form.
-        out.set(`${edge.model}.${edge.field}`, { tooMany: true, options: [] });
-      }
-    }
-    return out;
+      })
+    );
+    return new Map(entries);
   };
 
   /**
@@ -403,41 +409,50 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     const scope = relConfig?.where ? relConfig.where(ctx) : undefined;
     const prismaKey = toPrismaModel(edge.target);
 
-    // Options de la sidebar : scopées, comptées puis chargées si sous le seuil.
-    let options: { id: string | number; label: string }[] = [];
-    let tooMany = false;
-    try {
-      const total: number = await prisma[prismaKey].count({ where: scope });
-      if (total > selectThreshold) {
-        tooMany = true;
-      } else {
+    // Options de la sidebar (comptées puis chargées si sous le seuil) et
+    // label du chip actif (§6.3.b) sont deux requêtes indépendantes — l'une
+    // ne dépend pas du résultat de l'autre — donc en parallèle plutôt qu'en
+    // série.
+    const loadOptions = async (): Promise<{
+      options: { id: string | number; label: string }[];
+      tooMany: boolean;
+    }> => {
+      try {
+        const total: number = await prisma[prismaKey].count({ where: scope });
+        if (total > selectThreshold) {
+          return { options: [], tooMany: true };
+        }
         const rows: Record<string, unknown>[] = await prisma[prismaKey].findMany({
           where: scope,
           orderBy: relConfig?.orderBy
         });
-        options = rows.map((row) => ({
+        const options = rows.map((row) => ({
           id: row[primaryKeyOf(targetModel)] as string | number,
           label: resolveLabel(targetModel, row, relConfig?.labelTemplate)
         }));
+        return { options, tooMany: false };
+      } catch {
+        return { options: [], tooMany: true };
       }
-    } catch {
-      tooMany = true;
-    }
+    };
 
-    // Label du chip actif : résolu via findFirst scopé (§6.3.b). Un ID hors
-    // scope retourne null ici → le composant affiche l'ID brut, pas de label.
-    let activeLabel: string | undefined;
-    if (activeRawValue !== undefined) {
+    // Un ID hors scope retourne null ici → le composant affiche l'ID brut,
+    // jamais le label (sinon c'est un oracle sur le nom d'un enregistrement
+    // d'un autre tenant).
+    const loadActiveLabel = async (): Promise<string | undefined> => {
+      if (activeRawValue === undefined) return undefined;
       const activeId = coerceId(activeRawValue, targetModel);
       try {
         const row = await prisma[prismaKey].findFirst({
           where: scope ? { AND: [{ [primaryKeyOf(targetModel)]: activeId }, scope] } : { [primaryKeyOf(targetModel)]: activeId }
         });
-        activeLabel = row ? resolveLabel(targetModel, row, relConfig?.labelTemplate) : undefined;
+        return row ? resolveLabel(targetModel, row, relConfig?.labelTemplate) : undefined;
       } catch {
-        activeLabel = undefined;
+        return undefined;
       }
-    }
+    };
+
+    const [{ options, tooMany }, activeLabel] = await Promise.all([loadOptions(), loadActiveLabel()]);
 
     return {
       field: fkFieldName,
@@ -486,27 +501,32 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     model: PrismaModel,
     currentId: string
   ): Promise<Map<string, number>> => {
-    const out = new Map<string, number>();
-    for (const edge of relationGraph!.edges.values()) {
-      if (edge.model !== model.name) continue;
-      if (edge.kind !== 'to-many-inverse' && edge.kind !== 'to-one-inverse') continue;
+    const edges = [...relationGraph!.edges.values()].filter(
+      (edge) => edge.model === model.name && (edge.kind === 'to-many-inverse' || edge.kind === 'to-one-inverse')
+    );
 
-      const owning = [...relationGraph!.edges.values()].find(
-        (o) => o.model === edge.target && o.kind === 'to-one-owning' && o.relationName === edge.relationName
-      );
-      if (!owning || owning.unsupported) continue;
+    // Un count par relation inverse, indépendants entre eux : en parallèle
+    // plutôt qu'empilés un par un (même raisonnement que loadRelationOptions).
+    const entries = await Promise.all(
+      edges.map(async (edge): Promise<[string, number] | undefined> => {
+        const owning = [...relationGraph!.edges.values()].find(
+          (o) => o.model === edge.target && o.kind === 'to-one-owning' && o.relationName === edge.relationName
+        );
+        if (!owning || owning.unsupported) return undefined;
 
-      const scalarName = owning.scalarFields[0];
-      try {
-        const count: number = await prisma[toPrismaModel(edge.target)].count({
-          where: { [scalarName]: coerceId(currentId, model) }
-        });
-        out.set(`${edge.model}.${edge.field}`, count);
-      } catch {
-        out.set(`${edge.model}.${edge.field}`, 0);
-      }
-    }
-    return out;
+        const scalarName = owning.scalarFields[0];
+        const key = `${edge.model}.${edge.field}`;
+        try {
+          const count: number = await prisma[toPrismaModel(edge.target)].count({
+            where: { [scalarName]: coerceId(currentId, model) }
+          });
+          return [key, count];
+        } catch {
+          return [key, 0];
+        }
+      })
+    );
+    return new Map(entries.filter((e): e is [string, number] => e !== undefined));
   };
 
   /**
@@ -846,21 +866,26 @@ export function createAdminHandler(config: AdminHandlerConfig) {
             hiddenFieldsOf(model),
             config.listFilterDefaults?.autoDetect ?? true
           );
-          const fkFilterMeta = new Map<string, import('./views/types.js').FkFilterMeta>();
-          for (const filter of listFilters) {
-            if (filter.kind !== 'fk') continue;
-            const activeRawValue = listQuery.filters.find(
-              (f) => f.field === filter.field && f.op === 'equals'
-            )?.raw;
-            const meta = await resolveFkFilterOptions(
-              model,
-              filter.field,
-              filter.label,
-              { locals: event.locals },
-              activeRawValue
-            );
-            fkFilterMeta.set(filter.field, meta);
-          }
+          // Un filtre FK ne dépend pas de l'autre : résolus en parallèle
+          // plutôt qu'un par un (même raisonnement que loadRelationOptions).
+          const fkFilterEntries = await Promise.all(
+            listFilters
+              .filter((filter) => filter.kind === 'fk')
+              .map(async (filter): Promise<[string, import('./views/types.js').FkFilterMeta]> => {
+                const activeRawValue = listQuery.filters.find(
+                  (f) => f.field === filter.field && f.op === 'equals'
+                )?.raw;
+                const meta = await resolveFkFilterOptions(
+                  model,
+                  filter.field,
+                  filter.label,
+                  { locals: event.locals },
+                  activeRawValue
+                );
+                return [filter.field, meta];
+              })
+          );
+          const fkFilterMeta = new Map(fkFilterEntries);
           content = render(List, {
             props: {
               model: viewModel(model),

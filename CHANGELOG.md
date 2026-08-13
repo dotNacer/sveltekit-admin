@@ -5,6 +5,24 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.3] - 2026-08-13
+
+### Changed
+- Parallelized independent Prisma queries that were previously awaited
+  sequentially in a loop: relation options on create/edit forms
+  (`loadRelationOptions`), inverse-relation counts on the "Related" block
+  (`loadRelatedCounts`), FK list filters on list views, and the
+  options/active-label resolution within a single FK filter. A model with
+  several relations or FK filters no longer stacks one DB round trip per
+  relation/filter on a single request.
+
+### Fixed
+- `scripts/package-size.mjs` (dev tooling, not published) failed to parse
+  `bun pm pack --dry-run` output because `bun` emits ANSI color codes even
+  when not attached to a TTY — every release since this script was added
+  silently had no real gzip size measurement. Package size itself is
+  unaffected: 48.31KB gzip / 180.66KB unpacked, zero runtime dependencies.
+
 ## [0.5.2] - 2026-08-13
 
 ### Changed
