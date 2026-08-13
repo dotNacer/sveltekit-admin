@@ -12,3 +12,4 @@ export {
   type PrismaModel,
   type PrismaField
 } from './server/introspection/parser.js';
+export type { Schema, Model, Field } from './server/types/schema.js';

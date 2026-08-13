@@ -19,7 +19,10 @@ const TYPE_ONLY_EXPORTS = [
   'AdminHandlerConfig',
   'PrismaSchema',
   'PrismaModel',
-  'PrismaField'
+  'PrismaField',
+  'Schema',
+  'Model',
+  'Field'
 ] as const;
 
 afterEach(() => vi.restoreAllMocks());
