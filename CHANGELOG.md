@@ -5,9 +5,29 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.5.0] - 2026-08-12
 
 ### Added
+- **Free-text search and query pipeline for list views**:
+  - `?q=` search box on list views, matching `searchFields` configured
+    per model (or auto-detected String fields when unspecified)
+  - Per-field-type operator rules: `contains` on plain String fields,
+    `equals` (never `contains`) on `@id` fields — a field being coercible
+    to a search-friendly comparison is checked per type, never assumed
+- **Boolean and enum filter sidebar** on list views: auto-detected
+  Boolean/enum fields (or explicitly configured via `listFilter`) render
+  as sidebar filter groups, composed via `AND` with active search/other
+  filters
+- **DateTime presets and numeric range filters**: quick date-range chips
+  (today/7 days/this month/this year) plus manual `gte`/`lte` bounds for
+  DateTime and numeric fields
+- **FK scalar list filter**, IDOR-safe: filtering a list by a foreign-key
+  column resolves the active filter's chip label via a scoped `findFirst`
+  (never a bare `findUnique`, never trusts a raw ID as identity proof) —
+  a filter can never leak another tenant's row label even when the
+  underlying FK column itself isn't tenant-scoped
+- New per-model config options: `searchFields`, `listFilter`,
+  `listFilterDefaults` (thresholds, presets, ordering)
 - **Logout support**, same "bring your own auth" philosophy as `authCheck`:
   - New `logout` config option — a function you provide to clear your
     session (a cookie, an auth library's sign-out call, whatever your app
