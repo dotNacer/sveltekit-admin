@@ -584,13 +584,18 @@ export function createAdminHandler(config: AdminHandlerConfig) {
         : configWhere;
 
     try {
-      const total = await adapter.data.countRecords(targetModel, searchFilter);
-      const rows = await adapter.data.findMany(targetModel, {
-        filter: searchFilter,
-        orderBy: relConfig?.orderBy,
-        skip: (page - 1) * PER_PAGE,
-        take: PER_PAGE
-      });
+      // Count + fetch are independent reads — run them in parallel (as this
+      // endpoint always has, pre-refactor) rather than doubling latency with
+      // two sequential awaits.
+      const [total, rows] = await Promise.all([
+        adapter.data.countRecords(targetModel, searchFilter),
+        adapter.data.findMany(targetModel, {
+          filter: searchFilter,
+          orderBy: relConfig?.orderBy,
+          skip: (page - 1) * PER_PAGE,
+          take: PER_PAGE
+        })
+      ]);
       const options = rows.map((row) => ({
         id: row[primaryKeyOf(targetModel)],
         label: resolveLabel(targetModel, row, relConfig?.labelTemplate)
