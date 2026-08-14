@@ -12,6 +12,12 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      # Required for npm Trusted Publishing: lets this job request a
+      # short-lived OIDC token that npm exchanges for publish rights, so no
+      # NPM_TOKEN secret is needed at all. Must also be configured as a
+      # Trusted Publisher on the package's npm settings page (org/repo/
+      # workflow filename must match exactly).
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,6 +27,11 @@ jobs:
         with:
           node-version: 22
           registry-url: "https://registry.npmjs.org"
+
+      # Trusted Publishing needs npm >= 11.5.1; Node 22's bundled npm isn't
+      # guaranteed to meet that, so upgrade explicitly rather than relying on
+      # whatever setup-node happens to ship.
+      - run: npm install -g npm@latest
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -35,7 +46,3 @@ jobs:
           version: bun run version-packages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # setup-node's registry-url step writes an .npmrc that reads the auth
-          # token from NODE_AUTH_TOKEN specifically — NPM_TOKEN is just the
-          # secret's name in GitHub settings, mapped here to the var npm expects.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
