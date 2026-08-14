@@ -2,9 +2,11 @@ import {
   createTableRelationsHelpers,
   extractTablesRelationalConfig,
   is,
+  Many,
+  One,
   Table
 } from 'drizzle-orm';
-import type { Column } from 'drizzle-orm';
+import type { Column, Relation } from 'drizzle-orm';
 import { MySqlTable } from 'drizzle-orm/mysql-core';
 import { PgTable } from 'drizzle-orm/pg-core';
 import { SQLiteTable } from 'drizzle-orm/sqlite-core';
@@ -27,6 +29,12 @@ export interface InspectedDrizzleSchema {
   m2m: Map<string, M2mLink>;
   dialect: DrizzleDialect;
 }
+
+type InspectedRelation = {
+  name: string;
+  relation: Relation<string>;
+  targetTsName: string;
+};
 
 function inferDialect(tables: Table[]): DrizzleDialect {
   const dialects = new Set<DrizzleDialect>();
@@ -110,6 +118,8 @@ export function inspectDrizzleSchema(
 
   const enums = new Map<string, string[]>();
   const models: Model[] = [];
+  const modelByName = new Map<string, Model>();
+  const relationsByModel = new Map<string, InspectedRelation[]>();
 
   for (const [tsName, config] of Object.entries(relationalTables)) {
     const fields: Field[] = [];
@@ -133,13 +143,145 @@ export function inspectDrizzleSchema(
         isEnum: isEnum || undefined
       });
     }
-    models.push({ name: tsName, fields });
+    const model = { name: tsName, fields };
+    models.push(model);
+    modelByName.set(tsName, model);
+  }
+
+  for (const [tsName, config] of Object.entries(relationalTables)) {
+    const inspectedRelations: InspectedRelation[] = [];
+    for (const [name, relation] of Object.entries(config.relations)) {
+      const targetTsName = Object.entries(tables).find(
+        ([, table]) => table === relation.referencedTable
+      )![0];
+      const relationFields =
+        is(relation, One) && relation.config?.fields
+          ? relation.config.fields.map(
+              (field) =>
+                Object.entries(config.columns).find(([, column]) => column === field)![0]
+            )
+          : undefined;
+      modelByName.get(tsName)!.fields.push({
+        name,
+        type: targetTsName,
+        isRequired: false,
+        isList: is(relation, Many),
+        isUnique: false,
+        isId: false,
+        isUpdatedAt: false,
+        isCreatedAt: false,
+        hasDefault: false,
+        relation: {
+          model: targetTsName,
+          name: relation.relationName,
+          fields: relationFields
+        }
+      });
+      inspectedRelations.push({ name, relation, targetTsName });
+    }
+    relationsByModel.set(tsName, inspectedRelations);
+  }
+
+  const m2m = new Map<string, M2mLink>();
+  for (const [pivotTsName, pivotRelations] of relationsByModel) {
+    const owning = pivotRelations.filter(
+      ({ relation }) => is(relation, One) && Boolean(relation.config?.fields)
+    );
+    if (owning.length !== 2 || owning[0]!.targetTsName === owning[1]!.targetTsName) continue;
+
+    const [a, b] = owning;
+    const aMany = relationsByModel
+      .get(a!.targetTsName)!
+      .find(
+        ({ relation, targetTsName }) =>
+          is(relation, Many) && targetTsName === pivotTsName
+      );
+    const bMany = relationsByModel
+      .get(b!.targetTsName)!
+      .find(
+        ({ relation, targetTsName }) =>
+          is(relation, Many) && targetTsName === pivotTsName
+      );
+    if (!aMany || !bMany) continue;
+
+    const pivotModel = modelByName.get(pivotTsName)!;
+    const aFk = (a!.relation as One<string, boolean>).config!.fields[0]!;
+    const bFk = (b!.relation as One<string, boolean>).config!.fields[0]!;
+    const aFkJs = Object.entries(relationalTables[pivotTsName]!.columns).find(
+      ([, column]) => column === aFk
+    )![0];
+    const bFkJs = Object.entries(relationalTables[pivotTsName]!.columns).find(
+      ([, column]) => column === bFk
+    )![0];
+    const businessColumns = pivotModel.fields.filter(
+      (field) =>
+        !field.relation &&
+        !field.isId &&
+        field.name !== aFkJs &&
+        field.name !== bFkJs &&
+        !field.isCreatedAt &&
+        !field.isUpdatedAt
+    );
+    if (businessColumns.length > 1) continue;
+
+    pivotModel.isPivotTable = true;
+    const aModel = modelByName.get(a!.targetTsName)!;
+    const bModel = modelByName.get(b!.targetTsName)!;
+    if (
+      aModel.fields.some((field) => field.name === b!.targetTsName) ||
+      bModel.fields.some((field) => field.name === a!.targetTsName)
+    ) {
+      continue;
+    }
+
+    aModel.fields = aModel.fields.filter((field) => field.name !== aMany.name);
+    bModel.fields = bModel.fields.filter((field) => field.name !== bMany.name);
+    aModel.fields.push({
+      name: b!.targetTsName,
+      type: b!.targetTsName,
+      isRequired: false,
+      isList: true,
+      isUnique: false,
+      isId: false,
+      isUpdatedAt: false,
+      isCreatedAt: false,
+      hasDefault: false,
+      relation: { model: b!.targetTsName }
+    });
+    bModel.fields.push({
+      name: a!.targetTsName,
+      type: a!.targetTsName,
+      isRequired: false,
+      isList: true,
+      isUnique: false,
+      isId: false,
+      isUpdatedAt: false,
+      isCreatedAt: false,
+      hasDefault: false,
+      relation: { model: a!.targetTsName }
+    });
+    m2m.set(`${a!.targetTsName}.${b!.targetTsName}`, {
+      pivot: tables[pivotTsName]!,
+      selfColumn: aFk,
+      otherColumn: bFk,
+      selfKey: aFkJs,
+      otherKey: bFkJs,
+      targetTsName: b!.targetTsName
+    });
+    m2m.set(`${b!.targetTsName}.${a!.targetTsName}`, {
+      pivot: tables[pivotTsName]!,
+      selfColumn: bFk,
+      otherColumn: aFk,
+      selfKey: bFkJs,
+      otherKey: aFkJs,
+      targetTsName: a!.targetTsName
+    });
   }
 
   return {
     schema: { models, enums, provider: resolved },
     tables,
-    m2m: new Map(),
+    m2m,
     dialect: resolved
   };
 }
