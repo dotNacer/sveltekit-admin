@@ -58,5 +58,12 @@ jobs:
       - run: bun install --frozen-lockfile
       # Fails if src/ (or any published file) changed since main without a
       # matching .changeset/*.md — catches changes that landed without one,
-      # regardless of who wrote them.
-      - run: bunx changeset status --since=origin/main
+      # regardless of who wrote them. The extra echo on failure is aimed at
+      # an AI agent picking up this PR: it has no reason to already know
+      # about .claude/skills/writing-changesets/SKILL.md, so the failure
+      # itself points there instead of relying on the agent stumbling onto it.
+      - run: |
+          bunx changeset status --since=origin/main || {
+            echo "::error::No changeset found for this change. If you are an AI agent: read .claude/skills/writing-changesets/SKILL.md in this repo before adding one — it explains how to pick the bump type (patch/minor/major) and write the entry. Then add a .changeset/*.md file and push it to this branch."
+            exit 1
+          }
