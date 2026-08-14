@@ -16,6 +16,7 @@ See [CHANGELOG.md](./CHANGELOG.md) for release notes and breaking changes, and
 - ⚡ **Zero routes** - everything handled via a single hook
 - 🪶 **3 lines of code** to setup
 - 🔧 **Customizable** - hide fields, set readonly, custom labels
+- 🔌 **Drizzle adapter** (optional subpath export)
 
 ## Installation
 
@@ -42,6 +43,30 @@ That's it! Navigate to `/admin` and you'll see:
 - List views with pagination
 - Create/Edit forms auto-generated from your Prisma schema
 - Delete with confirmation
+
+## Drizzle
+
+Prisma stays the default. For Drizzle, pass an adapter from the subpath
+export (this does not pull in `drizzle-orm` for Prisma apps):
+
+```typescript
+import { createAdminHandler } from 'sveltekit-admin';
+import { createDrizzleAdapter } from 'sveltekit-admin/adapters/drizzle';
+import { db } from './db';
+import * as schema from './db/schema';
+
+export const handle = createAdminHandler({
+  adapter: createDrizzleAdapter({ db, schema }),
+  authCheck: (event) => event.locals.session?.user?.role === 'admin'
+});
+```
+
+Pass the same `schema` object you already export (tables + `relations()`).
+Model names in `config.models` are the JS export keys (`users`, not `User`).
+`config.search.mode` only applies to `createAdminHandler({ prisma })`;
+pass `searchMode` to `createDrizzleAdapter` instead. Nested Prisma `where`
+objects in `listWhere` are not supported — use a flat `{ tenantId: 1 }` or
+a `Filter` AST.
 
 ## Configuration
 
