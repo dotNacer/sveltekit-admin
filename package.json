@@ -10,6 +10,11 @@
       "types": "./dist/index.d.ts",
       "svelte": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./adapters/drizzle": {
+      "types": "./dist/server/adapters/drizzle/index.d.ts",
+      "svelte": "./dist/server/adapters/drizzle/index.js",
+      "default": "./dist/server/adapters/drizzle/index.js"
     }
   },
   "files": [
@@ -42,8 +47,12 @@
     "svelte": ">=5.0.0"
   },
   "peerDependenciesMeta": {
-    "@prisma/client": { "optional": true },
-    "drizzle-orm": { "optional": true }
+    "@prisma/client": {
+      "optional": true
+    },
+    "drizzle-orm": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.0",
