@@ -22,7 +22,7 @@ import {
 import { createPrismaIntrospector } from './adapters/prisma/introspector.js';
 import { createPrismaDataAdapter } from './adapters/prisma/dataAdapter.js';
 import { resolveCaseInsensitiveSearch } from './adapters/prisma/index.js';
-import { normalizeScope } from './adapters/filter.js';
+import { normalizeScope, OPAQUE_FILTER_ERROR } from './adapters/filter.js';
 import type { DataAdapter, SchemaIntrospector } from './adapters/types.js';
 import { resolveListFilters, validateListFilterConfig, findFkEdge } from './query/filterDetection.js';
 import { escapeHtml, toLabel } from './views/html.js';
@@ -747,7 +747,11 @@ export function createAdminHandler(config: AdminHandlerConfig) {
                   }
                 } catch (e: any) {
                   if (e?.message?.includes('invalid value')) throw e;
-                  if (e?.message?.includes('nested Prisma `where` is not supported')) {
+                  if (
+                    e?.message &&
+                    (e.message.includes(OPAQUE_FILTER_ERROR) ||
+                      OPAQUE_FILTER_ERROR.startsWith(e.message))
+                  ) {
                     throw new Error(`${edge.field}: invalid value`);
                   }
                   if (e?.message?.includes('unknown field')) {
@@ -806,7 +810,11 @@ export function createAdminHandler(config: AdminHandlerConfig) {
                     }
                   } catch (e: any) {
                     if (e?.message?.includes('invalid value')) throw e;
-                    if (e?.message?.includes('nested Prisma `where` is not supported')) {
+                    if (
+                      e?.message &&
+                      (e.message.includes(OPAQUE_FILTER_ERROR) ||
+                        OPAQUE_FILTER_ERROR.startsWith(e.message))
+                    ) {
                       throw new Error(`${edge.field}: invalid value`);
                     }
                     if (e?.message?.includes('unknown field')) {

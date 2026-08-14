@@ -303,6 +303,12 @@ export function createDrizzleDataAdapter(
       const links = [...ctx.m2m.entries()]
         .filter(([key]) => key.startsWith(`${model.name}.`))
         .map(([, link]) => link);
+      if (links.length === 0) {
+        await db
+          .delete(table)
+          .where(eq(primaryKeyColumn(table, model), coercedId));
+        return;
+      }
       if (ctx.dialect === "sqlite") {
         db.transaction((tx: any) => {
           for (const link of links) {

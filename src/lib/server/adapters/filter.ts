@@ -1,5 +1,8 @@
 import type { CompositeFilter, Filter, LeafFilter } from './types.js';
 
+export const OPAQUE_FILTER_ERROR =
+  'nested Prisma `where` is not supported by the Drizzle adapter; return a Filter or a flat `{ field: scalar }` map';
+
 export const LEAF_OPS = new Set<LeafFilter['op']>([
   'eq',
   'contains',

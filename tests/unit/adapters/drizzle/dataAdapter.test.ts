@@ -184,6 +184,19 @@ describe("createDrizzleDataAdapter", () => {
     db.transaction = transaction;
   });
 
+  it("deletes scalar records without opening a transaction", async () => {
+    seedUsers();
+    const transaction = db.transaction;
+    db.transaction = (() => {
+      throw new Error("unexpected transaction");
+    }) as typeof db.transaction;
+
+    await adapter.deleteRecord(users, "2");
+
+    expect(await adapter.getRecord(users, 2)).toBeNull();
+    db.transaction = transaction;
+  });
+
   it("updates and deletes scalar records", async () => {
     seedUsers();
 

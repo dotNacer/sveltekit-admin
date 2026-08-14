@@ -12,12 +12,15 @@ import {
   sql,
 } from "drizzle-orm";
 import type { Column, SQL, Table } from "drizzle-orm";
-import { isCompositeFilter, isLeafFilter } from "../filter.js";
+import {
+  isCompositeFilter,
+  isLeafFilter,
+  OPAQUE_FILTER_ERROR,
+} from "../filter.js";
 import type { Filter, LeafFilter } from "../types.js";
 import type { DrizzleDialect } from "./inspect.js";
 
-export const OPAQUE_FILTER_ERROR =
-  "nested Prisma `where` is not supported by the Drizzle adapter; return a Filter or a flat `{ field: scalar }` map";
+export { OPAQUE_FILTER_ERROR } from "../filter.js";
 
 function escapeLikePattern(value: unknown): string {
   return String(value).replace(/([%_!])/g, "!$1");

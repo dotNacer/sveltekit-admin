@@ -279,6 +279,90 @@ describe('admin handler with a real Drizzle SQLite database', () => {
     ).toEqual([{ tagId: allowedTagId }]);
   });
 
+  it('fails closed on an opaque many-to-many scope during create', async () => {
+    const authorId = insertUser('author@x.y', 1, 'Author');
+    const tagId = Number(
+      sqlite.prepare('INSERT INTO tags (name) VALUES (?)').run('forged').lastInsertRowid
+    );
+    const scopedHandler = createAdminHandler({
+      adapter: createDrizzleAdapter({ db, schema }),
+      models: {
+        posts: {
+          relations: {
+            tags: { where: () => ({ author: { is: { tenantId: 1 } } }) }
+          }
+        }
+      },
+      authCheck: () => true
+    });
+
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const html = await (
+      await callWith(scopedHandler, '/admin/posts/new', {
+        _action: 'create',
+        title: 'Rejected opaque scope',
+        authorId: String(authorId),
+        __rel_present__tags: '1',
+        __rel__tags: String(tagId)
+      })
+    ).text();
+    error.mockRestore();
+
+    expect(html).toContain(ERROR_ALERT);
+    expect(html).toContain('invalid value');
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM posts').get()).toEqual({ count: 0 });
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM posts_to_tags').get()).toEqual({
+      count: 0
+    });
+  });
+
+  it('fails closed on an opaque many-to-many scope during update', async () => {
+    const authorId = insertUser('author@x.y', 1, 'Author');
+    const insertTag = sqlite.prepare('INSERT INTO tags (name) VALUES (?)');
+    const existingTagId = Number(insertTag.run('existing').lastInsertRowid);
+    const forgedTagId = Number(insertTag.run('forged').lastInsertRowid);
+    const postId = Number(
+      sqlite
+        .prepare('INSERT INTO posts (title, author_id) VALUES (?, ?)')
+        .run('Existing post', authorId).lastInsertRowid
+    );
+    sqlite
+      .prepare('INSERT INTO posts_to_tags (post_id, tag_id) VALUES (?, ?)')
+      .run(postId, existingTagId);
+    const scopedHandler = createAdminHandler({
+      adapter: createDrizzleAdapter({ db, schema }),
+      models: {
+        posts: {
+          relations: {
+            tags: { where: () => ({ author: { is: { tenantId: 1 } } }) }
+          }
+        }
+      },
+      authCheck: () => true
+    });
+
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const html = await (
+      await callWith(scopedHandler, `/admin/posts/${postId}`, {
+        _action: 'update',
+        title: 'Rejected update',
+        authorId: String(authorId),
+        __rel_present__tags: '1',
+        __rel__tags: String(forgedTagId)
+      })
+    ).text();
+    error.mockRestore();
+
+    expect(html).toContain(ERROR_ALERT);
+    expect(html).toContain('invalid value');
+    expect(sqlite.prepare('SELECT title FROM posts WHERE id = ?').get(postId)).toEqual({
+      title: 'Existing post'
+    });
+    expect(
+      sqlite.prepare('SELECT tag_id AS tagId FROM posts_to_tags WHERE post_id = ?').all(postId)
+    ).toEqual([{ tagId: existingTagId }]);
+  });
+
   it('searches Drizzle relation options without a configured scope', async () => {
     const authorId = insertUser('ada@x.y', 1, 'Ada');
     insertUser('grace@x.y', 1, 'Grace');
