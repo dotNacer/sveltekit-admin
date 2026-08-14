@@ -13,7 +13,7 @@ export interface CompositeFilter {
 }
 
 export interface LeafFilter {
-  op: 'eq' | 'contains' | 'startsWith' | 'gte' | 'lte' | 'lt' | 'in' | 'isNull' | 'isNotNull';
+  op: 'eq' | 'contains' | 'containsExact' | 'startsWith' | 'gte' | 'lte' | 'lt' | 'in' | 'isNull' | 'isNotNull';
   field: string;
   value?: unknown;
 }

@@ -100,4 +100,13 @@ describe('compileFilterToPrismaWhere', () => {
       tenantId: 1
     });
   });
+
+  it('leaf containsExact → { contains } sans mode, même si caseInsensitiveSearch', () => {
+    expect(compileFilterToPrismaWhere({ op: 'containsExact', field: 'name', value: 'ALI' }, true)).toEqual({
+      name: { contains: 'ALI' }
+    });
+    expect(compileFilterToPrismaWhere({ op: 'containsExact', field: 'name', value: 'ALI' }, false)).toEqual({
+      name: { contains: 'ALI' }
+    });
+  });
 });
