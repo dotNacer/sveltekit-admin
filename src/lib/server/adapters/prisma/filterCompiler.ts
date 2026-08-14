@@ -40,21 +40,66 @@ function compileLeaf(filter: LeafFilter, caseInsensitiveSearch: boolean): Prisma
   }
 }
 
+const LEAF_OPS = new Set<LeafFilter['op']>([
+  'eq',
+  'contains',
+  'startsWith',
+  'gte',
+  'lte',
+  'lt',
+  'in',
+  'isNull',
+  'isNotNull'
+]);
+
+/**
+ * Structural (not duck-typed) discrimination: a raw scope/opaque object may
+ * legitimately have a field literally named `op` (e.g. a developer's model
+ * has a scalar column called `op`) — matching on `'op' in node` alone would
+ * misidentify it as a `Filter` node and either drop it silently (leaf switch
+ * has no `default`) or throw (composite has no `clauses`). Both shapes below
+ * must match in full before we treat `node` as a genuine `Filter` node;
+ * anything else falls through to the opaque pass-through.
+ */
+function isCompositeFilter(node: unknown): node is CompositeFilter {
+  return (
+    typeof node === 'object' &&
+    node !== null &&
+    'op' in node &&
+    (node.op === 'and' || node.op === 'or') &&
+    'clauses' in node &&
+    Array.isArray((node as { clauses: unknown }).clauses)
+  );
+}
+
+function isLeafFilter(node: unknown): node is LeafFilter {
+  return (
+    typeof node === 'object' &&
+    node !== null &&
+    'op' in node &&
+    typeof (node as { op: unknown }).op === 'string' &&
+    LEAF_OPS.has((node as { op: LeafFilter['op'] }).op) &&
+    'field' in node &&
+    typeof (node as { field: unknown }).field === 'string'
+  );
+}
+
 /**
  * `scope`/opaque Prisma fragments composed by `buildWhere` alongside `Filter`
  * nodes flow straight through here as plain objects — `and`/`or` are the only
  * two shapes `buildWhere` ever nests a raw object inside, so a non-`Filter`
  * entry inside a `clauses` array is always one of those two escape hatches,
- * never a third node type to guard against.
+ * never a third node type to guard against. Discrimination is structural
+ * (see `isCompositeFilter`/`isLeafFilter`) so an opaque object that merely
+ * happens to have an `op` key never gets misidentified as a `Filter` node.
  */
 function compile(node: Filter | PrismaWhere, caseInsensitiveSearch: boolean): PrismaWhere {
-  if ('op' in node && (node.op === 'and' || node.op === 'or')) {
-    const composite = node as CompositeFilter;
-    const clauses = composite.clauses.map((c) => compile(c, caseInsensitiveSearch));
-    return composite.op === 'and' ? { AND: clauses } : { OR: clauses };
+  if (isCompositeFilter(node)) {
+    const clauses = node.clauses.map((c) => compile(c, caseInsensitiveSearch));
+    return node.op === 'and' ? { AND: clauses } : { OR: clauses };
   }
-  if ('op' in node) {
-    return compileLeaf(node as LeafFilter, caseInsensitiveSearch);
+  if (isLeafFilter(node)) {
+    return compileLeaf(node, caseInsensitiveSearch);
   }
   return node as PrismaWhere;
 }

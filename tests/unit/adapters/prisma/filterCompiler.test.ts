@@ -82,4 +82,22 @@ describe('compileFilterToPrismaWhere', () => {
   it('un scope brut seul (pas de wrapper) passe tel quel', () => {
     expect(compileFilterToPrismaWhere({ tenantId: 1 }, false)).toEqual({ tenantId: 1 });
   });
+
+  it('scope brut avec un champ littéralement nommé `op` (valeur non reconnue) passe tel quel, sans devenir undefined', () => {
+    expect(compileFilterToPrismaWhere({ op: 'read', tenantId: 1 }, false)).toEqual({
+      op: 'read',
+      tenantId: 1
+    });
+  });
+
+  it('scope brut avec op "and"/"or" mais sans tableau `clauses` passe tel quel, sans throw', () => {
+    expect(compileFilterToPrismaWhere({ op: 'and', tenantId: 1 }, false)).toEqual({
+      op: 'and',
+      tenantId: 1
+    });
+    expect(compileFilterToPrismaWhere({ op: 'or', tenantId: 1 }, false)).toEqual({
+      op: 'or',
+      tenantId: 1
+    });
+  });
 });
