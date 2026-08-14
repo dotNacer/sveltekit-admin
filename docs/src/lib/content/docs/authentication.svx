@@ -54,3 +54,9 @@ export const handle = sequence(authHandle, adminHandle);
 
 The order matters: `authHandle` must run before `adminHandle` so that
 `event.locals.session` is populated by the time `authCheck` reads it.
+
+## Recording who changed what
+
+`authCheck` only gates access. To record which administrator created,
+updated, or deleted a row, pass [`audit`](/docs/audit-log) — it receives
+the same `event` (so the same `locals`) after every successful write.

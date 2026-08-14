@@ -16,6 +16,7 @@ See [CHANGELOG.md](./CHANGELOG.md) for release notes and breaking changes, and
 - ⚡ **Zero routes** - everything handled via a single hook
 - 🪶 **3 lines of code** to setup
 - 🔧 **Customizable** - hide fields, set readonly, custom labels
+- 📋 **Audit log** - optional callback after every successful write
 - 🔌 **Drizzle adapter** (optional subpath export)
 
 ## Installation
@@ -166,6 +167,37 @@ logging out must never be triggerable by a GET, unlike a crawler or link
 prefetch would allow), and this route is checked *before* `authCheck`, so
 a user whose session already expired can still use it to clean up
 client-side state instead of being stuck behind a 401 with no way back.
+
+### Audit log
+
+Same philosophy as `authCheck` / `logout`: the library has no log table of
+its own. Provide an `audit` callback and it is called after every
+**successful** create, update, or delete with a redacted `AuditEvent`.
+The actor is whatever you already put on `event.locals`. Sensitive and
+`hidden` fields are stripped. If the callback throws, the mutation still
+redirects.
+
+```typescript
+const adminHandle = createAdminHandler({
+  prisma,
+  authCheck: (event) => event.locals.session?.user?.role === 'admin',
+  audit: async (entry) => {
+    await prisma.auditLog.create({
+      data: {
+        at: entry.at,
+        actorId: entry.event.locals.session?.user?.id,
+        action: entry.action,
+        model: entry.model,
+        recordId: String(entry.id),
+        changes: entry.action === 'update' ? entry.changes : undefined
+      }
+    });
+  }
+});
+```
+
+No callback means no behaviour change. Persist to your own model if you
+want the log to appear in the admin like any other table.
 
 ## How It Works
 

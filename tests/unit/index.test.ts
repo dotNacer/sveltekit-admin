@@ -5,10 +5,11 @@ import { FULL_SCHEMA_PATH } from '../fixtures/prismaMock.js';
 
 /**
  * Épingle la surface publique du paquet. Les exports de type (`AdminHandlerConfig`,
- * `PrismaSchema`, `PrismaModel`, `PrismaField`, `Schema`, `Model`, `Field`, `DataAdapter`,
- * `SchemaIntrospector`, `Filter`) n'ont aucune présence à l'exécution : seules les cinq
- * fonctions doivent apparaître ici. Toute addition ou suppression dans `src/lib/index.ts`
- * fait échouer ce test — c'est voulu, la surface publiée est un contrat.
+ * `AuditAction`, `AuditEvent`, `PrismaSchema`, `PrismaModel`, `PrismaField`, `Schema`,
+ * `Model`, `Field`, `DataAdapter`, `SchemaIntrospector`, `Filter`) n'ont aucune présence
+ * à l'exécution : seules les cinq fonctions doivent apparaître ici. Toute addition ou
+ * suppression dans `src/lib/index.ts` fait échouer ce test — c'est voulu, la surface
+ * publiée est un contrat.
  */
 const RUNTIME_EXPORTS = [
   'createAdminHandler',
@@ -20,6 +21,8 @@ const RUNTIME_EXPORTS = [
 
 const TYPE_ONLY_EXPORTS = [
   'AdminHandlerConfig',
+  'AuditAction',
+  'AuditEvent',
   'PrismaSchema',
   'PrismaModel',
   'PrismaField',

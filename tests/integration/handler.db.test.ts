@@ -141,3 +141,70 @@ describe('handler sur une vraie base SQLite', () => {
     error.mockRestore();
   });
 });
+
+describe('audit callback sur une vraie base SQLite', () => {
+  it('create expose l’id généré', async () => {
+    const audit = vi.fn();
+    const h = createAdminHandler({ prisma, prismaSchemaPath: SCHEMA, audit });
+    const { event, resolve } = createEvent({
+      url: '/admin/widget/new',
+      body: { _action: 'create', name: 'audited', quantity: '3' }
+    });
+    const res = await h({ event, resolve });
+    expect(res.status).toBe(303);
+    const row = await prisma.widget.findUnique({ where: { name: 'audited' } });
+    expect(row).not.toBeNull();
+    expect(audit).toHaveBeenCalledTimes(1);
+    const entry = audit.mock.calls[0][0];
+    expect(entry.action).toBe('create');
+    expect(entry.model).toBe('Widget');
+    expect(entry.id).toBe(row!.id);
+    expect(entry.values.name).toBe('audited');
+    expect(entry.after.name).toBe('audited');
+  });
+
+  it('update calcule changes.name', async () => {
+    const w = await prisma.widget.create({ data: { name: 'before-audit' } });
+    const audit = vi.fn();
+    const h = createAdminHandler({ prisma, prismaSchemaPath: SCHEMA, audit });
+    const { event, resolve } = createEvent({
+      url: `/admin/widget/${w.id}`,
+      body: { _action: 'update', name: 'after-audit', quantity: '0' }
+    });
+    expect((await h({ event, resolve })).status).toBe(303);
+    const entry = audit.mock.calls[0][0];
+    expect(entry.action).toBe('update');
+    expect(entry.id).toBe(w.id);
+    expect(entry.changes.name).toEqual({ from: 'before-audit', to: 'after-audit' });
+  });
+
+  it('delete porte before et retire la ligne', async () => {
+    const w = await prisma.widget.create({ data: { name: 'doomed-audit' } });
+    const audit = vi.fn();
+    const h = createAdminHandler({ prisma, prismaSchemaPath: SCHEMA, audit });
+    const { event, resolve } = createEvent({
+      url: `/admin/widget/${w.id}`,
+      body: { _action: 'delete' }
+    });
+    expect((await h({ event, resolve })).status).toBe(303);
+    expect(await prisma.widget.findUnique({ where: { id: w.id } })).toBeNull();
+    const entry = audit.mock.calls[0][0];
+    expect(entry.action).toBe('delete');
+    expect(entry.before.name).toBe('doomed-audit');
+  });
+
+  it('contrainte unique : pas d’audit', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await prisma.widget.create({ data: { name: 'dup-audit' } });
+    const audit = vi.fn();
+    const h = createAdminHandler({ prisma, prismaSchemaPath: SCHEMA, audit });
+    const { event, resolve } = createEvent({
+      url: '/admin/widget/new',
+      body: { _action: 'create', name: 'dup-audit' }
+    });
+    const html = await (await h({ event, resolve })).text();
+    expect(html).toContain(ERROR_ALERT);
+    expect(audit).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+});

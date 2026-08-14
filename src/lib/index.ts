@@ -5,6 +5,7 @@
 
 export { createAdminHandler, type AdminHandlerConfig } from './server/adapters/prisma/handler.js';
 export { defaultAdminCheck } from './server/auth.js';
+export type { AuditAction, AuditEvent } from './server/audit.js';
 export {
   parsePrismaSchema,
   parseSchemaContent,

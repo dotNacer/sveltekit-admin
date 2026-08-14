@@ -9,6 +9,7 @@ import { createDrizzleIntrospector } from "./introspector.js";
 
 export { createAdminHandler, type AdminHandlerConfig };
 export { defaultAdminCheck };
+export type { AuditAction, AuditEvent } from "../../audit.js";
 export type { Schema, Model, Field };
 export type { DataAdapter, SchemaIntrospector, Filter };
 export type { DrizzleDialect };
