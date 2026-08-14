@@ -68,6 +68,16 @@ describe("compileFilterToDrizzle", () => {
     expect(sql.toLowerCase()).not.toContain("ilike");
   });
 
+  it("folds both sides for case-insensitive contains on MySQL", () => {
+    const { sql } = sqlOf(
+      { op: "contains", field: "name", value: "Al" },
+      { caseInsensitiveSearch: true, dialect: "mysql" },
+    );
+    expect(sql.toLowerCase()).toContain("lower");
+    expect(sql.toLowerCase()).not.toContain("ilike");
+    expect(sql.toLowerCase()).toContain("escape '!'");
+  });
+
   it("uses ILIKE for case-insensitive contains on PostgreSQL", () => {
     const pgUsers = pgTable("users", {
       id: serial("id").primaryKey(),
@@ -81,6 +91,7 @@ describe("compileFilterToDrizzle", () => {
     const db = drizzlePg(async () => ({ rows: [] }));
     const { sql } = db.select().from(pgUsers).where(where).toSQL();
     expect(sql.toLowerCase()).toContain("ilike");
+    expect(sql.toLowerCase()).toContain("escape '!'");
   });
 
   it("keeps containsExact case-sensitive when case-insensitive search is enabled", () => {
@@ -97,8 +108,9 @@ describe("compileFilterToDrizzle", () => {
     const containsPattern = contains.params.find(
       (param) => typeof param === "string" && param.includes("a"),
     ) as string;
-    expect(containsPattern).toBe("%a\\%b\\_c%");
-    expect(contains.sql.toLowerCase()).toContain("escape");
+    expect(containsPattern).toBe("%a!%b!_c%");
+    expect(contains.sql.toLowerCase()).toContain("escape '!'");
+    expect(contains.sql).not.toContain("escape '\\'");
 
     const startsWith = sqlOf({
       op: "startsWith",
@@ -108,7 +120,16 @@ describe("compileFilterToDrizzle", () => {
     const startsWithPattern = startsWith.params.find(
       (param) => typeof param === "string" && param.includes("a"),
     );
-    expect(startsWithPattern).toBe("a\\%b\\_c%");
+    expect(startsWithPattern).toBe("a!%b!_c%");
+  });
+
+  it("escapes the LIKE escape character in patterns", () => {
+    const { params } = sqlOf({
+      op: "contains",
+      field: "name",
+      value: "a!b",
+    });
+    expect(params).toContain("%a!!b%");
   });
 
   it("throws for an opaque Prisma where node", () => {

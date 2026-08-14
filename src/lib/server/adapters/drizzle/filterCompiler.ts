@@ -3,7 +3,6 @@ import {
   eq,
   getTableColumns,
   gte,
-  ilike,
   inArray,
   isNotNull,
   isNull,
@@ -21,11 +20,15 @@ const OPAQUE_FILTER_ERROR =
   "nested Prisma `where` is not supported by the Drizzle adapter; return a Filter or a flat `{ field: scalar }` map";
 
 function escapeLikePattern(value: unknown): string {
-  return String(value).replace(/([%_\\])/g, "\\$1");
+  return String(value).replace(/([%_!])/g, "!$1");
 }
 
 function likeWithEscape(column: Column, pattern: string): SQL {
-  return sql`${column} like ${pattern} escape '\\'`;
+  return sql`${column} like ${pattern} escape '!'`;
+}
+
+function ilikeWithEscape(column: Column, pattern: string): SQL {
+  return sql`${column} ilike ${pattern} escape '!'`;
 }
 
 function compileLeaf(
@@ -47,8 +50,9 @@ function compileLeaf(
     case "contains": {
       const pattern = `%${escapeLikePattern(filter.value)}%`;
       if (!opts.caseInsensitiveSearch) return likeWithEscape(column, pattern);
-      if (opts.dialect === "postgresql") return ilike(column, pattern);
-      return sql`lower(${column}) like lower(${pattern}) escape '\\'`;
+      if (opts.dialect === "postgresql")
+        return ilikeWithEscape(column, pattern);
+      return sql`lower(${column}) like lower(${pattern}) escape '!'`;
     }
     case "containsExact":
       return likeWithEscape(column, `%${escapeLikePattern(filter.value)}%`);
