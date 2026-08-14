@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import { resolve } from 'node:path';
 import { PrismaClient } from '../fixtures/prisma/client/index.js';
-import { createAdminHandler } from '../../src/lib/server/handler.js';
+import { createAdminHandler } from '../../src/lib/server/adapters/prisma/handler.js';
 import { createEvent } from '../fixtures/events.js';
 
 /**

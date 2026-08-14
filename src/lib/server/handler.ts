@@ -19,9 +19,6 @@ import {
   buildWhere,
   resolveSearchFields
 } from './query/listQuery.js';
-import { createPrismaIntrospector } from './adapters/prisma/introspector.js';
-import { createPrismaDataAdapter } from './adapters/prisma/dataAdapter.js';
-import { resolveCaseInsensitiveSearch } from './adapters/prisma/index.js';
 import { normalizeScope, OPAQUE_FILTER_ERROR } from './adapters/filter.js';
 import type { DataAdapter, SchemaIntrospector } from './adapters/types.js';
 import { resolveListFilters, validateListFilterConfig, findFkEdge } from './query/filterDetection.js';
@@ -44,21 +41,12 @@ function scopeFrom(
 
 export interface AdminHandlerConfig {
   /**
-   * Prisma client instance. Required unless `adapter` is provided directly —
-   * exactly one of the two must be set. Kept required-looking here (not `?`)
-   * for source compatibility with every existing call site; passing neither
-   * throws at handler-creation time (see the boot block).
+   * Explicit `{ introspector, data }` pair, from `createPrismaAdapter`,
+   * `createDrizzleAdapter`, or a custom implementation. The `{ prisma,
+   * prismaSchemaPath }` shortcut lives on the Prisma wrapper exported by
+   * the package root, not here.
    */
-  prisma?: any;
-  /** Path to Prisma schema file */
-  prismaSchemaPath?: string;
-  /**
-   * Explicit adapter, built via `createPrismaAdapter(...)` (or, in a future
-   * release, a Drizzle/other adapter). Takes priority over `prisma`/
-   * `prismaSchemaPath` when both are somehow set. Most consumers never touch
-   * this — passing `prisma`/`prismaSchemaPath` builds one internally.
-   */
-  adapter?: { introspector: SchemaIntrospector; data: DataAdapter };
+  adapter: { introspector: SchemaIntrospector; data: DataAdapter };
   /** Base path for admin routes (default: /admin) */
   basePath?: string;
   /** Authentication check - return true if user can access admin */
@@ -177,18 +165,6 @@ export interface AdminHandlerConfig {
     linkThreshold?: number;
     autoDetect?: boolean;
   };
-  /**
-   * Recherche texte libre : configuration globale.
-   * `mode`: 'auto' détecte le provider du schéma et n'émet `mode: 'insensitive'`
-   * que sur postgresql/cockroachdb/mongodb (les seuls où Prisma le supporte —
-   * l'émettre sur sqlite/mysql/sqlserver lève une erreur Prisma). 'insensitive'
-   * et 'default' forcent le comportement, pour un provider non détectable
-   * (`provider = env(...)`) ou un besoin spécifique (index `citext`, etc.).
-   * Voir docs/design/list-search-filters.md §2.5.
-   */
-  search?: {
-    mode?: 'auto' | 'insensitive' | 'default';
-  };
   /** Custom branding */
   branding?: {
     title?: string;
@@ -202,8 +178,6 @@ export interface AdminHandlerConfig {
 
 export function createAdminHandler(config: AdminHandlerConfig) {
   const {
-    prisma,
-    prismaSchemaPath = './prisma/schema.prisma',
     basePath = '/admin',
     authCheck,
     logout,
@@ -213,14 +187,11 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     models: modelsConfig = {}
   } = config;
 
-  if (!config.adapter && !prisma) {
-    throw new Error(
-      '[sveltekit-admin] createAdminHandler requires either `prisma` (with optional `prismaSchemaPath`) or `adapter` — neither was provided.'
-    );
+  if (!config.adapter) {
+    throw new Error('[sveltekit-admin] createAdminHandler requires `adapter`.');
   }
 
-  const introspector: SchemaIntrospector =
-    config.adapter?.introspector ?? createPrismaIntrospector({ schemaPath: prismaSchemaPath });
+  const introspector: SchemaIntrospector = config.adapter.introspector;
 
   // Introspect the schema once at startup — same failure handling as before:
   // a broken/missing schema source degrades to "no models known" rather than
@@ -297,15 +268,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     'name', 'title', 'label', 'email', 'username', 'slug'
   ];
 
-  // `mode: 'insensitive'` n'est supporté par Prisma que sur
-  // postgresql/cockroachdb/mongodb — l'émettre sur sqlite/mysql/sqlserver
-  // lève une erreur Prisma dure. Détection auto via le provider extrait du
-  // schéma ; `search.mode` permet de forcer le comportement (provider non
-  // littéral dans le schéma, index citext, etc.). Voir docs/design §2.5.
-  const caseInsensitiveSearch = resolveCaseInsensitiveSearch(schema, config.search?.mode);
-
-  const adapter: { introspector: SchemaIntrospector; data: DataAdapter } =
-    config.adapter ?? { introspector, data: createPrismaDataAdapter(prisma, { caseInsensitiveSearch }) };
+  const adapter = config.adapter;
 
   /**
    * Champs qu'un `?f.<field>=` est autorisé à cibler pour ce modèle : tout
@@ -901,7 +864,8 @@ export function createAdminHandler(config: AdminHandlerConfig) {
                 `condition that actually restricts rows otherwise.`
             );
           }
-          const filter = buildWhere(listQuery, listScope, caseInsensitiveSearch, model) as any;
+          // Adapter compiles case-sensitivity; this arg is unused by buildWhere.
+          const filter = buildWhere(listQuery, listScope, false, model) as any;
           const { rows: items, total } = await adapter.data.listRecords(model, { filter, skip: (page - 1) * PER_PAGE, take: PER_PAGE });
           const listFilters = resolveListFilters(
             model,
