@@ -25,3 +25,21 @@ model Doc {
   title   String
   summary String?
 }
+
+// N-N implicite, dédié au test d'intégration du chemin d'écriture
+// `prisma.$transaction` (voir tests/integration/handler.m2m.db.test.ts) : la
+// seule couverture de ce chemin avant ce test passait par le mock maison de
+// `tests/fixtures/prismaMock.ts`, dont le `$transaction` ((fn) =>
+// Promise.resolve(fn(mock))) ne peut par construction jamais diverger du
+// vrai client Prisma — d'où le besoin d'une vraie base SQLite ici aussi.
+model Post {
+  id    Int    @id @default(autoincrement())
+  title String
+  tags  Tag[]
+}
+
+model Tag {
+  id    Int    @id @default(autoincrement())
+  name  String @unique
+  posts Post[]
+}
