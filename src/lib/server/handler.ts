@@ -233,7 +233,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       console.warn(`[sveltekit-admin] ${d}`);
     }
   } catch (e) {
-    console.warn('[sveltekit-admin] Could not parse Prisma schema:', e);
+    console.warn('[sveltekit-admin] Could not introspect schema:', e);
   }
 
   const filteredModels = schema?.models.filter((m) => {
@@ -568,19 +568,15 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     const searchField = labelFieldCandidates.find((c) =>
       targetModel.fields.some((f) => f.name === c && f.type === 'String')
     );
-    // `contains` passed as a raw Prisma object literal here (not a `Filter`
-    // leaf) is deliberate: `compileFilterToPrismaWhere` only adds
-    // `mode: 'insensitive'` for a `{ op: 'contains', ... }` leaf, which would
-    // make this endpoint's case-sensitivity depend on the adapter-wide
-    // `caseInsensitiveSearch` setting — this endpoint was always
-    // case-sensitive regardless of provider, and must stay that way (zero
-    // observable behavior change is a hard constraint of this refactor).
-    // `compile()` treats any node without a recognized `op` key as an opaque
-    // pass-through, so this raw object flows through unchanged, exactly like
-    // `configWhere` already does.
+    // `_search` must stay case-sensitive on every adapter/provider. A
+    // `{ op: 'contains' }` leaf would pick up the adapter-wide
+    // `caseInsensitiveSearch` flag (Prisma `mode: 'insensitive'`, Drizzle
+    // `ilike`). `containsExact` compiles to `{ contains }` / `LIKE` with
+    // no case-folding — same observable Prisma behavior as the previous
+    // opaque `{ [field]: { contains: q } }` pass-through.
     const searchFilter: any =
       q && searchField
-        ? { op: 'and', clauses: [configWhere, { [searchField]: { contains: q } }] }
+        ? { op: 'and', clauses: [configWhere, { op: 'containsExact', field: searchField, value: q }] }
         : configWhere;
 
     try {
