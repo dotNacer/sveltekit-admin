@@ -238,6 +238,7 @@ describe('inspectDrizzleSchema — relations v1 + m2m', () => {
     const { schema, m2m } = inspectDrizzleSchema({ a, b, a_to_b: pivot, aRel, bRel, pRel });
     const modelB = schema.models.find((m) => m.name === 'b')!;
     expect(modelB.fields.find((f) => f.name === 'a' && f.relation?.model === 'a')).toBeUndefined();
+    expect(schema.models.find((model) => model.name === 'a_to_b')!.isPivotTable).toBeUndefined();
     expect(m2m.size).toBe(0);
   });
 
@@ -353,6 +354,7 @@ describe('inspectDrizzleSchema — relations v1 + m2m', () => {
     expect(schema.models.find((model) => model.name === 'a')!.fields).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: 'pivot', isList: true })])
     );
+    expect(schema.models.find((model) => model.name === 'pivot')!.isPivotTable).toBeUndefined();
     expect(m2m.size).toBe(0);
   });
 });

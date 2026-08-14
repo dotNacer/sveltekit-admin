@@ -224,7 +224,6 @@ export function inspectDrizzleSchema(
     );
     if (businessColumns.length > 1) continue;
 
-    pivotModel.isPivotTable = true;
     const aModel = modelByName.get(a!.targetTsName)!;
     const bModel = modelByName.get(b!.targetTsName)!;
     if (
@@ -234,6 +233,7 @@ export function inspectDrizzleSchema(
       continue;
     }
 
+    pivotModel.isPivotTable = true;
     aModel.fields = aModel.fields.filter((field) => field.name !== aMany.name);
     bModel.fields = bModel.fields.filter((field) => field.name !== bMany.name);
     aModel.fields.push({
