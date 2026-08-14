@@ -4,49 +4,11 @@
  */
 
 import { readFileSync } from 'fs';
+import type { Field, Model, Schema } from '../types/schema.js';
 
-export interface PrismaField {
-  name: string;
-  type: string;
-  isRequired: boolean;
-  isList: boolean;
-  isUnique: boolean;
-  isId: boolean;
-  isUpdatedAt: boolean;
-  isCreatedAt: boolean;
-  hasDefault: boolean;
-  defaultValue?: string;
-  /** true si `type` correspond à un `enum` déclaré dans le même schéma. */
-  isEnum?: boolean;
-  relation?: {
-    name?: string;
-    model: string;
-    fields?: string[];
-    references?: string[];
-  };
-  documentation?: string;
-}
-
-export interface PrismaModel {
-  name: string;
-  fields: PrismaField[];
-  documentation?: string;
-  primaryKey?: string;
-  isPivotTable?: boolean;
-}
-
-export interface PrismaSchema {
-  models: PrismaModel[];
-  enums: Map<string, string[]>;
-  /**
-   * Provider du bloc `datasource` (ex. "postgresql", "sqlite"), tel qu'écrit
-   * littéralement dans le schéma. `undefined` si absent ou si la valeur est
-   * une expression (`env("...")`, un provider non littéral) — dans ce cas
-   * le code appelant doit dégrader vers le comportement le plus prudent
-   * (voir `caseInsensitiveSearch` dans query/listQuery.ts).
-   */
-  provider?: string;
-}
+export type PrismaField = Field;
+export type PrismaModel = Model;
+export type PrismaSchema = Schema;
 
 const SCALAR_TYPES = ['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Json', 'Bytes', 'Decimal', 'BigInt'];
 

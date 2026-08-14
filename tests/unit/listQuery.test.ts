@@ -442,40 +442,40 @@ describe('parseListQuery — compat legacy ?filter=', () => {
   });
 });
 
-describe('buildWhere — composition AND, jamais de spread', () => {
+describe('buildWhere — composition AND, jamais de spread (Filter générique)', () => {
   const empty: ListQuery = { q: null, searchFields: [], filters: [], ignored: [] };
 
   it('undefined quand rien n\'est actif (identique au comportement actuel)', () => {
     expect(buildWhere(empty, undefined, false, Article)).toBeUndefined();
   });
 
-  it('le scope seul, sans wrapper AND, quand aucun filtre n\'est actif', () => {
+  it('le scope seul, sans wrapper and, quand aucun filtre n\'est actif', () => {
     expect(buildWhere(empty, { tenantId: 1 }, false, Article)).toEqual({ tenantId: 1 });
   });
 
-  it('un seul filtre actif sans scope : la clause brute, sans wrapper AND', () => {
+  it('un seul filtre actif sans scope : la clause brute, sans wrapper and', () => {
     const lq: ListQuery = { q: null, searchFields: [], filters: [{ field: 'views', op: 'equals', value: 5, raw: '5' }], ignored: [] };
-    expect(buildWhere(lq, undefined, false, Article)).toEqual({ views: 5 });
+    expect(buildWhere(lq, undefined, false, Article)).toEqual({ op: 'eq', field: 'views', value: 5 });
   });
 
-  it('scope + filtre → AND explicite, scope en premier', () => {
+  it('scope + filtre → and explicite, scope en premier', () => {
     const lq: ListQuery = { q: null, searchFields: [], filters: [{ field: 'views', op: 'equals', value: 5, raw: '5' }], ignored: [] };
     expect(buildWhere(lq, { tenantId: 1 }, false, Article)).toEqual({
-      AND: [{ tenantId: 1 }, { views: 5 }]
+      op: 'and',
+      clauses: [{ tenantId: 1 }, { op: 'eq', field: 'views', value: 5 }]
     });
   });
 
-  it('un filtre sur le MÊME champ que le scope ne l\'écrase jamais (AND, pas de spread)', () => {
-    // C'est le test qui verrouille le fix de la faille §0.c : si le code
-    // repassait un jour à `{...scope, ...filterWhere}`, ce test échouerait
-    // car le résultat n'aurait qu'une seule clé `tenantId` au lieu des deux
-    // entrées indépendantes du AND.
+  it('un filtre sur le MÊME champ que le scope ne l\'écrase jamais (and, pas de spread)', () => {
     const lq: ListQuery = { q: null, searchFields: [], filters: [{ field: 'tenantId', op: 'equals', value: 2, raw: '2' }], ignored: [] };
     const where = buildWhere(lq, { tenantId: 1 }, false, Article);
-    expect(where).toEqual({ AND: [{ tenantId: 1 }, { tenantId: 2 }] });
+    expect(where).toEqual({
+      op: 'and',
+      clauses: [{ tenantId: 1 }, { op: 'eq', field: 'tenantId', value: 2 }]
+    });
   });
 
-  it('deux filtres sur le même champ (gte + lte) donnent deux entrées AND, pas un merge', () => {
+  it('deux filtres sur le même champ (gte + lte) donnent deux clauses and, pas un merge', () => {
     const lq: ListQuery = {
       q: null, searchFields: [], ignored: [],
       filters: [
@@ -484,48 +484,49 @@ describe('buildWhere — composition AND, jamais de spread', () => {
       ]
     };
     expect(buildWhere(lq, undefined, false, Article)).toEqual({
-      AND: [{ views: { gte: 10 } }, { views: { lte: 100 } }]
+      op: 'and',
+      clauses: [
+        { op: 'gte', field: 'views', value: 10 },
+        { op: 'lte', field: 'views', value: 100 }
+      ]
     });
   });
 
-  it('isnull=true → {equals: null}', () => {
+  it('isnull=true → isNull', () => {
     const lq: ListQuery = { q: null, searchFields: [], filters: [{ field: 'content', op: 'isnull', value: true, raw: '1' }], ignored: [] };
-    expect(buildWhere(lq, undefined, false, Article)).toEqual({ content: { equals: null } });
+    expect(buildWhere(lq, undefined, false, Article)).toEqual({ op: 'isNull', field: 'content' });
   });
 
-  it('isnull=false → {not: null}', () => {
+  it('isnull=false → isNotNull', () => {
     const lq: ListQuery = { q: null, searchFields: [], filters: [{ field: 'content', op: 'isnull', value: false, raw: '0' }], ignored: [] };
-    expect(buildWhere(lq, undefined, false, Article)).toEqual({ content: { not: null } });
+    expect(buildWhere(lq, undefined, false, Article)).toEqual({ op: 'isNotNull', field: 'content' });
   });
 
-  it('recherche texte → OR sur les searchFields (String non-id, y compris @unique → contains)', () => {
-    // slug est @unique dans le fixture (search.prisma). §2.1 du design ne
-    // parle que du champ id pour le passage en `equals` — un `@unique`
-    // "ordinaire" comme `email`/`slug` doit rester en `contains`, sinon la
-    // recherche par fragment casse sur le cas le plus courant d'un admin
-    // (retrouver un utilisateur par un bout de son email). Une version
-    // antérieure de ce code étendait `equals` à `@id || @unique`, ce qui
-    // cassait silencieusement cette recherche — régression trouvée en
-    // review, verrouillée ici par ce test.
+  it('recherche texte → or sur les searchFields (String non-id, y compris @unique → contains)', () => {
     const lq: ListQuery = { q: 'hello', searchFields: ['title', 'slug'], filters: [], ignored: [] };
     expect(buildWhere(lq, undefined, false, Article)).toEqual({
-      OR: [{ title: { contains: 'hello' } }, { slug: { contains: 'hello' } }]
+      op: 'or',
+      clauses: [
+        { op: 'contains', field: 'title', value: 'hello' },
+        { op: 'contains', field: 'slug', value: 'hello' }
+      ]
     });
   });
 
-  it('recherche texte avec mode insensible à la casse (Postgres)', () => {
+  it('recherche texte avec mode insensible à la casse : le Filter générique ne porte pas ce détail (c\'est le compilateur Prisma qui l\'ajoute — voir filterCompiler.test.ts)', () => {
     const lq: ListQuery = { q: 'hello', searchFields: ['title'], filters: [], ignored: [] };
-    expect(buildWhere(lq, undefined, true, Article)).toEqual({
-      OR: [{ title: { contains: 'hello', mode: 'insensitive' } }]
-    });
+    // caseInsensitiveSearch n'affecte plus la forme du Filter lui-même : le
+    // Filter générique est le même que sensible à la casse ou pas, le
+    // compilateur Prisma décide seul d'ajouter `mode: 'insensitive'`.
+    expect(buildWhere(lq, undefined, true, Article)).toEqual(buildWhere(lq, undefined, false, Article));
   });
 
-  it('q présent mais searchFields vide → aucune clause de recherche (no-op, pas {OR: []})', () => {
+  it('q présent mais searchFields vide → aucune clause de recherche (no-op)', () => {
     const lq: ListQuery = { q: 'hello', searchFields: [], filters: [], ignored: [] };
     expect(buildWhere(lq, undefined, false, Article)).toBeUndefined();
   });
 
-  it('recherche + filtre + scope ensemble → un seul AND cohérent', () => {
+  it('recherche + filtre + scope ensemble → un seul and cohérent', () => {
     const lq: ListQuery = {
       q: 'hello', searchFields: ['title'],
       filters: [{ field: 'published', op: 'equals', value: true, raw: 'true' }],
@@ -533,94 +534,84 @@ describe('buildWhere — composition AND, jamais de spread', () => {
     };
     const where = buildWhere(lq, { tenantId: 1 }, false, Article);
     expect(where).toEqual({
-      AND: [
+      op: 'and',
+      clauses: [
         { tenantId: 1 },
-        { published: true },
-        { OR: [{ title: { contains: 'hello' } }] }
+        { op: 'eq', field: 'published', value: true },
+        { op: 'or', clauses: [{ op: 'contains', field: 'title', value: 'hello' }] }
       ]
     });
   });
 
   describe('§2.4 — searchFields sur un champ non-String (jamais de contains)', () => {
-    it('champ Int configuré explicitement, q coercible → equals, jamais contains', () => {
-      // C'est le bug bloquant trouvé en review : `contains` sur un Int fait
-      // planter Prisma en dur (P2009/Unknown argument). q="10" DOIT devenir
-      // { views: { equals: 10 } }, jamais { views: { contains: "10" } }.
+    it('champ Int configuré explicitement, q coercible → eq, jamais contains', () => {
       const lq: ListQuery = { q: '10', searchFields: ['views'], filters: [], ignored: [] };
       expect(buildWhere(lq, undefined, false, Article)).toEqual({
-        OR: [{ views: { equals: 10 } }]
+        op: 'or', clauses: [{ op: 'eq', field: 'views', value: 10 }]
       });
     });
 
-    it('champ Int configuré, q non coercible ("hello") → clause OMISE, pas de contains', () => {
+    it('champ Int configuré, q non coercible ("hello") → clause omise', () => {
       const lq: ListQuery = { q: 'hello', searchFields: ['views'], filters: [], ignored: [] };
       expect(buildWhere(lq, undefined, false, Article)).toBeUndefined();
     });
 
-    it('champ Decimal configuré, q coercible → equals en string (pas de perte de précision)', () => {
+    it('champ Decimal configuré, q coercible → eq en string', () => {
       const lq: ListQuery = { q: '19.99', searchFields: ['price'], filters: [], ignored: [] };
       expect(buildWhere(lq, undefined, false, Article)).toEqual({
-        OR: [{ price: { equals: '19.99' } }]
+        op: 'or', clauses: [{ op: 'eq', field: 'price', value: '19.99' }]
       });
     });
 
-    it('mélange String + Int dans searchFields : seules les clauses valides/coercibles entrent dans le OR', () => {
+    it('mélange String + Int dans searchFields : seules les clauses valides entrent dans le or', () => {
       const lq: ListQuery = { q: 'hello', searchFields: ['title', 'views'], filters: [], ignored: [] };
-      // "hello" ne coerce pas en Int : la clause `views` est omise, seul
-      // `title` (String) reste dans le OR — jamais {OR: []} ni un mix invalide.
       expect(buildWhere(lq, undefined, false, Article)).toEqual({
-        OR: [{ title: { contains: 'hello' } }]
+        op: 'or', clauses: [{ op: 'contains', field: 'title', value: 'hello' }]
       });
     });
 
-    it('toutes les clauses omises (que des champs numériques non coercibles) → no-op, pas {OR: []}', () => {
+    it('toutes les clauses omises → no-op', () => {
       const lq: ListQuery = { q: 'not-a-number', searchFields: ['views', 'price'], filters: [], ignored: [] };
       expect(buildWhere(lq, undefined, false, Article)).toBeUndefined();
     });
 
-    it('un champ String @id configuré explicitement en searchFields → equals, jamais contains', () => {
+    it('un champ String @id configuré explicitement → eq, jamais contains', () => {
       const idSchema = parseSchemaContent(
         'model T {\n  id String @id @default(cuid())\n  slug String @unique\n  name String\n}'
       );
       const T = idSchema.models[0];
       const lq: ListQuery = { q: 'abc123', searchFields: ['id', 'slug'], filters: [], ignored: [] };
-      // Seul `id` (isId) passe en equals ; `slug` (isUnique mais pas isId)
-      // reste en contains — voir le test dédié plus haut sur cette
-      // distinction, qui verrouille la régression trouvée en review.
       expect(buildWhere(lq, undefined, false, T)).toEqual({
-        OR: [{ id: { equals: 'abc123' } }, { slug: { contains: 'abc123' } }]
+        op: 'or',
+        clauses: [
+          { op: 'eq', field: 'id', value: 'abc123' },
+          { op: 'contains', field: 'slug', value: 'abc123' }
+        ]
       });
     });
 
-    it('un champ Boolean ou DateTime configuré explicitement en searchFields → clause omise (aucun opérateur défini pour "chercher" dessus)', () => {
-      // isFilterableFieldType (resolveSearchFields) ne rejette que
-      // relation/isList/Json/Bytes — un Boolean/DateTime/enum passe la
-      // sélection mais searchClauseFor n'a aucune règle pour lui : ni
-      // `contains` (pas de sens), ni `equals` (`q` texte libre ne se
-      // coerce pas de façon fiable en date/bool ici). Omis, comme un Int
-      // non coercible — jamais de clause bancale dans le OR.
+    it('un champ Boolean ou DateTime configuré explicitement → clause omise', () => {
       const lq: ListQuery = { q: 'hello', searchFields: ['published', 'createdAt'], filters: [], ignored: [] };
       expect(buildWhere(lq, undefined, false, Article)).toBeUndefined();
     });
 
-    it('un nom de champ dans searchFields absent du modèle (ListQuery construit à la main) : clause omise, pas de throw', () => {
-      // buildWhere fait confiance à `query.searchFields`, normalement
-      // produit par resolveSearchFields (qui filtre déjà sur les champs
-      // existants). Un appelant qui construit un ListQuery à la main avec
-      // un nom de champ inexistant ne doit pas faire planter buildWhere —
-      // la clause correspondante est simplement absente du OR.
+    it('un nom de champ absent du modèle : clause omise, pas de throw', () => {
       const lq: ListQuery = { q: 'hello', searchFields: ['doesNotExist', 'title'], filters: [], ignored: [] };
       expect(buildWhere(lq, undefined, false, Article)).toEqual({
-        OR: [{ title: { contains: 'hello' } }]
+        op: 'or', clauses: [{ op: 'contains', field: 'title', value: 'hello' }]
       });
     });
   });
 
-  it('date shortcut (gte/lt) se traduit en clause correcte via buildWhere', () => {
+  it('date shortcut (gte/lt) se traduit en deux clauses and via buildWhere', () => {
     const range = resolveDateShortcut('today', FIXED_NOW)!;
     const lq: ListQuery = { q: null, searchFields: [], filters: [{ field: 'createdAt', op: 'gte', value: range, raw: 'today' }], ignored: [] };
     expect(buildWhere(lq, undefined, false, Article)).toEqual({
-      createdAt: { gte: range.gte, lt: range.lt }
+      op: 'and',
+      clauses: [
+        { op: 'gte', field: 'createdAt', value: range.gte },
+        { op: 'lt', field: 'createdAt', value: range.lt }
+      ]
     });
   });
 });

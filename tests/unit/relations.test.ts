@@ -52,8 +52,8 @@ describe('buildRelationGraph — classification', () => {
   });
 
   it('détecte le N-N implicite (list des deux côtés, sans fields)', () => {
-    expect(edge(graph, 'Post.tags')!.kind).toBe('m2m-implicit');
-    expect(edge(graph, 'Tag.posts')!.kind).toBe('m2m-implicit');
+    expect(edge(graph, 'Post.tags')!.kind).toBe('m2m');
+    expect(edge(graph, 'Tag.posts')!.kind).toBe('m2m');
   });
 
   it('détecte le 1-1 : owning + inverse sans liste', () => {
@@ -111,7 +111,7 @@ describe('relationsOf', () => {
   });
 
   it('retourne un tableau vide pour un modèle sans relation', () => {
-    // Tag n\'a que m2m-implicit, vérifions avec un modèle minimal
+    // Tag n\'a que m2m, vérifions avec un modèle minimal
     const minimal = parseSchemaContent('model A { id Int @id }');
     const g = buildRelationGraph(minimal);
     expect(relationsOf(minimal.models[0], g)).toEqual([]);
@@ -208,7 +208,7 @@ describe('buildRelationGraph — robustesse', () => {
       }
     `);
     const g = buildRelationGraph(s);
-    expect(edge(g, 'A.bs')!.kind).not.toBe('m2m-implicit');
+    expect(edge(g, 'A.bs')!.kind).not.toBe('m2m');
   });
 
   it('ne classe pas m2m quand seul le second champ liste porte des fields', () => {
@@ -224,8 +224,8 @@ describe('buildRelationGraph — robustesse', () => {
       }
     `);
     const g = buildRelationGraph(s);
-    expect(edge(g, 'A.bs')!.kind).not.toBe('m2m-implicit');
-    expect(edge(g, 'B.as')!.kind).not.toBe('m2m-implicit');
+    expect(edge(g, 'A.bs')!.kind).not.toBe('m2m');
+    expect(edge(g, 'B.as')!.kind).not.toBe('m2m');
   });
 
   it('diagnostique les groupes ambigus (3+ champs) sans deviner', () => {

@@ -4,26 +4,25 @@
  */
 
 import { render } from 'svelte/server';
-import { parsePrismaSchema, type PrismaSchema, type PrismaModel, isSensitiveFieldName } from './introspection/parser.js';
+import { type PrismaModel, isSensitiveFieldName } from './introspection/parser.js';
+import type { Schema } from './types/schema.js';
 import { buildRelationGraph, type RelationGraph } from './introspection/relations.js';
 import { parseRoute } from './router.js';
 import {
   primaryKeyOf,
-  toPrismaModel,
   coerceId,
   formDataToPrisma,
-  paginate,
-  listRecords,
-  getRecord,
-  createRecord,
-  updateRecord,
-  deleteRecord
+  paginate
 } from './data.js';
 import {
   parseListQuery,
   buildWhere,
   resolveSearchFields
 } from './query/listQuery.js';
+import { createPrismaIntrospector } from './adapters/prisma/introspector.js';
+import { createPrismaDataAdapter } from './adapters/prisma/dataAdapter.js';
+import { resolveCaseInsensitiveSearch } from './adapters/prisma/index.js';
+import type { DataAdapter, SchemaIntrospector } from './adapters/types.js';
 import { resolveListFilters, validateListFilterConfig, findFkEdge } from './query/filterDetection.js';
 import { escapeHtml, toLabel } from './views/html.js';
 import NotFound from './views/NotFound.svelte';
@@ -36,10 +35,22 @@ import type { ViewModel } from './views/types.js';
 const PER_PAGE = 20;
 
 export interface AdminHandlerConfig {
-  /** Prisma client instance */
-  prisma: any;
+  /**
+   * Prisma client instance. Required unless `adapter` is provided directly —
+   * exactly one of the two must be set. Kept required-looking here (not `?`)
+   * for source compatibility with every existing call site; passing neither
+   * throws at handler-creation time (see the boot block).
+   */
+  prisma?: any;
   /** Path to Prisma schema file */
   prismaSchemaPath?: string;
+  /**
+   * Explicit adapter, built via `createPrismaAdapter(...)` (or, in a future
+   * release, a Drizzle/other adapter). Takes priority over `prisma`/
+   * `prismaSchemaPath` when both are somehow set. Most consumers never touch
+   * this — passing `prisma`/`prismaSchemaPath` builds one internally.
+   */
+  adapter?: { introspector: SchemaIntrospector; data: DataAdapter };
   /** Base path for admin routes (default: /admin) */
   basePath?: string;
   /** Authentication check - return true if user can access admin */
@@ -194,11 +205,29 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     models: modelsConfig = {}
   } = config;
 
-  // Parse schema once at startup
-  let schema: PrismaSchema | null = null;
+  if (!config.adapter && !prisma) {
+    throw new Error(
+      '[sveltekit-admin] createAdminHandler requires either `prisma` (with optional `prismaSchemaPath`) or `adapter` — neither was provided.'
+    );
+  }
+
+  const introspector: SchemaIntrospector =
+    config.adapter?.introspector ?? createPrismaIntrospector({ schemaPath: prismaSchemaPath });
+
+  // Introspect the schema once at startup — same failure handling as before:
+  // a broken/missing schema source degrades to "no models known" rather than
+  // throwing out of `createAdminHandler` itself.
+  let schema: Schema | null = null;
   let relationGraph: RelationGraph | null = null;
   try {
-    schema = parsePrismaSchema(prismaSchemaPath);
+    const introspected = introspector.introspect();
+    if (introspected instanceof Promise) {
+      throw new Error(
+        '[sveltekit-admin] SchemaIntrospector.introspect() returned a Promise — ' +
+          'createAdminHandler only supports synchronous introspection today.'
+      );
+    }
+    schema = introspected;
     relationGraph = buildRelationGraph(schema);
     for (const d of relationGraph.diagnostics) {
       console.warn(`[sveltekit-admin] ${d}`);
@@ -260,11 +289,10 @@ export function createAdminHandler(config: AdminHandlerConfig) {
   // lève une erreur Prisma dure. Détection auto via le provider extrait du
   // schéma ; `search.mode` permet de forcer le comportement (provider non
   // littéral dans le schéma, index citext, etc.). Voir docs/design §2.5.
-  const searchMode = config.search?.mode ?? 'auto';
-  const caseInsensitiveSearch =
-    searchMode === 'insensitive' ||
-    (searchMode === 'auto' &&
-      ['postgresql', 'cockroachdb', 'mongodb'].includes(schema?.provider ?? ''));
+  const caseInsensitiveSearch = resolveCaseInsensitiveSearch(schema, config.search?.mode);
+
+  const adapter: { introspector: SchemaIntrospector; data: DataAdapter } =
+    config.adapter ?? { introspector, data: createPrismaDataAdapter(prisma, { caseInsensitiveSearch }) };
 
   /**
    * Champs qu'un `?f.<field>=` est autorisé à cibler pour ce modèle : tout
@@ -318,7 +346,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
   };
 
   /**
-   * Charge les options pour toutes les arêtes to-one-owning et m2m-implicite
+   * Charge les options pour toutes les arêtes to-one-owning et m2m
    * d'un modèle. Une requête COUNT par relation avant le findMany : évite de
    * charger 10k lignes pour découvrir qu'il y en a 10k.
    */
@@ -329,7 +357,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
   ): Promise<Map<string, import('./views/types.js').RelationMeta>> => {
     const edges = [...relationGraph!.edges.values()].filter((edge) => {
       if (edge.model !== model.name) return false;
-      if (edge.kind !== 'to-one-owning' && edge.kind !== 'm2m-implicit') return false;
+      if (edge.kind !== 'to-one-owning' && edge.kind !== 'm2m') return false;
       if (edge.unsupported) return false;
       const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
       return relConfig?.widget !== 'hidden';
@@ -343,30 +371,26 @@ export function createAdminHandler(config: AdminHandlerConfig) {
         const key = `${edge.model}.${edge.field}`;
         const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
         const targetModel = schema!.models.find((m) => m.name === edge.target)!;
-        const where = relConfig?.where ? relConfig.where(ctx) : undefined;
-        const prismaKey = toPrismaModel(edge.target);
+        const filter = relConfig?.where ? (relConfig.where(ctx) as any) : undefined;
 
         try {
-          const total: number = await prisma[prismaKey].count({ where });
+          const total = await adapter.data.countRecords(targetModel, filter);
           if (total > selectThreshold || relConfig?.widget === 'raw-id') {
             const selectedIds =
-              edge.kind === 'm2m-implicit' && currentId
-                ? await loadSelectedIds(model, edge, currentId, targetModel)
+              edge.kind === 'm2m' && currentId
+                ? await adapter.data.getM2mSelectedIds(model, edge, targetModel, currentId)
                 : undefined;
             return [key, { tooMany: true, options: [], selectedIds }];
           }
 
-          const rows: Record<string, unknown>[] = await prisma[prismaKey].findMany({
-            where,
-            orderBy: relConfig?.orderBy
-          });
+          const rows = await adapter.data.findMany(targetModel, { filter, orderBy: relConfig?.orderBy });
           const options = rows.map((row) => ({
             id: row[primaryKeyOf(targetModel)] as string | number,
             label: resolveLabel(targetModel, row, relConfig?.labelTemplate)
           }));
           const selectedIds =
-            edge.kind === 'm2m-implicit' && currentId
-              ? await loadSelectedIds(model, edge, currentId, targetModel)
+            edge.kind === 'm2m' && currentId
+              ? await adapter.data.getM2mSelectedIds(model, edge, targetModel, currentId)
               : undefined;
           return [key, { tooMany: false, options, selectedIds }];
         } catch {
@@ -406,8 +430,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     // n'existe pas dans `schema.models`.
 
     const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
-    const scope = relConfig?.where ? relConfig.where(ctx) : undefined;
-    const prismaKey = toPrismaModel(edge.target);
+    const scope = relConfig?.where ? (relConfig.where(ctx) as any) : undefined;
 
     // Options de la sidebar (comptées puis chargées si sous le seuil) et
     // label du chip actif (§6.3.b) sont deux requêtes indépendantes — l'une
@@ -418,14 +441,11 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       tooMany: boolean;
     }> => {
       try {
-        const total: number = await prisma[prismaKey].count({ where: scope });
+        const total = await adapter.data.countRecords(targetModel, scope);
         if (total > selectThreshold) {
           return { options: [], tooMany: true };
         }
-        const rows: Record<string, unknown>[] = await prisma[prismaKey].findMany({
-          where: scope,
-          orderBy: relConfig?.orderBy
-        });
+        const rows = await adapter.data.findMany(targetModel, { filter: scope, orderBy: relConfig?.orderBy });
         const options = rows.map((row) => ({
           id: row[primaryKeyOf(targetModel)] as string | number,
           label: resolveLabel(targetModel, row, relConfig?.labelTemplate)
@@ -443,9 +463,9 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       if (activeRawValue === undefined) return undefined;
       const activeId = coerceId(activeRawValue, targetModel);
       try {
-        const row = await prisma[prismaKey].findFirst({
-          where: scope ? { AND: [{ [primaryKeyOf(targetModel)]: activeId }, scope] } : { [primaryKeyOf(targetModel)]: activeId }
-        });
+        const idFilter = { op: 'eq', field: primaryKeyOf(targetModel), value: activeId } as const;
+        const filter = scope ? ({ op: 'and', clauses: [idFilter, scope] } as any) : idFilter;
+        const row = await adapter.data.findFirst(targetModel, filter);
         return row ? resolveLabel(targetModel, row, relConfig?.labelTemplate) : undefined;
       } catch {
         return undefined;
@@ -470,25 +490,6 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           ? `${basePath}/${edge.target.toLowerCase()}/${encodeURIComponent(activeRawValue!)}`
           : undefined
     };
-  };
-
-  /** IDs liés côté N-N implicite, via une requête sur le join field Prisma. */
-  const loadSelectedIds = async (
-    model: PrismaModel,
-    edge: import('./introspection/relations.js').RelationEdge,
-    currentId: string,
-    targetModel: PrismaModel
-  ): Promise<(string | number)[]> => {
-    try {
-      const current = await prisma[toPrismaModel(model.name)].findUnique({
-        where: { [primaryKeyOf(model)]: coerceId(currentId, model) },
-        include: { [edge.field]: true }
-      });
-      const linked: Record<string, unknown>[] = current?.[edge.field] ?? [];
-      return linked.map((row) => row[primaryKeyOf(targetModel)] as string | number);
-    } catch {
-      return [];
-    }
   };
 
   /**
@@ -516,9 +517,12 @@ export function createAdminHandler(config: AdminHandlerConfig) {
 
         const scalarName = owning.scalarFields[0];
         const key = `${edge.model}.${edge.field}`;
+        const targetModel = schema!.models.find((m) => m.name === edge.target)!;
         try {
-          const count: number = await prisma[toPrismaModel(edge.target)].count({
-            where: { [scalarName]: coerceId(currentId, model) }
+          const count = await adapter.data.countRecords(targetModel, {
+            op: 'eq',
+            field: scalarName,
+            value: coerceId(currentId, model)
           });
           return [key, count];
         } catch {
@@ -531,7 +535,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
 
   /**
    * Endpoint de recherche `GET {basePath}/_search?rel=Model.field&q=...&page=N`.
-   * Sert les options d'une relation to-one-owning ou m2m-implicite en JSON
+   * Sert les options d'une relation to-one-owning ou m2m en JSON
    * paginé — la voie prévue pour un futur widget autocomplete côté client
    * quand le nombre d'options dépasse `selectThreshold`. Respecte le `where`
    * de scoping configuré sur la relation, comme le select et la validation
@@ -548,7 +552,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       ? relationGraph.edges.get(`${model.name}.${fieldName}`)
       : undefined;
 
-    if (!model || !edge || (edge.kind !== 'to-one-owning' && edge.kind !== 'm2m-implicit') || edge.unsupported) {
+    if (!model || !edge || (edge.kind !== 'to-one-owning' && edge.kind !== 'm2m') || edge.unsupported) {
       return new Response(JSON.stringify({ error: 'unknown relation' }), {
         status: 404,
         headers: { 'Content-Type': 'application/json' }
@@ -564,23 +568,35 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     const searchField = labelFieldCandidates.find((c) =>
       targetModel.fields.some((f) => f.name === c && f.type === 'String')
     );
-    const where: Record<string, unknown> = {
-      ...configWhere,
-      ...(q && searchField ? { [searchField]: { contains: q } } : {})
-    };
+    // `contains` passed as a raw Prisma object literal here (not a `Filter`
+    // leaf) is deliberate: `compileFilterToPrismaWhere` only adds
+    // `mode: 'insensitive'` for a `{ op: 'contains', ... }` leaf, which would
+    // make this endpoint's case-sensitivity depend on the adapter-wide
+    // `caseInsensitiveSearch` setting — this endpoint was always
+    // case-sensitive regardless of provider, and must stay that way (zero
+    // observable behavior change is a hard constraint of this refactor).
+    // `compile()` treats any node without a recognized `op` key as an opaque
+    // pass-through, so this raw object flows through unchanged, exactly like
+    // `configWhere` already does.
+    const searchFilter: any =
+      q && searchField
+        ? { op: 'and', clauses: [configWhere, { [searchField]: { contains: q } }] }
+        : configWhere;
 
-    const prismaKey = toPrismaModel(edge.target);
     try {
+      // Count + fetch are independent reads — run them in parallel (as this
+      // endpoint always has, pre-refactor) rather than doubling latency with
+      // two sequential awaits.
       const [total, rows] = await Promise.all([
-        prisma[prismaKey].count({ where }),
-        prisma[prismaKey].findMany({
-          where,
+        adapter.data.countRecords(targetModel, searchFilter),
+        adapter.data.findMany(targetModel, {
+          filter: searchFilter,
+          orderBy: relConfig?.orderBy,
           skip: (page - 1) * PER_PAGE,
-          take: PER_PAGE,
-          orderBy: relConfig?.orderBy
+          take: PER_PAGE
         })
       ]);
-      const options = (rows as Record<string, unknown>[]).map((row) => ({
+      const options = rows.map((row) => ({
         id: row[primaryKeyOf(targetModel)],
         label: resolveLabel(targetModel, row, relConfig?.labelTemplate)
       }));
@@ -657,12 +673,13 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           }
 
           if (action === 'delete' && route.id) {
-            await deleteRecord(prisma, model, route.id);
+            await adapter.data.deleteRecord(model, route.id);
             return redirectToList(route.model);
           }
 
           if (action === 'create' || action === 'update') {
             const data = formDataToPrisma(formData, model);
+            const m2mInput: Record<string, { targetPkField: string; ids: Array<string | number> }> = {};
 
             // Validation des FK owning : coercion + existence + self-ref.
             // Rejoue le `where` de scoping : un ID hors du where est rejeté,
@@ -708,11 +725,10 @@ export function createAdminHandler(config: AdminHandlerConfig) {
                 // peut porter des conditions arbitraires (scoping multi-tenant).
                 // Si le client ne sait pas répondre, on ne bloque pas l'écriture.
                 try {
-                  const where: Record<string, unknown> = {
-                    [primaryKeyOf(targetModel)]: coerced,
-                    ...(relConfig?.where ? relConfig.where({ locals: event.locals }) : {})
-                  };
-                  const found = await prisma[toPrismaModel(edge.target)].findFirst({ where });
+                  const idFilter = { op: 'eq' as const, field: primaryKeyOf(targetModel), value: coerced };
+                  const scopeFilter = relConfig?.where ? (relConfig.where({ locals: event.locals }) as any) : undefined;
+                  const filter = scopeFilter ? ({ op: 'and', clauses: [idFilter, scopeFilter] } as any) : idFilter;
+                  const found = await adapter.data.findFirst(targetModel, filter);
                   if (!found) {
                     throw new Error(`${edge.field}: invalid value`);
                   }
@@ -730,10 +746,10 @@ export function createAdminHandler(config: AdminHandlerConfig) {
               // Avec le sentinelle mais zéro valeur cochée → vider la
               // relation (`set: []` / rien à connecter en création).
               for (const edge of relationGraph.edges.values()) {
-                if (edge.model !== model.name || edge.kind !== 'm2m-implicit') continue;
+                if (edge.model !== model.name || edge.kind !== 'm2m') continue;
                 // Pas de garde `edge.unsupported` ici : par construction du
                 // graphe, `unsupported` n'est jamais posé sur une arête
-                // m2m-implicite (seulement sur to-one-owning / groupes
+                // m2m (seulement sur to-one-owning / groupes
                 // ambigus, qui retombent toujours en to-one-owning).
 
                 const present = formData.get(`__rel_present__${edge.field}`);
@@ -761,12 +777,11 @@ export function createAdminHandler(config: AdminHandlerConfig) {
                 // soumis. Un compte différent = au moins un ID invalide ou
                 // hors scoping — IDOR bloqué au même titre que pour les FK.
                 if (ids.length > 0) {
-                  const where: Record<string, unknown> = {
-                    [targetPk]: { in: ids },
-                    ...(relConfig?.where ? relConfig.where({ locals: event.locals }) : {})
-                  };
+                  const inFilter = { op: 'in' as const, field: targetPk, value: ids };
+                  const scopeFilter = relConfig?.where ? (relConfig.where({ locals: event.locals }) as any) : undefined;
+                  const filter = scopeFilter ? ({ op: 'and', clauses: [inFilter, scopeFilter] } as any) : inFilter;
                   try {
-                    const found: unknown[] = await prisma[toPrismaModel(edge.target)].findMany({ where });
+                    const found = await adapter.data.findMany(targetModel, { filter });
                     if (found.length !== new Set(ids.map(String)).size) {
                       throw new Error(`${edge.field}: invalid value`);
                     }
@@ -776,16 +791,14 @@ export function createAdminHandler(config: AdminHandlerConfig) {
                   }
                 }
 
-                const idRefs = ids.map((id: string | number) => ({ [targetPk]: id }));
-                data[edge.field] =
-                  action === 'create' ? { connect: idRefs } : { set: idRefs };
+                m2mInput[edge.field] = { targetPkField: targetPk, ids };
               }
             }
 
             if (action === 'create') {
-              await createRecord(prisma, model, data);
+              await adapter.data.createRecord(model, { scalars: data, m2m: m2mInput });
             } else if (route.id) {
-              await updateRecord(prisma, model, route.id, data);
+              await adapter.data.updateRecord(model, route.id, { scalars: data, m2m: m2mInput });
             }
 
             return redirectToList(route.model);
@@ -801,7 +814,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           filteredModels.map(async (m) => {
             let count = 0;
             try {
-              count = await prisma[toPrismaModel(m.name)].count();
+              count = await adapter.data.countRecords(m);
             } catch {
               // model absent from the database
             }
@@ -855,8 +868,8 @@ export function createAdminHandler(config: AdminHandlerConfig) {
                 `condition that actually restricts rows otherwise.`
             );
           }
-          const where = buildWhere(listQuery, listScope, caseInsensitiveSearch, model);
-          const { items, total } = await listRecords(prisma, model, page, PER_PAGE, where);
+          const filter = buildWhere(listQuery, listScope, caseInsensitiveSearch, model) as any;
+          const { rows: items, total } = await adapter.data.listRecords(model, { filter, skip: (page - 1) * PER_PAGE, take: PER_PAGE });
           const listFilters = resolveListFilters(
             model,
             schema!.enums,
@@ -926,7 +939,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           // atteint ce `else` — or 'edit' est la branche à 2 segments, donc `id` y est
           // toujours défini. La variante 'notFound' ne porte pas de `model` : elle est
           // interceptée en amont et ne peut pas arriver ici.
-          const item = await getRecord(prisma, model, route.id!);
+          const item = await adapter.data.getRecord(model, route.id!);
           const relationOptions = await loadRelationOptions(model, { locals: event.locals }, route.id);
           const relatedCounts = item ? await loadRelatedCounts(model, route.id!) : undefined;
           content = item

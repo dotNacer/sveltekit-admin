@@ -1,0 +1,184 @@
+import { describe, it, expect } from 'vitest';
+import { createPrismaDataAdapter } from '../../../../src/lib/server/adapters/prisma/dataAdapter.js';
+import { parsePrismaSchema } from '../../../../src/lib/server/introspection/parser.js';
+import { buildRelationGraph } from '../../../../src/lib/server/introspection/relations.js';
+import { createPrismaMock, callsTo, FULL_SCHEMA_PATH, RELATIONS_SCHEMA_PATH } from '../../../fixtures/prismaMock.js';
+
+const schema = parsePrismaSchema(FULL_SCHEMA_PATH);
+const User = schema.models.find((m) => m.name === 'User')!;
+
+const relSchema = parsePrismaSchema(RELATIONS_SCHEMA_PATH);
+const relGraph = buildRelationGraph(relSchema);
+const RelPost = relSchema.models.find((m) => m.name === 'Post')!;
+const RelTag = relSchema.models.find((m) => m.name === 'Tag')!;
+const tagsEdge = relGraph.edges.get('Post.tags')!;
+
+describe('createPrismaDataAdapter — listRecords', () => {
+  it('liste avec skip/take et tri PK desc, count et fetch ensemble', async () => {
+    const records = Array.from({ length: 5 }, (_, i) => ({ id: i + 1, email: `u${i}@x.y` }));
+    const prisma = createPrismaMock({ user: records });
+    const adapter = createPrismaDataAdapter(prisma);
+    const { rows, total } = await adapter.listRecords(User, { skip: 2, take: 2 });
+    expect(rows).toEqual([{ id: 3, email: 'u2@x.y' }, { id: 4, email: 'u3@x.y' }]);
+    expect(total).toBe(5);
+    expect(callsTo(prisma, 'user', 'findMany')[0].args).toEqual({
+      where: undefined, skip: 2, take: 2, orderBy: { id: 'desc' }
+    });
+  });
+
+  it('propage un Filter compilé au where', async () => {
+    const prisma = createPrismaMock({ user: [{ id: 1, email: 'a@x.y' }, { id: 2, email: 'b@x.y' }] });
+    const adapter = createPrismaDataAdapter(prisma);
+    const { rows, total } = await adapter.listRecords(User, { filter: { op: 'eq', field: 'id', value: 2 }, skip: 0, take: 20 });
+    expect(rows).toEqual([{ id: 2, email: 'b@x.y' }]);
+    expect(total).toBe(1);
+  });
+});
+
+describe('createPrismaDataAdapter — findMany', () => {
+  it('sans skip/take : renvoie tout ce qui matche, orderBy transmis tel quel', async () => {
+    const records = [{ id: 2, name: 'B' }, { id: 1, name: 'A' }];
+    const prisma = createPrismaMock({ user: records });
+    const adapter = createPrismaDataAdapter(prisma);
+    const rows = await adapter.findMany(User, { orderBy: { name: 'asc' } });
+    expect(callsTo(prisma, 'user', 'findMany')[0].args).toEqual({ where: undefined, orderBy: { name: 'asc' } });
+    expect(rows).toEqual(records);
+  });
+
+  it('avec skip/take : pagination transmise', async () => {
+    const prisma = createPrismaMock({ user: [{ id: 1 }, { id: 2 }, { id: 3 }] });
+    const adapter = createPrismaDataAdapter(prisma);
+    await adapter.findMany(User, { skip: 1, take: 1 });
+    expect(callsTo(prisma, 'user', 'findMany')[0].args).toMatchObject({ skip: 1, take: 1 });
+  });
+});
+
+describe('createPrismaDataAdapter — countRecords / getRecord / findFirst', () => {
+  it('countRecords sans filter', async () => {
+    const prisma = createPrismaMock({ user: [{ id: 1 }, { id: 2 }] });
+    const adapter = createPrismaDataAdapter(prisma);
+    expect(await adapter.countRecords(User)).toBe(2);
+    expect(callsTo(prisma, 'user', 'count')[0].args).toEqual({ where: undefined });
+  });
+
+  it('countRecords avec filter compilé', async () => {
+    const prisma = createPrismaMock({ user: [{ id: 1 }, { id: 2 }] });
+    const adapter = createPrismaDataAdapter(prisma);
+    expect(await adapter.countRecords(User, { op: 'eq', field: 'id', value: 1 })).toBe(1);
+  });
+
+  it('getRecord coerce l\'id via la PK du modèle', async () => {
+    const prisma = createPrismaMock({ user: [{ id: 3, email: 'c@x.y' }] });
+    const adapter = createPrismaDataAdapter(prisma);
+    expect(await adapter.getRecord(User, '3')).toEqual({ id: 3, email: 'c@x.y' });
+  });
+
+  it('findFirst applique le filter tel quel (scoping)', async () => {
+    const prisma = createPrismaMock({ user: [{ id: 1, tenantId: 9 }, { id: 2, tenantId: 1 }] });
+    const adapter = createPrismaDataAdapter(prisma);
+    const row = await adapter.findFirst(User, {
+      op: 'and',
+      clauses: [{ op: 'eq', field: 'id', value: 1 }, { tenantId: 9 } as never]
+    });
+    expect(row).toEqual({ id: 1, tenantId: 9 });
+  });
+});
+
+describe('createPrismaDataAdapter — createRecord / updateRecord (sans m2m)', () => {
+  it('createRecord sans m2m : create direct, pas de $transaction', async () => {
+    const prisma = createPrismaMock({ user: [] });
+    const adapter = createPrismaDataAdapter(prisma);
+    await adapter.createRecord(User, { scalars: { email: 'n@x.y' } });
+    expect(callsTo(prisma, 'user', 'create')[0].args).toEqual({ data: { email: 'n@x.y' } });
+    expect(prisma.calls.some((c) => c.method === '$transaction')).toBe(false);
+  });
+
+  it('updateRecord sans m2m : update direct par PK coercée', async () => {
+    const prisma = createPrismaMock({ user: [{ id: 2, email: 'old@x.y' }] });
+    const adapter = createPrismaDataAdapter(prisma);
+    await adapter.updateRecord(User, '2', { scalars: { email: 'new@x.y' } });
+    expect(callsTo(prisma, 'user', 'update')[0].args).toEqual({ where: { id: 2 }, data: { email: 'new@x.y' } });
+  });
+
+  it('deleteRecord par PK coercée', async () => {
+    const prisma = createPrismaMock({ user: [{ id: 2 }] });
+    const adapter = createPrismaDataAdapter(prisma);
+    await adapter.deleteRecord(User, '2');
+    expect(callsTo(prisma, 'user', 'delete')[0].args).toEqual({ where: { id: 2 } });
+  });
+});
+
+describe('createPrismaDataAdapter — createRecord / updateRecord (avec m2m)', () => {
+  it('createRecord avec m2m : connect, dans une transaction', async () => {
+    const prisma = createPrismaMock({ post: [] });
+    const adapter = createPrismaDataAdapter(prisma);
+    await adapter.createRecord(RelPost, {
+      scalars: { title: 'T', authorId: 1 },
+      m2m: { tags: { targetPkField: 'id', ids: [1, 2] } }
+    });
+    const create = callsTo(prisma, 'post', 'create')[0];
+    expect(create.args).toEqual({ data: { title: 'T', authorId: 1, tags: { connect: [{ id: 1 }, { id: 2 }] } } });
+  });
+
+  it('updateRecord avec m2m : set, dans une transaction', async () => {
+    const prisma = createPrismaMock({ post: [{ id: 'p1', title: 'T', authorId: 1 }] });
+    const adapter = createPrismaDataAdapter(prisma);
+    await adapter.updateRecord(RelPost, 'p1', {
+      scalars: { title: 'T2' },
+      m2m: { tags: { targetPkField: 'id', ids: [2] } }
+    });
+    const update = callsTo(prisma, 'post', 'update')[0];
+    expect(update.args).toEqual({ where: { id: 'p1' }, data: { title: 'T2', tags: { set: [{ id: 2 }] } } });
+  });
+
+  it('m2m avec une liste vide : set: [] (vide la relation), toujours transactionnel', async () => {
+    const prisma = createPrismaMock({ post: [{ id: 'p1', title: 'T' }] });
+    const adapter = createPrismaDataAdapter(prisma);
+    await adapter.updateRecord(RelPost, 'p1', {
+      scalars: { title: 'T' },
+      m2m: { tags: { targetPkField: 'id', ids: [] } }
+    });
+    expect(callsTo(prisma, 'post', 'update')[0].args).toEqual({ where: { id: 'p1' }, data: { title: 'T', tags: { set: [] } } });
+  });
+
+  it('m2m sur une PK cible String (non-Int) : idRefs porte des strings', async () => {
+    const prisma = createPrismaMock({ post: [] });
+    const adapter = createPrismaDataAdapter(prisma);
+    await adapter.createRecord(RelPost, {
+      scalars: { title: 'T' },
+      m2m: { labels: { targetPkField: 'slug', ids: ['a', 'b'] } }
+    });
+    expect(callsTo(prisma, 'post', 'create')[0].args).toEqual({
+      data: { title: 'T', labels: { connect: [{ slug: 'a' }, { slug: 'b' }] } }
+    });
+  });
+});
+
+describe('createPrismaDataAdapter — getM2mSelectedIds', () => {
+  it('lit les ids liés via include, mappés sur la PK cible', async () => {
+    const prisma = createPrismaMock({
+      post: [{ id: 'p1', title: 'T', tags: [{ id: 1, name: 'js' }, { id: 2, name: 'ts' }] }]
+    });
+    const adapter = createPrismaDataAdapter(prisma);
+    const ids = await adapter.getM2mSelectedIds(RelPost, tagsEdge, RelTag, 'p1');
+    expect(ids).toEqual([1, 2]);
+    expect(callsTo(prisma, 'post', 'findUnique')[0].args).toEqual({
+      where: { id: 'p1' }, include: { tags: true }
+    });
+  });
+
+  it('cible absente du client : liste vide, pas de throw', async () => {
+    const prisma = createPrismaMock({});
+    const adapter = createPrismaDataAdapter(prisma);
+    expect(await adapter.getM2mSelectedIds(RelPost, tagsEdge, RelTag, 'p1')).toEqual([]);
+  });
+
+  it('recordId sans enregistrement correspondant : findUnique renvoie null, liste vide sans throw', async () => {
+    // Modèle présent côté client (contrairement au test précédent) mais aucun
+    // enregistrement ne matche : `findUnique` renvoie `null`, ce qui exerce la
+    // branche `current?.[edge.field] ?? []` sans passer par le `catch`.
+    const prisma = createPrismaMock({ post: [] });
+    const adapter = createPrismaDataAdapter(prisma);
+    expect(await adapter.getM2mSelectedIds(RelPost, tagsEdge, RelTag, 'missing')).toEqual([]);
+  });
+});

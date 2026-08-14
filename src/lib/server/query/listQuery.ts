@@ -14,6 +14,7 @@
 
 import type { PrismaField, PrismaModel } from '../introspection/parser.js';
 import { isSensitiveFieldName } from '../introspection/parser.js';
+import type { Filter } from '../adapters/types.js';
 
 export type FilterOp = 'equals' | 'contains' | 'startsWith' | 'gte' | 'lte' | 'isnull';
 
@@ -413,104 +414,85 @@ export function parseListQuery(
   return { q, searchFields, filters, ignored };
 }
 
-/** A Prisma `where` clause built from a `ListQuery`. Opaque to callers — pass straight to Prisma. */
-export type PrismaWhere = Record<string, unknown>;
-
-function clauseOf(filter: ActiveFilter): Record<string, unknown> {
+function clauseOf(filter: ActiveFilter): Filter[] {
   if (filter.op === 'gte' && filter.value && typeof filter.value === 'object' && 'gte' in (filter.value as object)) {
-    // Date shortcut carrying both bounds (see parseOneFilter's DateTime branch).
+    // Date shortcut carrying both bounds (see parseOneFilter's DateTime branch) —
+    // becomes two leaf clauses, re-merged by the Prisma filterCompiler.
     const range = filter.value as DateRange;
-    return { [filter.field]: { gte: range.gte, lt: range.lt } };
+    return [
+      { op: 'gte', field: filter.field, value: range.gte },
+      { op: 'lt', field: filter.field, value: range.lt }
+    ];
   }
   if (filter.op === 'isnull') {
-    return { [filter.field]: filter.value ? { equals: null } : { not: null } };
+    return [{ op: filter.value ? 'isNull' : 'isNotNull', field: filter.field }];
   }
   if (filter.op === 'equals') {
-    return { [filter.field]: filter.value };
+    return [{ op: 'eq', field: filter.field, value: filter.value }];
   }
-  return { [filter.field]: { [filter.op]: filter.value } };
+  return [{ op: filter.op, field: filter.field, value: filter.value } as Filter];
 }
 
 /**
- * Compose the final Prisma `where`: `AND: [scope, ...filters, {OR: search}]`.
- * NEVER a spread — a spread of `{...scope, ...filterWhere}` lets a filter
- * on the same field as the developer's scoping silently overwrite it
- * (docs/design §0.c, the exact IDOR the previous `?filter=` had). Two
- * clauses on the same field inside `AND` intersect; they never merge.
+ * Compose the final generic `Filter`: `and: [scope, ...filters, {or: search}]`.
+ * NEVER a spread — see clauseOf's callers and docs/design §0.c history. `scope`
+ * stays a raw Prisma-shaped object here (it's an escape hatch supplied by the
+ * consuming app's own `listWhere`/`relations[x].where` config, itself already
+ * Prisma-shaped and unchanged by this refactor) — it's treated as an opaque
+ * leaf and passed through `and`/`or` untouched, exactly like today.
  *
- * Returns `undefined` when nothing is active, so the query shape sent to
- * Prisma is byte-for-byte identical to today's unfiltered call — no
- * regression on existing snapshots/assertions.
+ * Returns `undefined` when nothing is active, so a caller with no filter and
+ * no scope sees the exact same "no where clause at all" behavior as today.
  */
 export function buildWhere(
   query: ListQuery,
   scope: Record<string, unknown> | undefined,
   caseInsensitiveSearch: boolean,
   model: PrismaModel
-): PrismaWhere | undefined {
-  const and: Record<string, unknown>[] = [];
+): Filter | Record<string, unknown> | undefined {
+  const and: (Filter | Record<string, unknown>)[] = [];
   if (scope) and.push(scope);
-  for (const f of query.filters) and.push(clauseOf(f));
+  for (const f of query.filters) and.push(...clauseOf(f));
 
   if (query.q && query.searchFields.length > 0) {
-    const or: Record<string, unknown>[] = [];
+    const or: Filter[] = [];
     for (const fieldName of query.searchFields) {
       const field = model.fields.find((f) => f.name === fieldName);
-      const clause = searchClauseFor(field, query.q, caseInsensitiveSearch);
-      if (clause) or.push({ [fieldName]: clause });
+      const clause = searchClauseFor(field, fieldName, query.q);
+      if (clause) or.push(clause);
     }
-    // Never emit `{OR: []}` — in Prisma that matches nothing, which would
-    // silently turn "no searchable field" (or "every clause omitted", §2.4)
-    // into "empty result". A no-op search must add nothing to the where.
-    if (or.length > 0) and.push({ OR: or });
+    // Never emit `{op: 'or', clauses: []}` — see the historical Prisma
+    // `{OR: []}`-matches-nothing bug this guards against.
+    if (or.length > 0) and.push({ op: 'or', clauses: or });
   }
 
   if (and.length === 0) return undefined;
   if (and.length === 1) return and[0];
-  return { AND: and };
+  return { op: 'and', clauses: and } as Filter;
 }
 
 /**
- * The per-field-type clause for a `searchFields` entry (§2.4):
- * - String @id -> `equals` (a `contains` on a cuid/uuid can't use the
- *   index and never makes semantic sense; §2.1 talks ONLY about the id
- *   here — an earlier version of this function over-generalized to
- *   `@id || @unique`, which silently broke fragment search on the most
- *   common real-world case: `email`/`slug` fields are `@unique` in
- *   nearly every Prisma schema and are exactly what §2.3's "a title, an
- *   email" example means by free-text search. `@unique` alone is NOT a
- *   reason to switch to `equals` — only `@id` is).
- * - other String (including @unique) -> `contains` (+ `mode:
- *   'insensitive'` when the provider supports it).
- * - Int/BigInt/Float/Decimal -> `equals` if `q` coerces to that type,
- *   otherwise the clause is OMITTED — never `contains` on a numeric
- *   column, which Prisma rejects with a hard error (`Unknown argument
- *   contains`), turning any legitimate `?q=` into a 500 (§10's known
- *   trap, discovered via review — the original implementation searched
- *   this exactly wrong).
- * - anything else (enum, Boolean, DateTime, relation, Json/Bytes):
- *   omitted. `resolveSearchFields`'s auto heuristic never proposes these,
- *   but explicit `searchFields` config isn't type-checked against §2.4 at
- *   boot (only against `isFilterableFieldType`), so this is reached in
- *   practice for a misconfigured field — degrading to "omitted" here
- *   keeps the guarantee that a legitimate URL never 500s, without adding
- *   a boot-time validation pass this design doc doesn't ask for.
+ * The per-field-type clause for a `searchFields` entry (§2.4) — same rules as
+ * before (String @id -> eq, other String -> contains, numeric -> eq if
+ * coercible else omitted, anything else omitted). `caseInsensitiveSearch` no
+ * longer lives here: the generic `Filter` doesn't carry a case-sensitivity
+ * flag, `filterCompiler.ts` decides whether to add `mode: 'insensitive'` from
+ * the same boolean at the handler.ts call site instead.
  */
 function searchClauseFor(
   field: PrismaField | undefined,
-  q: string,
-  caseInsensitiveSearch: boolean
-): Record<string, unknown> | undefined {
+  fieldName: string,
+  q: string
+): Filter | undefined {
   if (!field) return undefined;
 
   if (field.type === 'String') {
-    if (field.isId) return { equals: q };
-    return caseInsensitiveSearch ? { contains: q, mode: 'insensitive' } : { contains: q };
+    return field.isId ? { op: 'eq', field: fieldName, value: q } : { op: 'contains', field: fieldName, value: q };
   }
 
   if (['Int', 'BigInt', 'Float', 'Decimal'].includes(field.type)) {
     const coerced = coerceValue(field, 'equals', q);
-    return coerced === undefined ? undefined : { equals: coerced };
+    return coerced === undefined ? undefined : { op: 'eq', field: fieldName, value: coerced };
   }
 
   return undefined;
