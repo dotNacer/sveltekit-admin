@@ -1,10 +1,11 @@
 import { readFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import { drizzle as drizzlePg } from "drizzle-orm/pg-proxy";
-import { pgTable, serial, text } from "drizzle-orm/pg-core";
 import { afterEach, describe, expect, it } from "vitest";
-import { createDrizzleAdapter } from "../../../../src/lib/server/adapters/drizzle/index.js";
+import {
+  createDrizzleAdapter,
+  resolveCaseInsensitiveSearch,
+} from "../../../../src/lib/server/adapters/drizzle/index.js";
 import * as schema from "../../../fixtures/drizzle/schema.js";
 
 const databases: Database.Database[] = [];
@@ -13,6 +14,36 @@ function createSqlite() {
   const sqlite = new Database(":memory:");
   databases.push(sqlite);
   return sqlite;
+}
+
+function seedUsersWithAlice() {
+  const sqlite = createSqlite();
+  sqlite.exec("PRAGMA case_sensitive_like = ON;");
+  sqlite.exec(
+    "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, name TEXT, tenant_id INTEGER NOT NULL, created_at INTEGER);",
+  );
+  sqlite.exec(
+    "INSERT INTO users (email, name, tenant_id) VALUES ('a@x.y', 'Alice', 1);",
+  );
+  return drizzle(sqlite);
+}
+
+async function listByNameContains(
+  db: ReturnType<typeof drizzle>,
+  searchMode?: "auto" | "insensitive" | "default",
+) {
+  const adapter = createDrizzleAdapter(
+    searchMode === undefined ? { db, schema } : { db, schema, searchMode },
+  );
+  const inspected = adapter.introspector.introspect();
+  const users = (inspected as Awaited<typeof inspected>).models.find(
+    (model) => model.name === "users",
+  )!;
+  return adapter.data.listRecords(users, {
+    skip: 0,
+    take: 20,
+    filter: { op: "contains", field: "name", value: "alice" },
+  });
 }
 
 afterEach(() => {
@@ -30,10 +61,12 @@ describe("createDrizzleAdapter", () => {
     );
     const db = drizzle(sqlite);
     const adapter = createDrizzleAdapter({ db, schema });
-    const inspected = adapter.introspector.introspect();
+    const first = adapter.introspector.introspect();
 
-    expect(inspected).not.toBeInstanceOf(Promise);
-    const users = (inspected as Awaited<typeof inspected>).models.find(
+    expect(first).not.toBeInstanceOf(Promise);
+    expect(adapter.introspector.introspect()).toBe(first);
+
+    const users = (first as Awaited<typeof first>).models.find(
       (model) => model.name === "users",
     )!;
     const { rows, total } = await adapter.data.listRecords(users, {
@@ -45,23 +78,28 @@ describe("createDrizzleAdapter", () => {
     expect(rows[0]).toMatchObject({ email: "a@x.y" });
   });
 
-  it("searchMode 'insensitive' on sqlite still builds", () => {
-    const db = drizzle(createSqlite());
-
-    expect(() =>
-      createDrizzleAdapter({ db, schema, searchMode: "insensitive" }),
-    ).not.toThrow();
+  it("searchMode auto on sqlite uses case-sensitive contains", async () => {
+    const { total } = await listByNameContains(seedUsersWithAlice());
+    expect(total).toBe(0);
   });
 
-  it("searchMode 'default' disables insensitive search", () => {
-    const db = drizzle(createSqlite());
-
-    expect(() =>
-      createDrizzleAdapter({ db, schema, searchMode: "default" }),
-    ).not.toThrow();
+  it("searchMode insensitive on sqlite uses case-insensitive contains", async () => {
+    const { total } = await listByNameContains(
+      seedUsersWithAlice(),
+      "insensitive",
+    );
+    expect(total).toBe(1);
   });
 
-  it("searchMode 'auto' defaults to sensitive search on sqlite", () => {
+  it("searchMode default on sqlite disables case-insensitive contains", async () => {
+    const { total } = await listByNameContains(
+      seedUsersWithAlice(),
+      "default",
+    );
+    expect(total).toBe(0);
+  });
+
+  it("searchMode auto defaults to sensitive search on sqlite", () => {
     const db = drizzle(createSqlite());
     const adapter = createDrizzleAdapter({ db, schema });
 
@@ -69,22 +107,27 @@ describe("createDrizzleAdapter", () => {
       provider: "sqlite",
     });
   });
+});
 
-  it("searchMode 'auto' enables insensitive search on postgresql", () => {
-    const pgUsers = pgTable("users", {
-      id: serial("id").primaryKey(),
-      name: text("name"),
-    });
-    const db = drizzlePg(async () => ({ rows: [] }));
-    const adapter = createDrizzleAdapter({
-      db,
-      schema: { users: pgUsers },
-      searchMode: "auto",
-    });
+describe("resolveCaseInsensitiveSearch", () => {
+  it("searchMode insensitive forces true regardless of dialect", () => {
+    expect(resolveCaseInsensitiveSearch("sqlite", "insensitive")).toBe(true);
+  });
 
-    expect(adapter.introspector.introspect()).toMatchObject({
-      provider: "postgresql",
-    });
+  it("searchMode auto with postgresql enables insensitive search", () => {
+    expect(resolveCaseInsensitiveSearch("postgresql", "auto")).toBe(true);
+  });
+
+  it("searchMode auto with sqlite disables insensitive search", () => {
+    expect(resolveCaseInsensitiveSearch("sqlite", "auto")).toBe(false);
+  });
+
+  it("searchMode default always disables insensitive search", () => {
+    expect(resolveCaseInsensitiveSearch("postgresql", "default")).toBe(false);
+  });
+
+  it("searchMode defaults to auto", () => {
+    expect(resolveCaseInsensitiveSearch("mysql")).toBe(false);
   });
 });
 

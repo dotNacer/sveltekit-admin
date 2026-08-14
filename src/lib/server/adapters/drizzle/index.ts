@@ -6,7 +6,7 @@ import { createDrizzleIntrospector } from "./introspector.js";
 
 export type { DrizzleDialect };
 
-function resolveCaseInsensitiveSearch(
+export function resolveCaseInsensitiveSearch(
   dialect: DrizzleDialect,
   searchMode: "auto" | "insensitive" | "default" = "auto",
 ): boolean {
