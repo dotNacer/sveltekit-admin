@@ -68,6 +68,11 @@ pass `searchMode` to `createDrizzleAdapter` instead. Nested Prisma `where`
 objects in `listWhere` are not supported — use a flat `{ tenantId: 1 }` or
 a `Filter` AST.
 
+Many-to-many writes on SQLite currently require better-sqlite3's synchronous
+`db.transaction` with `.get()` and `.run()`. Async SQLite drivers such as
+libsql/Turso, D1, and `bun:sqlite` are not supported for many-to-many writes in
+this version; PostgreSQL and MySQL use async transactions.
+
 ## Configuration
 
 ```typescript

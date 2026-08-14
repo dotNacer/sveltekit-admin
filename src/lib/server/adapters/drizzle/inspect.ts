@@ -52,11 +52,14 @@ function inferDialect(tables: Table[]): DrizzleDialect {
   return [...dialects][0]!;
 }
 
-export function mapColumnType(column: Column): { type: string; isEnum: boolean } {
+export function mapColumnType(
+  column: Column,
+  enumTypeName?: string
+): { type: string; isEnum: boolean } {
   const enumValues = (column as Column & { enumValues?: string[] }).enumValues;
   if (enumValues && enumValues.length > 0) {
     return {
-      type: column.columnType.replace(/^(Pg|MySql|SQLite)/, '') || 'String',
+      type: (enumTypeName ?? column.columnType.replace(/^(Pg|MySql|SQLite)/, '')) || 'String',
       isEnum: true
     };
   }
@@ -124,7 +127,10 @@ export function inspectDrizzleSchema(
   for (const [tsName, config] of Object.entries(relationalTables)) {
     const fields: Field[] = [];
     for (const [jsName, column] of Object.entries(config.columns)) {
-      const { type, isEnum } = mapColumnType(column as Column);
+      const enumName = (column as Column & { enum?: { enumName?: string } }).enum?.enumName;
+      const syntheticEnumName =
+        enumName ?? `DrizzleEnum:${tsName.length}:${tsName}:${jsName.length}:${jsName}`;
+      const { type, isEnum } = mapColumnType(column as Column, syntheticEnumName);
       if (isEnum) {
         const enumValues = (column as Column & { enumValues: string[] }).enumValues;
         enums.set(type, enumValues);
@@ -222,7 +228,7 @@ export function inspectDrizzleSchema(
         !field.isCreatedAt &&
         !field.isUpdatedAt
     );
-    if (businessColumns.length > 1) continue;
+    if (businessColumns.length > 0) continue;
 
     const aModel = modelByName.get(a!.targetTsName)!;
     const bModel = modelByName.get(b!.targetTsName)!;

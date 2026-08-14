@@ -85,7 +85,7 @@ describe('PR4 — endpoint de recherche /_search', () => {
     const h = handler(prisma, {
       models: { Post: { relations: { author: { where: () => ({ email: 'alice@a.c' }) } } } }
     });
-    const { event, resolve } = createEvent({ url: '/admin/_search?rel=Post.author' });
+    const { event, resolve } = createEvent({ url: '/admin/_search?rel=Post.author&q=Ali' });
     const body = await json(await h({ event, resolve } as any));
     expect(body.options).toEqual([{ id: 1, label: 'Alice' }]);
   });

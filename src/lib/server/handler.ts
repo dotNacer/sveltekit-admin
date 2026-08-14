@@ -35,6 +35,13 @@ import type { ViewModel } from './views/types.js';
 
 const PER_PAGE = 20;
 
+function scopeFrom(
+  relConfig: { where?: (ctx: any) => any } | undefined,
+  ctx: { locals?: any }
+): any {
+  return relConfig?.where ? normalizeScope(relConfig.where(ctx)) : undefined;
+}
+
 export interface AdminHandlerConfig {
   /**
    * Prisma client instance. Required unless `adapter` is provided directly —
@@ -377,7 +384,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
         const key = `${edge.model}.${edge.field}`;
         const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
         const targetModel = schema!.models.find((m) => m.name === edge.target)!;
-        const filter = relConfig?.where ? (relConfig.where(ctx) as any) : undefined;
+        const filter = scopeFrom(relConfig, ctx);
 
         try {
           const total = await adapter.data.countRecords(targetModel, filter);
@@ -436,7 +443,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     // n'existe pas dans `schema.models`.
 
     const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
-    const scope = relConfig?.where ? (relConfig.where(ctx) as any) : undefined;
+    const scope = scopeFrom(relConfig, ctx);
 
     // Options de la sidebar (comptées puis chargées si sous le seuil) et
     // label du chip actif (§6.3.b) sont deux requêtes indépendantes — l'une
@@ -567,7 +574,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
 
     const targetModel = schema!.models.find((m) => m.name === edge.target)!;
     const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
-    const configWhere = relConfig?.where ? relConfig.where({ locals: event.locals }) : {};
+    const configWhere = scopeFrom(relConfig, { locals: event.locals });
 
     // Recherche sur le premier champ String candidat du modèle cible — le
     // même champ que celui utilisé pour construire le label par défaut.
@@ -580,10 +587,14 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     // `ilike`). `containsExact` compiles to `{ contains }` / `LIKE` with
     // no case-folding — same observable Prisma behavior as the previous
     // opaque `{ [field]: { contains: q } }` pass-through.
-    const searchFilter: any =
+    const containsFilter =
       q && searchField
-        ? { op: 'and', clauses: [configWhere, { op: 'containsExact', field: searchField, value: q }] }
-        : configWhere;
+        ? { op: 'containsExact' as const, field: searchField, value: q }
+        : undefined;
+    const searchFilter: any =
+      containsFilter && configWhere
+        ? { op: 'and', clauses: [configWhere, containsFilter] }
+        : containsFilter ?? configWhere;
 
     try {
       // Count + fetch are independent reads — run them in parallel (as this
@@ -728,9 +739,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
                 // Si le client ne sait pas répondre, on ne bloque pas l'écriture.
                 try {
                   const idFilter = { op: 'eq' as const, field: primaryKeyOf(targetModel), value: coerced };
-                  const scopeFilter = relConfig?.where
-                    ? normalizeScope(relConfig.where({ locals: event.locals }))
-                    : undefined;
+                  const scopeFilter = scopeFrom(relConfig, { locals: event.locals });
                   const filter = scopeFilter ? ({ op: 'and', clauses: [idFilter, scopeFilter] } as any) : idFilter;
                   const found = await adapter.data.findFirst(targetModel, filter);
                   if (!found) {
@@ -738,6 +747,12 @@ export function createAdminHandler(config: AdminHandlerConfig) {
                   }
                 } catch (e: any) {
                   if (e?.message?.includes('invalid value')) throw e;
+                  if (e?.message?.includes('nested Prisma `where` is not supported')) {
+                    throw new Error(`${edge.field}: invalid value`);
+                  }
+                  if (e?.message?.includes('unknown field')) {
+                    throw new Error(`${edge.field}: invalid value`);
+                  }
                   // Client incapable de vérifier (mock partiel, etc.) : on laisse passer.
                 }
 
@@ -782,7 +797,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
                 // hors scoping — IDOR bloqué au même titre que pour les FK.
                 if (ids.length > 0) {
                   const inFilter = { op: 'in' as const, field: targetPk, value: ids };
-                  const scopeFilter = relConfig?.where ? (relConfig.where({ locals: event.locals }) as any) : undefined;
+                  const scopeFilter = scopeFrom(relConfig, { locals: event.locals });
                   const filter = scopeFilter ? ({ op: 'and', clauses: [inFilter, scopeFilter] } as any) : inFilter;
                   try {
                     const found = await adapter.data.findMany(targetModel, { filter });
@@ -791,6 +806,12 @@ export function createAdminHandler(config: AdminHandlerConfig) {
                     }
                   } catch (e: any) {
                     if (e?.message?.includes('invalid value')) throw e;
+                    if (e?.message?.includes('nested Prisma `where` is not supported')) {
+                      throw new Error(`${edge.field}: invalid value`);
+                    }
+                    if (e?.message?.includes('unknown field')) {
+                      throw new Error(`${edge.field}: invalid value`);
+                    }
                     // Client incapable de vérifier : on laisse passer.
                   }
                 }

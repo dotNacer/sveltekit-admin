@@ -88,6 +88,26 @@ describe('inspectDrizzleSchema — tables / types / dialect', () => {
     );
   });
 
+  it('conserve des clés distinctes pour deux pgEnum', () => {
+    const role = pgEnum('member_role', ['admin', 'user']);
+    const state = pgEnum('member_state', ['active', 'disabled']);
+    const members = pgTable('members', {
+      id: serial('id').primaryKey(),
+      role: role('role'),
+      state: state('state')
+    });
+
+    const { schema } = inspectDrizzleSchema({ members, role, state });
+    const fields = schema.models.find((model) => model.name === 'members')!.fields;
+    const roleField = fields.find((field) => field.name === 'role')!;
+    const stateField = fields.find((field) => field.name === 'state')!;
+
+    expect(roleField.type).not.toBe(stateField.type);
+    expect(schema.enums.size).toBe(2);
+    expect(schema.enums.get(roleField.type)).toEqual(['admin', 'user']);
+    expect(schema.enums.get(stateField.type)).toEqual(['active', 'disabled']);
+  });
+
   it('dialect override en désaccord avec les tables → throw', () => {
     const users = sqliteTable('users', { id: integer('id').primaryKey() });
     expect(() => inspectDrizzleSchema({ users }, 'postgresql')).toThrow(
@@ -333,6 +353,29 @@ describe('inspectDrizzleSchema — relations v1 + m2m', () => {
 
     const { schema, m2m } = inspectDrizzleSchema({ a, b, pivot, aRel, bRel, pRel });
     expect(schema.models.find((model) => model.name === 'pivot')!.isPivotTable).toBeUndefined();
+    expect(m2m.size).toBe(0);
+  });
+
+  it('pivot avec une colonne métier : pas de synthèse', () => {
+    const a = sqliteTable('a', { id: integer('id').primaryKey() });
+    const b = sqliteTable('b', { id: integer('id').primaryKey() });
+    const pivot = sqliteTable('a_to_b', {
+      aId: integer('a_id').notNull(),
+      bId: integer('b_id').notNull(),
+      role: text('role')
+    });
+    const aRel = relations(a, ({ many }) => ({ pivot: many(pivot) }));
+    const bRel = relations(b, ({ many }) => ({ pivot: many(pivot) }));
+    const pRel = relations(pivot, ({ one }) => ({
+      a: one(a, { fields: [pivot.aId], references: [a.id] }),
+      b: one(b, { fields: [pivot.bId], references: [b.id] })
+    }));
+
+    const { schema, m2m } = inspectDrizzleSchema({ a, b, pivot, aRel, bRel, pRel });
+    expect(schema.models.find((model) => model.name === 'pivot')!.isPivotTable).toBeUndefined();
+    expect(schema.models.find((model) => model.name === 'a')!.fields).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'pivot', isList: true })])
+    );
     expect(m2m.size).toBe(0);
   });
 

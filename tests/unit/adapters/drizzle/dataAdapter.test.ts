@@ -388,6 +388,8 @@ describe("createDrizzleDataAdapter", () => {
         missing: { targetPkField: "id", ids: [1] },
       },
     });
+    await mysqlAdapter.deleteRecord(posts, 7);
+    await mysqlAdapter.deleteRecord(users, 7);
 
     expect(insertedValues).toContainEqual([{ postId: 7, tagId: 2 }]);
   });

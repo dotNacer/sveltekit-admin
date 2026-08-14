@@ -299,9 +299,27 @@ export function createDrizzleDataAdapter(
 
     async deleteRecord(model, id) {
       const table = tableFor(ctx, model);
-      await db
-        .delete(table)
-        .where(eq(primaryKeyColumn(table, model), coerceId(String(id), model)));
+      const coercedId = coerceId(String(id), model);
+      const links = [...ctx.m2m.entries()]
+        .filter(([key]) => key.startsWith(`${model.name}.`))
+        .map(([, link]) => link);
+      if (ctx.dialect === "sqlite") {
+        db.transaction((tx: any) => {
+          for (const link of links) {
+            tx.delete(link.pivot).where(eq(link.selfColumn, coercedId)).run();
+          }
+          tx.delete(table)
+            .where(eq(primaryKeyColumn(table, model), coercedId))
+            .run();
+        });
+        return;
+      }
+      await db.transaction(async (tx: any) => {
+        for (const link of links) {
+          await tx.delete(link.pivot).where(eq(link.selfColumn, coercedId));
+        }
+        await tx.delete(table).where(eq(primaryKeyColumn(table, model), coercedId));
+      });
     },
 
     async getM2mSelectedIds(model, edge, _targetModel, recordId) {

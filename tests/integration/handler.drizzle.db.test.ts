@@ -229,6 +229,94 @@ describe('admin handler with a real Drizzle SQLite database', () => {
     ).toEqual([{ tagId: replacementTagId }]);
   });
 
+  it('rejects many-to-many ids outside the configured relation scope', async () => {
+    const authorId = insertUser('author@x.y', 1, 'Author');
+    const insertTag = sqlite.prepare('INSERT INTO tags (name) VALUES (?)');
+    const allowedTagId = Number(insertTag.run('js').lastInsertRowid);
+    const forbiddenTagId = Number(insertTag.run('css').lastInsertRowid);
+    const scopedHandler = createAdminHandler({
+      adapter: createDrizzleAdapter({ db, schema }),
+      models: {
+        posts: {
+          relations: {
+            tags: { where: () => ({ name: 'js' }) }
+          }
+        }
+      },
+      authCheck: () => true
+    });
+
+    const createResponse = await callWith(scopedHandler, '/admin/posts/new', {
+      _action: 'create',
+      title: 'Scoped tags',
+      authorId: String(authorId),
+      __rel_present__tags: '1',
+      __rel__tags: String(allowedTagId)
+    });
+    expect(createResponse.status).toBe(303);
+
+    const post = sqlite.prepare('SELECT id FROM posts WHERE title = ?').get('Scoped tags') as {
+      id: number;
+    };
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const html = await (
+      await callWith(scopedHandler, `/admin/posts/${post.id}`, {
+        _action: 'update',
+        title: 'Scoped tags',
+        authorId: String(authorId),
+        __rel_present__tags: '1',
+        __rel__tags: `${allowedTagId},${forbiddenTagId}`
+      })
+    ).text();
+    error.mockRestore();
+
+    expect(html).toContain(ERROR_ALERT);
+    expect(html).toContain('invalid value');
+    expect(
+      sqlite
+        .prepare('SELECT tag_id AS tagId FROM posts_to_tags WHERE post_id = ? ORDER BY tag_id')
+        .all(post.id)
+    ).toEqual([{ tagId: allowedTagId }]);
+  });
+
+  it('searches Drizzle relation options without a configured scope', async () => {
+    const authorId = insertUser('ada@x.y', 1, 'Ada');
+    insertUser('grace@x.y', 1, 'Grace');
+
+    const response = await call('/admin/_search?rel=posts.author&q=Ada');
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      total: 1,
+      options: [{ id: authorId, label: 'Ada' }]
+    });
+  });
+
+  it('deletes pivot rows before deleting a post', async () => {
+    const authorId = insertUser('author@x.y', 1, 'Author');
+    const tagId = Number(
+      sqlite.prepare('INSERT INTO tags (name) VALUES (?)').run('linked').lastInsertRowid
+    );
+    const createResponse = await call('/admin/posts/new', {
+      _action: 'create',
+      title: 'Delete with links',
+      authorId: String(authorId),
+      __rel_present__tags: '1',
+      __rel__tags: String(tagId)
+    });
+    expect(createResponse.status).toBe(303);
+
+    const post = sqlite.prepare('SELECT id FROM posts WHERE title = ?').get('Delete with links') as {
+      id: number;
+    };
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM posts_to_tags').get()).toEqual({ count: 1 });
+
+    const deleteResponse = await call(`/admin/posts/${post.id}`, { _action: 'delete' });
+
+    expect(deleteResponse.status).toBe(303);
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM posts_to_tags').get()).toEqual({ count: 0 });
+  });
+
   it('applies a flat listWhere scope', async () => {
     insertUser('visible@x.y', 1, 'Visible tenant');
     insertUser('hidden@x.y', 2, 'Hidden tenant');

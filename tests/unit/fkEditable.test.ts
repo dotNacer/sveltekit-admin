@@ -158,6 +158,26 @@ describe('PR2 — FK éditables', () => {
     expect(callsTo(prisma, 'post', 'update')).toHaveLength(0);
   });
 
+  it.each([
+    'nested Prisma `where` is not supported by the Drizzle adapter',
+    "[sveltekit-admin] unknown field 'tenantId' on Drizzle table"
+  ])('POST FK échoue fermé si l’adapter refuse de compiler le scope : %s', async (message) => {
+    const prisma = createPrismaMock(baseData());
+    prisma.user.findFirst = () => {
+      throw new Error(message);
+    };
+    const { event, resolve } = formEvent('/admin/post/ckp1', {
+      _action: 'update',
+      title: 'T2',
+      authorId: '2'
+    });
+
+    const html = await (await handler(prisma)({ event, resolve } as any)).text();
+
+    expect(html).toContain('author: invalid value');
+    expect(callsTo(prisma, 'post', 'update')).toHaveLength(0);
+  });
+
   it('where de scoping : limité aussi aux options du select', async () => {
     const prisma = createPrismaMock(baseData());
     const h = handler(prisma, {

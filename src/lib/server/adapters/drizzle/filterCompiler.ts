@@ -16,7 +16,7 @@ import { isCompositeFilter, isLeafFilter } from "../filter.js";
 import type { Filter, LeafFilter } from "../types.js";
 import type { DrizzleDialect } from "./inspect.js";
 
-const OPAQUE_FILTER_ERROR =
+export const OPAQUE_FILTER_ERROR =
   "nested Prisma `where` is not supported by the Drizzle adapter; return a Filter or a flat `{ field: scalar }` map";
 
 function escapeLikePattern(value: unknown): string {
