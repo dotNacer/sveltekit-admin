@@ -23,6 +23,12 @@ import { normalizeScope, OPAQUE_FILTER_ERROR } from './adapters/filter.js';
 import type { DataAdapter, SchemaIntrospector } from './adapters/types.js';
 import { resolveListFilters, validateListFilterConfig, findFkEdge } from './query/filterDetection.js';
 import { escapeHtml, toLabel } from './views/html.js';
+import {
+  buildAuditEvent,
+  emitAudit,
+  readAuditSnapshot,
+  type AuditEvent
+} from './audit.js';
 import NotFound from './views/NotFound.svelte';
 import Layout from './views/Layout.svelte';
 import Dashboard from './views/Dashboard.svelte';
@@ -72,6 +78,31 @@ export interface AdminHandlerConfig {
   logout?: (event: any) => void | Promise<void>;
   /** Where to redirect after logout (default: '/') */
   logoutRedirectTo?: string;
+  /**
+   * Audit sink — same "bring your own" philosophy as `authCheck` / `logout`.
+   * The library has no log table and no session of its own, so it cannot
+   * know where to persist "admin X changed row Y" (your `AuditLog` model,
+   * a logger, an HTTP sink…). You provide the side effect; the handler
+   * calls it **after a successful create / update / delete** with a
+   * redacted `AuditEvent`. No callback means no behaviour change: no
+   * extra reads, no calls.
+   *
+   * The actor is whatever you already put on `event.locals` (the same
+   * object `authCheck` sees). Sensitive field names (`password` / `hash` /
+   * `secret` / `token`) and per-model `hidden` fields are stripped from
+   * `values` / `before` / `after` / `changes` so the sink cannot become a
+   * second oracle for secrets. Reads (GET), logout, and `_search` are
+   * not audited.
+   *
+   * Awaited before the 303 so a `prisma.auditLog.create(...)` inside the
+   * callback commits before the redirect. If the callback throws, the
+   * mutation still redirects — the write is the source of truth, the log
+   * is a sidecar (`console.error` with prefix
+   * `[sveltekit-admin] audit callback failed:`). There is no way to wrap
+   * the adapter write and your sink in one transaction without owning
+   * both stores.
+   */
+  audit?: (entry: AuditEvent) => void | Promise<void>;
   /** Per-model configuration */
   models?: Record<string, {
     hidden?: string[];
@@ -182,6 +213,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     authCheck,
     logout,
     logoutRedirectTo = '/',
+    audit,
     exclude = [],
     hidePivotTables = true,
     models: modelsConfig = {}
@@ -649,7 +681,24 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           }
 
           if (action === 'delete' && route.id) {
+            const id = coerceId(route.id, model);
+            const before = audit
+              ? await readAuditSnapshot((m, recId) => adapter.data.getRecord(m, recId), model, id)
+              : null;
             await adapter.data.deleteRecord(model, route.id);
+            if (audit) {
+              await emitAudit(
+                audit,
+                buildAuditEvent({
+                  event,
+                  action: 'delete',
+                  model,
+                  id,
+                  hidden: hiddenFieldsOf(model),
+                  before
+                })
+              );
+            }
             return redirectToList(route.model);
           }
 
@@ -792,9 +841,47 @@ export function createAdminHandler(config: AdminHandlerConfig) {
             }
 
             if (action === 'create') {
-              await adapter.data.createRecord(model, { scalars: data, m2m: m2mInput });
+              const created = await adapter.data.createRecord(model, { scalars: data, m2m: m2mInput });
+              if (audit) {
+                await emitAudit(
+                  audit,
+                  buildAuditEvent({
+                    event,
+                    action: 'create',
+                    model,
+                    id: created[primaryKeyOf(model)] as string | number,
+                    hidden: hiddenFieldsOf(model),
+                    values: data,
+                    m2m: m2mInput,
+                    after: created
+                  })
+                );
+              }
             } else if (route.id) {
-              await adapter.data.updateRecord(model, route.id, { scalars: data, m2m: m2mInput });
+              const id = coerceId(route.id, model);
+              const before = audit
+                ? await readAuditSnapshot((m, recId) => adapter.data.getRecord(m, recId), model, id)
+                : null;
+              const updated = await adapter.data.updateRecord(model, route.id, {
+                scalars: data,
+                m2m: m2mInput
+              });
+              if (audit) {
+                await emitAudit(
+                  audit,
+                  buildAuditEvent({
+                    event,
+                    action: 'update',
+                    model,
+                    id,
+                    hidden: hiddenFieldsOf(model),
+                    values: data,
+                    m2m: m2mInput,
+                    before,
+                    after: updated
+                  })
+                );
+              }
             }
 
             return redirectToList(route.model);

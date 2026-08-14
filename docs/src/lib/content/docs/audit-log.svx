@@ -1,0 +1,87 @@
+---
+title: Audit log
+name: Audit log
+description: Record which administrator created, updated, or deleted a row with an optional audit callback.
+---
+
+sveltekit-admin does not ship an `AuditLog` table or a dedicated log UI. It
+gives you a single opt-in hook, `audit`, called after every **successful**
+create, update, or delete. You decide where the event goes — your own Prisma
+or Drizzle model, a logger, an HTTP sink.
+
+If `audit` is omitted, nothing changes: no extra reads, no calls.
+
+## `audit`
+
+```typescript
+createAdminHandler({
+  prisma,
+  authCheck: (event) => event.locals.session?.user?.role === 'admin',
+  audit: async (entry) => {
+    await prisma.auditLog.create({
+      data: {
+        at: entry.at,
+        actorId: entry.event.locals.session?.user?.id,
+        action: entry.action,
+        model: entry.model,
+        recordId: String(entry.id),
+        changes: entry.action === 'update' ? entry.changes : undefined
+      }
+    });
+  }
+});
+```
+
+The callback receives a discriminated `AuditEvent`:
+
+| Field | When | Meaning |
+| ----- | ---- | ------- |
+| `event` | always | The SvelteKit `RequestEvent` — the same object `authCheck` sees. Read the actor from `event.locals`. |
+| `at` | always | Timestamp taken after the write succeeded. |
+| `action` | always | `'create'` \| `'update'` \| `'delete'` |
+| `model` | always | Schema model name (`User`, not `user`). |
+| `id` | always | Primary key of the row. On create this is the value returned by the adapter (the generated id). |
+| `values` | create, update | Redacted scalar payload that was submitted. |
+| `before` | update, delete | Redacted snapshot before the write, or `null` if the row could not be read. |
+| `after` | create, update | Redacted snapshot after the write. |
+| `changes` | update | Per-field `{ from, to }` for values that actually changed. Empty if `before` is `null`. |
+| `m2m` | create/update when submitted | Relation field → submitted ids (including `[]` when the form cleared the relation). |
+
+Reads (GET), logout, and `_search` are not audited. A POST that fails
+validation or the database write does not call `audit`.
+
+## Who did it?
+
+The library has no session of its own. Put the signed-in admin on
+`event.locals` in your auth `handle` (see [Authentication](/docs/authentication)),
+then read it from `entry.event.locals` in `audit`.
+
+## Redaction
+
+Fields whose names match `password` / `hash` / `secret` / `token`, and fields
+listed in `models[].hidden`, are stripped from `values`, `before`, `after`,
+and `changes`. A submitted password on a create form never reaches your sink.
+
+## Failures
+
+`audit` is awaited before the 303 redirect so a `prisma.auditLog.create(...)`
+inside it commits first. If the callback **throws**, the mutation still
+redirects — the write is the source of truth, the log is a sidecar. The
+handler logs `[sveltekit-admin] audit callback failed:`.
+
+There is no single transaction wrapping the adapter write and your sink:
+that would require the package to own both stores.
+
+## Viewing logs in the admin
+
+Persist to a model in your schema and it shows up in the admin like any
+other table. `exclude: ['AuditLog']` if you do not want it listed, or mark
+its fields `readonly`. Writing an audit row through the admin UI would
+itself fire `audit` — skip that in the callback:
+
+```typescript
+audit: async (entry) => {
+  if (entry.model === 'AuditLog') return;
+  // ...
+}
+```
