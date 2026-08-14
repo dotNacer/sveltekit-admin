@@ -80,12 +80,22 @@ describe('PR4 — endpoint de recherche /_search', () => {
     expect(body.options.map((o: any) => o.label).sort()).toEqual(['javascript', 'typescript']);
   });
 
-  it('respecte le where de scoping configuré sur la relation', async () => {
+  it('respecte le where de scoping configuré sur la relation sans q', async () => {
     const prisma = createPrismaMock(baseData());
     const h = handler(prisma, {
       models: { Post: { relations: { author: { where: () => ({ email: 'alice@a.c' }) } } } }
     });
     const { event, resolve } = createEvent({ url: '/admin/_search?rel=Post.author' });
+    const body = await json(await h({ event, resolve } as any));
+    expect(body.options).toEqual([{ id: 1, label: 'Alice' }]);
+  });
+
+  it('combine q avec le where de scoping configuré sur la relation', async () => {
+    const prisma = createPrismaMock(baseData());
+    const h = handler(prisma, {
+      models: { Post: { relations: { author: { where: () => ({ email: 'alice@a.c' }) } } } }
+    });
+    const { event, resolve } = createEvent({ url: '/admin/_search?rel=Post.author&q=a' });
     const body = await json(await h({ event, resolve } as any));
     expect(body.options).toEqual([{ id: 1, label: 'Alice' }]);
   });

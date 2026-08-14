@@ -450,7 +450,11 @@ describe('buildWhere — composition AND, jamais de spread (Filter générique)'
   });
 
   it('le scope seul, sans wrapper and, quand aucun filtre n\'est actif', () => {
-    expect(buildWhere(empty, { tenantId: 1 }, false, Article)).toEqual({ tenantId: 1 });
+    expect(buildWhere(empty, { tenantId: 1 }, false, Article)).toEqual({
+      op: 'eq',
+      field: 'tenantId',
+      value: 1
+    });
   });
 
   it('un seul filtre actif sans scope : la clause brute, sans wrapper and', () => {
@@ -462,7 +466,10 @@ describe('buildWhere — composition AND, jamais de spread (Filter générique)'
     const lq: ListQuery = { q: null, searchFields: [], filters: [{ field: 'views', op: 'equals', value: 5, raw: '5' }], ignored: [] };
     expect(buildWhere(lq, { tenantId: 1 }, false, Article)).toEqual({
       op: 'and',
-      clauses: [{ tenantId: 1 }, { op: 'eq', field: 'views', value: 5 }]
+      clauses: [
+        { op: 'eq', field: 'tenantId', value: 1 },
+        { op: 'eq', field: 'views', value: 5 }
+      ]
     });
   });
 
@@ -471,7 +478,10 @@ describe('buildWhere — composition AND, jamais de spread (Filter générique)'
     const where = buildWhere(lq, { tenantId: 1 }, false, Article);
     expect(where).toEqual({
       op: 'and',
-      clauses: [{ tenantId: 1 }, { op: 'eq', field: 'tenantId', value: 2 }]
+      clauses: [
+        { op: 'eq', field: 'tenantId', value: 1 },
+        { op: 'eq', field: 'tenantId', value: 2 }
+      ]
     });
   });
 
@@ -536,11 +546,16 @@ describe('buildWhere — composition AND, jamais de spread (Filter générique)'
     expect(where).toEqual({
       op: 'and',
       clauses: [
-        { tenantId: 1 },
+        { op: 'eq', field: 'tenantId', value: 1 },
         { op: 'eq', field: 'published', value: true },
         { op: 'or', clauses: [{ op: 'contains', field: 'title', value: 'hello' }] }
       ]
     });
+  });
+
+  it('un scope Prisma imbriqué reste opaque (pas de sucre)', () => {
+    const nested = { author: { is: { tenantId: 1 } } };
+    expect(buildWhere(empty, nested, false, Article)).toEqual(nested);
   });
 
   describe('§2.4 — searchFields sur un champ non-String (jamais de contains)', () => {

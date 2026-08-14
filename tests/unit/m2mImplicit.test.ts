@@ -153,6 +153,25 @@ describe('PR3 — N-N implicite', () => {
     expect(callsTo(prisma, 'post', 'update')).toHaveLength(0);
   });
 
+  it.each([
+    'nested Prisma `where` is not supported by the Drizzle adapter',
+    "[sveltekit-admin] unknown field 'name' on Drizzle table"
+  ])('POST N-N échoue fermé si l’adapter refuse de compiler le scope : %s', async (message) => {
+    const prisma = createPrismaMock(baseData());
+    prisma.tag.findMany = () => {
+      throw new Error(message);
+    };
+    const { event, resolve } = formEvent('/admin/post/ckp1', [
+      ['_action', 'update'], ['title', 'T'], ['authorId', '1'],
+      ['__rel_present__tags', '1'], ['__rel__tags', '2']
+    ]);
+
+    const html = await (await handler(prisma)({ event, resolve } as any)).text();
+
+    expect(html).toContain('tags: invalid value');
+    expect(callsTo(prisma, 'post', 'update')).toHaveLength(0);
+  });
+
   it('self-referential N-N implicite (friends/friendOf User) : rendu et écriture', async () => {
     const alice = { id: 1, email: 'alice@a.c', friends: [] };
     const bob = { id: 2, email: 'bob@b.c', friends: [] };

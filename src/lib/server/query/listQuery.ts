@@ -15,6 +15,7 @@
 import type { PrismaField, PrismaModel } from '../introspection/parser.js';
 import { isSensitiveFieldName } from '../introspection/parser.js';
 import type { Filter } from '../adapters/types.js';
+import { normalizeScope } from '../adapters/filter.js';
 
 export type FilterOp = 'equals' | 'contains' | 'startsWith' | 'gte' | 'lte' | 'isnull';
 
@@ -435,14 +436,9 @@ function clauseOf(filter: ActiveFilter): Filter[] {
 
 /**
  * Compose the final generic `Filter`: `and: [scope, ...filters, {or: search}]`.
- * NEVER a spread — see clauseOf's callers and docs/design §0.c history. `scope`
- * stays a raw Prisma-shaped object here (it's an escape hatch supplied by the
- * consuming app's own `listWhere`/`relations[x].where` config, itself already
- * Prisma-shaped and unchanged by this refactor) — it's treated as an opaque
- * leaf and passed through `and`/`or` untouched, exactly like today.
- *
- * Returns `undefined` when nothing is active, so a caller with no filter and
- * no scope sees the exact same "no where clause at all" behavior as today.
+ * NEVER a spread. Flat `{ tenantId: 1 }` scopes become `eq` leaves via
+ * `normalizeScope`; nested Prisma where objects stay opaque for the Prisma
+ * compiler. Drizzle's compiler throws on those opaques.
  */
 export function buildWhere(
   query: ListQuery,
@@ -451,7 +447,8 @@ export function buildWhere(
   model: PrismaModel
 ): Filter | Record<string, unknown> | undefined {
   const and: (Filter | Record<string, unknown>)[] = [];
-  if (scope) and.push(scope);
+  const normalized = normalizeScope(scope);
+  if (normalized) and.push(normalized);
   for (const f of query.filters) and.push(...clauseOf(f));
 
   if (query.q && query.searchFields.length > 0) {
@@ -461,8 +458,6 @@ export function buildWhere(
       const clause = searchClauseFor(field, fieldName, query.q);
       if (clause) or.push(clause);
     }
-    // Never emit `{op: 'or', clauses: []}` — see the historical Prisma
-    // `{OR: []}`-matches-nothing bug this guards against.
     if (or.length > 0) and.push({ op: 'or', clauses: or });
   }
 
