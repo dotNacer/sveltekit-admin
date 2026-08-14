@@ -22,6 +22,7 @@ import {
 import { createPrismaIntrospector } from './adapters/prisma/introspector.js';
 import { createPrismaDataAdapter } from './adapters/prisma/dataAdapter.js';
 import { resolveCaseInsensitiveSearch } from './adapters/prisma/index.js';
+import { normalizeScope } from './adapters/filter.js';
 import type { DataAdapter, SchemaIntrospector } from './adapters/types.js';
 import { resolveListFilters, validateListFilterConfig, findFkEdge } from './query/filterDetection.js';
 import { escapeHtml, toLabel } from './views/html.js';
@@ -259,7 +260,12 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     if (entries) validateListFilterConfig(m.name, entries, m, relationGraph!, hiddenFieldsOf(m));
   }
 
-  const labelOf = (m: PrismaModel) => modelsConfig[m.name]?.label || toLabel(m.name);
+  const labelOf = (m: PrismaModel) => {
+    const configured = modelsConfig[m.name]?.label;
+    if (configured) return configured;
+    const label = toLabel(m.name);
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  };
   const modelList = filteredModels.map((m) => ({ name: m.name, label: labelOf(m) }));
   const findModel = (name?: string) =>
     filteredModels.find((m) => m.name.toLowerCase() === name?.toLowerCase());
@@ -722,7 +728,9 @@ export function createAdminHandler(config: AdminHandlerConfig) {
                 // Si le client ne sait pas répondre, on ne bloque pas l'écriture.
                 try {
                   const idFilter = { op: 'eq' as const, field: primaryKeyOf(targetModel), value: coerced };
-                  const scopeFilter = relConfig?.where ? (relConfig.where({ locals: event.locals }) as any) : undefined;
+                  const scopeFilter = relConfig?.where
+                    ? normalizeScope(relConfig.where({ locals: event.locals }))
+                    : undefined;
                   const filter = scopeFilter ? ({ op: 'and', clauses: [idFilter, scopeFilter] } as any) : idFilter;
                   const found = await adapter.data.findFirst(targetModel, filter);
                   if (!found) {
