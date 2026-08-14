@@ -73,7 +73,7 @@ describe('PR4 — endpoint de recherche /_search', () => {
     }
   });
 
-  it('fonctionne aussi pour une relation m2m-implicite', async () => {
+  it('fonctionne aussi pour une relation m2m', async () => {
     const prisma = createPrismaMock(baseData());
     const { event, resolve } = createEvent({ url: '/admin/_search?rel=Post.tags&q=script' });
     const body = await json(await handler(prisma)({ event, resolve } as any));

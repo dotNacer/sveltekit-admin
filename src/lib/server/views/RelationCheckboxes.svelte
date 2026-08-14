@@ -17,7 +17,7 @@
 </script>
 
 <!--
-  Fieldset de checkboxes pour une arête m2m-implicite.
+  Fieldset de checkboxes pour une arête m2m.
 
   Nommage `__rel__<field>` pour les valeurs cochées et un hidden sentinelle
   `__rel_present__<field>` toujours émis : en HTML, zéro checkbox cochée

@@ -69,7 +69,7 @@
       ? [...model.relationGraph.edges.values()].filter(
           (e) =>
             e.model === model.name &&
-            e.kind === 'm2m-implicit' &&
+            e.kind === 'm2m' &&
             !e.unsupported &&
             !hidden.includes(e.field) &&
             model.relationOptions?.has(`${e.model}.${e.field}`)

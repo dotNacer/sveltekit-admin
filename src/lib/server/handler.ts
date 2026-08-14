@@ -346,7 +346,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
   };
 
   /**
-   * Charge les options pour toutes les arêtes to-one-owning et m2m-implicite
+   * Charge les options pour toutes les arêtes to-one-owning et m2m
    * d'un modèle. Une requête COUNT par relation avant le findMany : évite de
    * charger 10k lignes pour découvrir qu'il y en a 10k.
    */
@@ -357,7 +357,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
   ): Promise<Map<string, import('./views/types.js').RelationMeta>> => {
     const edges = [...relationGraph!.edges.values()].filter((edge) => {
       if (edge.model !== model.name) return false;
-      if (edge.kind !== 'to-one-owning' && edge.kind !== 'm2m-implicit') return false;
+      if (edge.kind !== 'to-one-owning' && edge.kind !== 'm2m') return false;
       if (edge.unsupported) return false;
       const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
       return relConfig?.widget !== 'hidden';
@@ -377,7 +377,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           const total = await adapter.data.countRecords(targetModel, filter);
           if (total > selectThreshold || relConfig?.widget === 'raw-id') {
             const selectedIds =
-              edge.kind === 'm2m-implicit' && currentId
+              edge.kind === 'm2m' && currentId
                 ? await adapter.data.getM2mSelectedIds(model, edge, targetModel, currentId)
                 : undefined;
             return [key, { tooMany: true, options: [], selectedIds }];
@@ -389,7 +389,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
             label: resolveLabel(targetModel, row, relConfig?.labelTemplate)
           }));
           const selectedIds =
-            edge.kind === 'm2m-implicit' && currentId
+            edge.kind === 'm2m' && currentId
               ? await adapter.data.getM2mSelectedIds(model, edge, targetModel, currentId)
               : undefined;
           return [key, { tooMany: false, options, selectedIds }];
@@ -535,7 +535,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
 
   /**
    * Endpoint de recherche `GET {basePath}/_search?rel=Model.field&q=...&page=N`.
-   * Sert les options d'une relation to-one-owning ou m2m-implicite en JSON
+   * Sert les options d'une relation to-one-owning ou m2m en JSON
    * paginé — la voie prévue pour un futur widget autocomplete côté client
    * quand le nombre d'options dépasse `selectThreshold`. Respecte le `where`
    * de scoping configuré sur la relation, comme le select et la validation
@@ -552,7 +552,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       ? relationGraph.edges.get(`${model.name}.${fieldName}`)
       : undefined;
 
-    if (!model || !edge || (edge.kind !== 'to-one-owning' && edge.kind !== 'm2m-implicit') || edge.unsupported) {
+    if (!model || !edge || (edge.kind !== 'to-one-owning' && edge.kind !== 'm2m') || edge.unsupported) {
       return new Response(JSON.stringify({ error: 'unknown relation' }), {
         status: 404,
         headers: { 'Content-Type': 'application/json' }
@@ -741,10 +741,10 @@ export function createAdminHandler(config: AdminHandlerConfig) {
               // Avec le sentinelle mais zéro valeur cochée → vider la
               // relation (`set: []` / rien à connecter en création).
               for (const edge of relationGraph.edges.values()) {
-                if (edge.model !== model.name || edge.kind !== 'm2m-implicit') continue;
+                if (edge.model !== model.name || edge.kind !== 'm2m') continue;
                 // Pas de garde `edge.unsupported` ici : par construction du
                 // graphe, `unsupported` n'est jamais posé sur une arête
-                // m2m-implicite (seulement sur to-one-owning / groupes
+                // m2m (seulement sur to-one-owning / groupes
                 // ambigus, qui retombent toujours en to-one-owning).
 
                 const present = formData.get(`__rel_present__${edge.field}`);

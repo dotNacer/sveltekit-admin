@@ -19,7 +19,7 @@ export type RelationKind =
   | 'to-one-owning'
   | 'to-one-inverse'
   | 'to-many-inverse'
-  | 'm2m-implicit';
+  | 'm2m';
 
 export type UnsupportedReason = 'composite-fk' | 'ambiguous';
 
@@ -134,7 +134,7 @@ export function buildRelationGraph(schema: PrismaSchema): RelationGraph {
     for (const c of group) {
       let kind: RelationKind;
       if (isImplicitM2M) {
-        kind = 'm2m-implicit';
+        kind = 'm2m';
       } else if (c.field.isList) {
         kind = 'to-many-inverse';
       } else if (owning.includes(c)) {
