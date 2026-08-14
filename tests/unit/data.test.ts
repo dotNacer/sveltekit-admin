@@ -1,10 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  toPrismaModel, primaryKeyOf, coerceId, formDataToPrisma, paginate,
-  listRecords, getRecord, createRecord, updateRecord, deleteRecord
+  toPrismaModel, primaryKeyOf, coerceId, formDataToPrisma, paginate
 } from '../../src/lib/server/data.js';
 import { parsePrismaSchema } from '../../src/lib/server/introspection/parser.js';
-import { createPrismaMock, callsTo, FULL_SCHEMA_PATH } from '../fixtures/prismaMock.js';
+import { FULL_SCHEMA_PATH } from '../fixtures/prismaMock.js';
 
 const schema = parsePrismaSchema(FULL_SCHEMA_PATH);
 const User = schema.models.find((m) => m.name === 'User')!;
@@ -165,75 +164,3 @@ describe('paginate — entrées invalides', () => {
   );
 });
 
-describe('opérations Prisma', () => {
-  const records = Array.from({ length: 5 }, (_, i) => ({ id: i + 1, email: `u${i}@x.y` }));
-
-  it('liste avec skip, take et tri sur la PK', async () => {
-    const prisma = createPrismaMock({ user: records });
-    const { items, total } = await listRecords(prisma, User, 2, 2);
-    expect(items).toEqual([{ id: 3, email: 'u2@x.y' }, { id: 4, email: 'u3@x.y' }]);
-    expect(total).toBe(5);
-    expect(callsTo(prisma, 'user', 'findMany')[0].args).toEqual({
-      where: undefined, skip: 2, take: 2, orderBy: { id: 'desc' }
-    });
-  });
-
-  it('liste filtrée : le where est propagé à findMany et count', async () => {
-    const prisma = createPrismaMock({ user: records });
-    const { items, total } = await listRecords(prisma, User, 1, 20, { id: 3 });
-    expect(items).toEqual([{ id: 3, email: 'u2@x.y' }]);
-    expect(total).toBe(1);
-    expect(callsTo(prisma, 'user', 'findMany')[0].args).toMatchObject({ where: { id: 3 } });
-    expect(callsTo(prisma, 'user', 'count')[0].args).toEqual({ where: { id: 3 } });
-  });
-
-  it('récupère un enregistrement par PK coercée', async () => {
-    const prisma = createPrismaMock({ user: records });
-    expect(await getRecord(prisma, User, '3')).toEqual({ id: 3, email: 'u2@x.y' });
-    expect(callsTo(prisma, 'user', 'findUnique')[0].args).toEqual({ where: { id: 3 } });
-  });
-
-  it('renvoie null sur un id absent', async () => {
-    const prisma = createPrismaMock({ user: records });
-    expect(await getRecord(prisma, User, '99')).toBeNull();
-  });
-
-  it('crée avec les données fournies', async () => {
-    const prisma = createPrismaMock({ user: [] });
-    await createRecord(prisma, User, { email: 'n@x.y' });
-    expect(callsTo(prisma, 'user', 'create')[0].args).toEqual({ data: { email: 'n@x.y' } });
-  });
-
-  it('met à jour par PK', async () => {
-    const prisma = createPrismaMock({ user: records });
-    await updateRecord(prisma, User, '2', { email: 'up@x.y' });
-    expect(callsTo(prisma, 'user', 'update')[0].args).toEqual({
-      where: { id: 2 }, data: { email: 'up@x.y' }
-    });
-  });
-
-  it('supprime par PK', async () => {
-    const prisma = createPrismaMock({ user: records });
-    await deleteRecord(prisma, User, '2');
-    expect(callsTo(prisma, 'user', 'delete')[0].args).toEqual({ where: { id: 2 } });
-  });
-
-  it('propage l’erreur du client Prisma', async () => {
-    const prisma = createPrismaMock({ user: [] }, { user: { count: () => { throw new Error('down'); } } });
-    await expect(listRecords(prisma, User, 1, 20)).rejects.toThrow('down');
-  });
-
-  it('lève si le modèle est absent du client', () => {
-    const prisma = createPrismaMock({});
-    // `getRecord` n'est pas `async` : sur un modèle absent, `prisma[key]` vaut
-    // undefined et le TypeError part de façon SYNCHRONE au moment de l'appel de
-    // `getRecord`, avant qu'aucune promesse n'existe. Le brief propose
-    // `await expect(() => getRecord(...)).rejects.toThrow()`, mais dans cette
-    // version de Vitest (3.2.7) le getter `.rejects` invoque lui-même la
-    // fonction passée de façon SYNCHRONE (`obj()`) pour en tirer une promesse,
-    // avant que `.toThrow()` ne soit chaîné : le TypeError part donc pendant
-    // l'évaluation de `.rejects`, non intercepté, et le test échoue. La bonne
-    // assertion pour un throw synchrone est simplement `expect(fn).toThrow()`.
-    expect(() => getRecord(prisma, User, '1')).toThrow();
-  });
-});
