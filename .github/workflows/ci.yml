@@ -11,9 +11,11 @@ jobs:
     strategy:
       matrix:
         # Keep 20: Prisma tests still run there. better-sqlite3 is pinned to
-        # 12.x in package.json because 13+ declares engines.node >= 22 and
-        # its install script rebuilds via node-gyp@latest, which crashes on
-        # Node 20 (`webidl.util.markAsUncloneable is not a function`).
+        # exactly 12.9.0 in package.json — 12.10.0+ and 13.x dropped Node 20
+        # prebuilt binaries, which forces a source rebuild via node-gyp@latest
+        # that crashes on Node 20 (`webidl.util.markAsUncloneable is not a
+        # function`). Bumping this dependency requires re-checking that a
+        # Node 20 prebuild still exists for the target version.
         node: [20, 22]
     steps:
       - uses: actions/checkout@v4
