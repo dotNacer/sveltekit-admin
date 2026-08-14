@@ -1,9 +1,16 @@
-import type { DataAdapter, SchemaIntrospector } from "../types.js";
+import { defaultAdminCheck } from "../../auth.js";
+import { createAdminHandler, type AdminHandlerConfig } from "../../handler.js";
+import type { Schema, Model, Field } from "../../types/schema.js";
+import type { DataAdapter, Filter, SchemaIntrospector } from "../types.js";
 import { createDrizzleDataAdapter } from "./dataAdapter.js";
 import { inspectDrizzleSchema } from "./inspect.js";
 import type { DrizzleDialect } from "./inspect.js";
 import { createDrizzleIntrospector } from "./introspector.js";
 
+export { createAdminHandler, type AdminHandlerConfig };
+export { defaultAdminCheck };
+export type { Schema, Model, Field };
+export type { DataAdapter, SchemaIntrospector, Filter };
 export type { DrizzleDialect };
 
 export function resolveCaseInsensitiveSearch(

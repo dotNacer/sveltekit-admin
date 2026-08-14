@@ -46,12 +46,12 @@ That's it! Navigate to `/admin` and you'll see:
 
 ## Drizzle
 
-Prisma stays the default. For Drizzle, pass an adapter from the subpath
-export (this does not pull in `drizzle-orm` for Prisma apps):
+Prisma stays the default on the root entry (`createAdminHandler({ prisma })`).
+For Drizzle, import **both** the handler and the adapter from the subpath
+so a Drizzle-only app never evaluates the Prisma adapter modules:
 
 ```typescript
-import { createAdminHandler } from 'sveltekit-admin';
-import { createDrizzleAdapter } from 'sveltekit-admin/adapters/drizzle';
+import { createAdminHandler, createDrizzleAdapter } from 'sveltekit-admin/adapters/drizzle';
 import { db } from './db';
 import * as schema from './db/schema';
 
@@ -60,6 +60,10 @@ export const handle = createAdminHandler({
   authCheck: (event) => event.locals.session?.user?.role === 'admin'
 });
 ```
+
+Importing `createAdminHandler` from `sveltekit-admin` and the adapter from
+the subpath still works, but it loads the Prisma adapter JavaScript (it does
+not require installing `@prisma/client`).
 
 Pass the same `schema` object you already export (tables + `relations()`).
 Model names in `config.models` are the JS export keys (`users`, not `User`).

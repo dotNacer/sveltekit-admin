@@ -2,10 +2,12 @@ import { readFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
+import * as drizzleApi from "../../../../src/lib/server/adapters/drizzle/index.js";
 import {
   createDrizzleAdapter,
   resolveCaseInsensitiveSearch,
 } from "../../../../src/lib/server/adapters/drizzle/index.js";
+import { defaultAdminCheck } from "../../../../src/lib/server/auth.js";
 import * as schema from "../../../fixtures/drizzle/schema.js";
 
 const databases: Database.Database[] = [];
@@ -140,5 +142,18 @@ it("package.json expose le sous-chemin ./adapters/drizzle", () => {
     types: "./dist/server/adapters/drizzle/index.d.ts",
     svelte: "./dist/server/adapters/drizzle/index.js",
     default: "./dist/server/adapters/drizzle/index.js",
+  });
+});
+
+describe("surface publique sveltekit-admin/adapters/drizzle", () => {
+  it("exporte createAdminHandler, createDrizzleAdapter et defaultAdminCheck", () => {
+    expect(typeof drizzleApi.createAdminHandler).toBe("function");
+    expect(typeof drizzleApi.createDrizzleAdapter).toBe("function");
+    expect(typeof drizzleApi.defaultAdminCheck).toBe("function");
+    expect(drizzleApi.defaultAdminCheck).toBe(defaultAdminCheck);
+  });
+
+  it("n’exporte pas createPrismaAdapter", () => {
+    expect("createPrismaAdapter" in drizzleApi).toBe(false);
   });
 });

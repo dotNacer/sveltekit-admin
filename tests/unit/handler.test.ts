@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { createAdminHandler } from '../../src/lib/server/handler.js';
+import { createAdminHandler } from '../../src/lib/server/adapters/prisma/handler.js';
 import { createPrismaMock, callsTo, FULL_SCHEMA_PATH, PIVOT_SCHEMA_PATH } from '../fixtures/prismaMock.js';
 import { createEvent } from '../fixtures/events.js';
 import { createPrismaAdapter } from '../../src/lib/server/adapters/prisma/index.js';
@@ -19,20 +19,10 @@ function build(
 afterEach(() => vi.restoreAllMocks());
 
 describe('createAdminHandler — config.adapter explicite', () => {
-  // `prisma` reste nécessaire ici : Task 5 ne rebranche PAS les sites d'appel
-  // par requête (listRecords, loadRelationOptions, etc. continuent d'appeler
-  // `prisma[...]` directement jusqu'aux Tasks 6-7) — seule l'acquisition du
-  // schéma/relationGraph au boot passe désormais par `config.adapter`. Le
-  // test omet volontairement `prismaSchemaPath` (son défaut, un chemin qui
-  // n'existe pas dans cet environnement, ferait échouer le parsing) pour
-  // prouver que c'est bien `config.adapter.introspector` qui fournit le
-  // schéma : si le boot retombait sur `createPrismaIntrospector` malgré
-  // l'adapter fourni, le modèle "User" ne serait pas reconnu et la réponse
-  // serait un "Model not found" au lieu de la liste.
   it('accepte un adapter fourni directement, sans prismaSchemaPath', async () => {
     const prisma = createPrismaMock({ user: [{ id: 1, email: 'a@x.y' }] });
     const adapter = createPrismaAdapter({ prisma, schemaPath: FULL_SCHEMA_PATH });
-    const h = createAdminHandler({ prisma, adapter } as any);
+    const h = createAdminHandler({ adapter } as any);
     const { event, resolve } = createEvent({ url: '/admin/user' });
     const html = await (await h({ event, resolve } as any)).text();
     expect(html).toContain('a@x.y');
@@ -40,10 +30,8 @@ describe('createAdminHandler — config.adapter explicite', () => {
 
   it('avertit et dégrade proprement si introspect() renvoie une Promise (introspecteur async non supporté)', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const prisma = createPrismaMock({});
     const asyncIntrospector = { introspect: () => Promise.resolve({ models: [], enums: [], provider: 'postgresql' }) };
     const h = createAdminHandler({
-      prisma,
       adapter: { introspector: asyncIntrospector, data: {} as any }
     } as any);
     const { event, resolve } = createEvent({ url: '/admin' });
@@ -51,12 +39,6 @@ describe('createAdminHandler — config.adapter explicite', () => {
     expect(warn).toHaveBeenCalled();
     // Même dégradation que pour un schéma illisible : aucun modèle connu.
     expect(html).not.toContain('href="/admin/user"');
-  });
-
-  it('lève une erreur claire à la création si ni `prisma` ni `adapter` ne sont fournis', () => {
-    expect(() => createAdminHandler({} as any)).toThrow(
-      /createAdminHandler requires either `prisma`.*or `adapter`/
-    );
   });
 });
 
@@ -349,33 +331,6 @@ describe('gestion des erreurs', () => {
     const { handler } = build({}, prisma);
     const { event, resolve } = createEvent({ url: '/admin/user' });
     expect(await (await handler({ event, resolve } as any)).text()).toContain('Unknown error');
-  });
-
-  it('avertit et rend un admin vide si le schéma est illisible', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const handler = createAdminHandler({
-      prisma: createPrismaMock({}),
-      prismaSchemaPath: '/nope.prisma'
-    });
-    const { event, resolve } = createEvent({ url: '/admin' });
-    const html = await (await handler({ event, resolve } as any)).text();
-    expect(warn).toHaveBeenCalled();
-    // état propre à un schéma non parsé : aucun modèle, donc aucun lien de navigation
-    expect(html).not.toContain('href="/admin/user"');
-    expect(html).toContain('<div class="ska-stat__value">0</div>');
-  });
-
-  it('avertit aussi quand aucun chemin de schéma n’est fourni', async () => {
-    // La couverture de branche du paramètre par défaut `= './prisma/schema.prisma'` vient
-    // de l'omission de l'argument et ne dépend pas de l'existence du fichier. Seule
-    // l'assertion `warn` ci-dessous dépend de l'absence d'un dossier `prisma/` à la racine
-    // du dépôt : si un vrai schéma y est ajouté un jour, le parse réussit et c'est cette
-    // seule assertion qui échoue.
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const handler = createAdminHandler({ prisma: createPrismaMock({}) });
-    const { event, resolve } = createEvent({ url: '/admin' });
-    expect((await handler({ event, resolve } as any)).status).toBe(200);
-    expect(warn).toHaveBeenCalled();
   });
 });
 

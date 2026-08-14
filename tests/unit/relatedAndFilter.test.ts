@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createAdminHandler } from '../../src/lib/server/handler.js';
+import { createAdminHandler } from '../../src/lib/server/adapters/prisma/handler.js';
 import { createPrismaMock, RELATIONS_SCHEMA_PATH, FULL_SCHEMA_PATH, callsTo } from '../fixtures/prismaMock.js';
 import { createEvent } from '../fixtures/events.js';
 

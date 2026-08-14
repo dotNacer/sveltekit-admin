@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as api from '../../src/lib/index.js';
 import { FULL_SCHEMA_PATH } from '../fixtures/prismaMock.js';
@@ -54,5 +55,13 @@ describe('surface publique du paquet', () => {
     expect(
       typeof api.createPrismaAdapter({ prisma: {}, schemaPath: FULL_SCHEMA_PATH }).data.listRecords
     ).toBe('function');
+  });
+
+  it('createAdminHandler est le wrapper Prisma, pas le core', () => {
+    const src = readFileSync(new URL('../../src/lib/index.ts', import.meta.url), 'utf8');
+    expect(src).toContain("from './server/adapters/prisma/handler.js'");
+    expect(src).not.toMatch(
+      /export \{ createAdminHandler.*\} from '\.\/server\/handler\.js'/
+    );
   });
 });

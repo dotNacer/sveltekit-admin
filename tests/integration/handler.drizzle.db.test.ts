@@ -1,8 +1,7 @@
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createDrizzleAdapter } from '../../src/lib/server/adapters/drizzle/index.js';
-import { createAdminHandler } from '../../src/lib/server/handler.js';
+import { createAdminHandler, createDrizzleAdapter } from '../../src/lib/server/adapters/drizzle/index.js';
 import * as schema from '../fixtures/drizzle/schema.js';
 import { createEvent } from '../fixtures/events.js';
 
