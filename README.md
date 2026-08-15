@@ -17,6 +17,7 @@ See [CHANGELOG.md](./CHANGELOG.md) for release notes and breaking changes, and
 - 🪶 **3 lines of code** to setup
 - 🔧 **Customizable** - hide fields, set readonly, custom labels
 - 📋 **Audit log** - optional callback after every successful write
+- 🧩 **Plugins** - optional extra pages and record actions (`plugins: []`)
 - 🔌 **Drizzle adapter** (optional subpath export)
 
 ## Installation
@@ -212,6 +213,26 @@ Routes handled:
 - `/admin/user` → List all users  
 - `/admin/user/new` → Create user form
 - `/admin/user/123` → Edit user form
+
+## Plugins
+
+Pass `plugins` to register extra admin pages (SSR HTML + inline CSS/JS)
+and links on edit screens and list rows. See the exported `AdminPlugin`
+type and the documentation site's Plugins page.
+
+```typescript
+createAdminHandler({
+  prisma,
+  plugins: [
+    {
+      name: 'hello',
+      pages: [{ pattern: ['hello'], render: () => ({ html: '<p>Hello</p>' }) }]
+    }
+  ]
+});
+```
+
+Omit `plugins` and the admin is unchanged.
 
 ## Model Configuration
 

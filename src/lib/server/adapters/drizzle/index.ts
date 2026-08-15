@@ -13,6 +13,13 @@ export type { AuditAction, AuditEvent } from "../../audit.js";
 export type { Schema, Model, Field };
 export type { DataAdapter, SchemaIntrospector, Filter };
 export type { DrizzleDialect };
+export type {
+  AdminPlugin,
+  AdminPluginPage,
+  AdminPluginRecordAction,
+  PluginPageContext,
+  PluginPageResult,
+} from "../../plugin.js";
 
 export function resolveCaseInsensitiveSearch(
   dialect: DrizzleDialect,

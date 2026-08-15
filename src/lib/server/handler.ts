@@ -4,7 +4,7 @@
  */
 
 import { render } from 'svelte/server';
-import { parseRoute } from './router.js';
+import { matchRoute, BUILTIN_ROUTES, type ParsedRoute } from './router.js';
 import { paginate } from './data.js';
 import {
   parseListQuery,
@@ -21,10 +21,13 @@ import Layout from './views/Layout.svelte';
 import Dashboard from './views/Dashboard.svelte';
 import Form from './views/Form.svelte';
 import List from './views/List.svelte';
-import { createAdminRuntime } from './runtime.js';
+import { createAdminRuntime, listScopeFrom } from './runtime.js';
 import { loadRelationOptions, resolveFkFilterOptions, loadRelatedCounts } from './relationLoaders.js';
 import { handleSearch } from './search.js';
 import { handleMutation } from './mutations.js';
+import { resolvePluginRegistry, actionsForModel } from './pluginRegistry.js';
+import { createPluginPageContext } from './pluginAccess.js';
+import type { AdminPlugin } from './plugin.js';
 
 export interface AdminHandlerConfig {
   /**
@@ -182,6 +185,17 @@ export interface AdminHandlerConfig {
     title?: string;
     primaryColor?: string;
   };
+  /**
+   * Optional admin plugins (new pages + record actions). Omitted or `[]`
+   * keeps every builtin view byte-identical to a build without plugins.
+   * Plugin routes are matched before builtins, so a registered pattern
+   * with a literal token in a `:model`/`:id` position can take over a
+   * builtin path when it matches first (e.g. `['user']` shadows the User
+   * list); only an identical, token-for-token overlay throws at boot.
+   * See `AdminPlugin`. Options like graph `depth` belong on the author's
+   * factory, not here.
+   */
+  plugins?: AdminPlugin[];
 }
 
 // ============================================
@@ -194,6 +208,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
   }
 
   const runtime = createAdminRuntime(config);
+  const registry = resolvePluginRegistry(config.plugins ?? [], BUILTIN_ROUTES, runtime.models);
   const { authCheck, logout, logoutRedirectTo = '/' } = config;
 
   return async ({
@@ -210,7 +225,17 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       return resolve(event);
     }
 
-    const route = parseRoute(pathname, runtime.basePath);
+    // Plugin routes are checked BEFORE builtins: `resolvePluginRegistry` only
+    // rejects a plugin pattern that is an EXACT token-for-token match of a
+    // builtin one (e.g. `[':model', ':id']`), not one that merely happens to
+    // overlap at match time (e.g. `[':model', 'stats']` vs the builtin edit
+    // route `[':model', ':id']` — both match `user/stats`, ':id' being a
+    // wildcard). Checking builtins first would let that generic edit route
+    // silently swallow every such plugin page.
+    const route = matchRoute(pathname, runtime.basePath, [
+      ...registry.routes,
+      ...BUILTIN_ROUTES
+    ]);
 
     // Logout: dispatched BEFORE authCheck, deliberately. A user whose
     // session already expired (authCheck would now reject them) must
@@ -241,19 +266,81 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       return handleSearch(runtime, event);
     }
 
+    // Plugin page views are GET-only: dispatched here, BEFORE `handleMutation`,
+    // so a forged POST to a plugin route (e.g. `/user/1/graph` with
+    // `_action=delete`) can never reach the mutation path just because its
+    // pattern happens to overlap `:model/:id`-shaped segments.
+    const pluginPage = registry.pagesByView.get(route.view);
+    if (pluginPage) {
+      if (event.request.method !== 'GET') {
+        return new Response('Method Not Allowed', { status: 405, headers: { Allow: 'GET' } });
+      }
+    }
+
     let content = '';
     let currentModel: string | undefined;
+    let extraStyles = '';
+    let extraScripts = '';
 
     try {
       // Handle POST requests (create, update, delete). Unrecognised actions fall
       // through to the GET rendering below, as they always have.
+      // Invariant: a plugin view never reaches this call — `pluginPage` above
+      // already 405'd any non-GET before this `try` block. `handleMutation`
+      // only ever reads `route.model` / `route.id` / the `_action` form
+      // field, never `route.view`, so it cannot be confused by a plugin's
+      // view id landing here.
       if (event.request.method === 'POST') {
-        const mutationResponse = await handleMutation(runtime, event, route);
+        const mutationResponse = await handleMutation(runtime, event, route as ParsedRoute);
         if (mutationResponse) return mutationResponse;
       }
 
       // GET requests - render views
-      if (route.view === 'notFound') {
+      if (pluginPage) {
+        const hasModel = pluginPage.pattern.includes(':model');
+        const hasId = pluginPage.pattern.includes(':id');
+        if (hasModel) {
+          currentModel = route.model;
+          const model = runtime.findModel(route.model);
+          const allowed =
+            model &&
+            (!pluginPage.models ||
+              pluginPage.models.some((n) => n.toLowerCase() === model.name.toLowerCase()));
+          if (!model || !allowed) {
+            content = render(NotFound, {
+              props: { message: 'Page not found', basePath: runtime.basePath }
+            }).body;
+          } else if (hasId) {
+            const ctx = createPluginPageContext(runtime, event, route);
+            const loaded = await ctx.loadRecord(model.name, route.id!);
+            if (!loaded) {
+              content = render(NotFound, {
+                props: {
+                  message: `${model.name} with ID "${route.id}" not found`,
+                  basePath: runtime.basePath
+                }
+              }).body;
+            } else {
+              const result = await pluginPage.render(
+                createPluginPageContext(runtime, event, route, loaded)
+              );
+              content = result.html;
+              extraStyles = result.styles ?? '';
+              extraScripts = result.scripts ?? '';
+            }
+          } else {
+            const result = await pluginPage.render(createPluginPageContext(runtime, event, route));
+            content = result.html;
+            extraStyles = result.styles ?? '';
+            extraScripts = result.scripts ?? '';
+          }
+        } else {
+          const result = await pluginPage.render(createPluginPageContext(runtime, event, route));
+          content = result.html;
+          extraStyles = result.styles ?? '';
+          extraScripts = result.scripts ?? '';
+        }
+      } else if (route.view === 'notFound') {
         content = render(NotFound, { props: { message: 'Page not found', basePath: runtime.basePath } }).body;
       } else if (route.view === 'dashboard') {
         const modelsWithCounts = await Promise.all(
@@ -298,23 +385,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
             searchFields,
             filterableFields
           );
-          const listScope = modelsConfig[model.name]?.listWhere?.({ locals: event.locals });
-          // A scope function returning `{}` (falsy-looking but truthy as
-          // an object) would otherwise silently fail OPEN — `{}` composed
-          // into an AND matches every row, exactly the opposite of what a
-          // caller configuring listWhere expects (real gap found in
-          // review: `locals.userId` undefined after a session expires is
-          // a realistic way to hit this). Fail loud instead: a scope
-          // function is either omitted entirely, or must return at least
-          // one condition every time it runs.
-          if (listScope && Object.keys(listScope).length === 0) {
-            throw new Error(
-              `[sveltekit-admin] models.${model.name}.listWhere returned an empty object ({}), ` +
-                `which would silently disable list scoping (fail-open). Return undefined/omit the ` +
-                `scope entirely if there is genuinely nothing to scope by for this request, or a ` +
-                `condition that actually restricts rows otherwise.`
-            );
-          }
+          const listScope = listScopeFrom(runtime, model, { locals: event.locals });
           // Adapter compiles case-sensitivity; this arg is unused by buildWhere.
           const filter = buildWhere(listQuery, listScope, false, model) as any;
           const { rows: items, total } = await runtime.adapter.data.listRecords(model, { filter, skip: (page - 1) * runtime.perPage, take: runtime.perPage });
@@ -359,7 +430,11 @@ export function createAdminHandler(config: AdminHandlerConfig) {
               currentUrl: event.url,
               listFilters,
               fkFilterMeta,
-              recordActions: []
+              recordActions: actionsForModel(registry, model.name).map((action) => ({
+                label: action.label,
+                hrefFor: (id: string | number) =>
+                  action.href({ model: model.name, id, basePath: runtime.basePath })
+              }))
             }
           }).body;
         } else if (route.view === 'create') {
@@ -401,7 +476,14 @@ export function createAdminHandler(config: AdminHandlerConfig) {
                   basePath: runtime.basePath,
                   config: runtime.config,
                   item,
-                  recordActions: []
+                  recordActions: actionsForModel(registry, model.name).map((action) => ({
+                    label: action.label,
+                    href: action.href({
+                      model: model.name,
+                      id: item[runtime.viewModel(model).primaryKey] as string | number,
+                      basePath: runtime.basePath
+                    })
+                  }))
                 }
               }).body
             : render(NotFound, {
@@ -420,8 +502,8 @@ export function createAdminHandler(config: AdminHandlerConfig) {
         config: runtime.config,
         modelList: runtime.modelList,
         currentModel,
-        extraStyles: '',
-        extraScripts: ''
+        extraStyles,
+        extraScripts
       }
     }).body;
 

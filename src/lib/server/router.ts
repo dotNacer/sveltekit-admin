@@ -54,6 +54,10 @@ export function matchRoute(
   return { view: 'notFound' };
 }
 
+// Builtins-only helper — NOT the handler's dispatch path. `handler.ts` calls
+// `matchRoute` directly with `[...pluginRoutes, ...BUILTIN_ROUTES]` so plugin
+// patterns are considered first; this function stays around for tests and
+// any caller that only cares about the builtin route table.
 export function parseRoute(pathname: string, basePath: string): ParsedRoute {
   return matchRoute(pathname, basePath, BUILTIN_ROUTES) as ParsedRoute;
 }

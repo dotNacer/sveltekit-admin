@@ -40,6 +40,10 @@ hook from [Installation](/docs/installation).
 Any request path that doesn't match one of these shapes renders a
 not-found page rather than falling through to your app's own routing.
 
+Plugins may register additional path patterns (for example
+`/admin/user/1/graph`). Those pages still render inside the same layout;
+see [Plugins](/docs/plugins).
+
 ## Why a single hook instead of generated route files
 
 Generating actual SvelteKit route files (or injecting them into

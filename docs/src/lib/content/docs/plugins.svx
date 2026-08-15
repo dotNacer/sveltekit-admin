@@ -1,0 +1,107 @@
+---
+title: Plugins
+name: Plugins
+description: Register extra admin pages and record actions via plugins[].
+---
+
+`createAdminHandler` accepts an optional `plugins` array. Each plugin can
+add **new pages** (SSR HTML inside the existing admin layout, plus inline
+CSS/JS) and **links** on the edit screen and each list row. Plugins cannot
+replace the dashboard, list, or form, intercept create/update/delete, or
+add a sidebar entry.
+
+```typescript
+import { createAdminHandler } from 'sveltekit-admin';
+import type { AdminPlugin } from 'sveltekit-admin';
+
+const auditTrail: AdminPlugin = {
+  name: 'audit-trail',
+  pages: [
+    {
+      pattern: [':model', ':id', 'trail'],
+      models: ['User'],
+      render: async (ctx) => ({
+        html: `<h1>Trail for ${ctx.escapeHtml(String(ctx.record?.email ?? ctx.route.id))}</h1>`,
+        styles: '',
+        scripts: ''
+      })
+    }
+  ],
+  recordActions: [
+    {
+      label: 'Trail',
+      models: ['User'],
+      href: ({ model, id, basePath }) => `${basePath}/${model.toLowerCase()}/${id}/trail`
+    }
+  ]
+};
+
+export const handle = createAdminHandler({
+  prisma,
+  plugins: [auditTrail]
+});
+```
+
+Factory options such as `relationGraphPlugin({ models, depth })` belong on
+**the plugin author**, not on `createAdminHandler`. The core only sees
+`AdminPlugin`.
+
+## `AdminPlugin`
+
+- `name` — unique, non-empty. Used in boot errors and internal view ids.
+- `pages` — `pattern` tokens are literals, `:model`, or `:id` only. Typical
+  graph URL: `[':model', ':id', 'graph']`.
+- `recordActions` — `{ label, href({ model, id, basePath }), models? }`.
+  Shown on **edit** and **list rows** (before Edit), never on create.
+- `models?: string[]` on a page or action — omit means every visible model.
+  A page whose pattern matches but whose model is not listed renders the
+  admin NotFound page (HTTP 200, `render` is not called).
+
+Plugin patterns are matched **before** builtins (`matchRoute` receives
+`[...pluginRoutes, ...BUILTIN_ROUTES]`). That is what makes `['hello']` and
+`[':model', 'stats']` reachable: otherwise the builtin `:model` list and
+`:model/:id` edit would swallow them (`:id` is a wildcard).
+
+Only an **identical**, token-for-token pattern — `[]`, `['_search']`,
+`['_logout']`, `[':model']`, `[':model', 'new']`, `[':model', ':id']` — or
+another plugin's exact pattern throws at boot. A **literal** token in a
+`:model` or `:id` position instead **shadows** the matching builtin view
+for that one value, silently: `['user']` takes over the entire User list
+(and `POST /admin/user` becomes `405`, since plugin pages are GET-only);
+`['user', 'new']` takes over User create; `[':model', 'stats']` takes over
+edit/delete for any model's record whose primary key happens to be the
+literal string `"stats"`. Prefer wildcard-only additions like
+`[':model', ':id', 'graph']`, or a literal that is not a real model slug
+(`['hello']`), to avoid this. Overlapping but non-identical plugin
+patterns: the first registered plugin wins. Actions concatenate in
+`plugins` array order.
+
+## Security
+
+Plugin pages run **after** `authCheck`. Logout POST is unchanged.
+
+Reads must go through `ctx.loadRecord` / `ctx.listRecords` /
+`ctx.getM2mSelectedIds`. There is no ORM client on the context object — a
+host that stashes one on `event.locals` can still be reached via
+`ctx.event`, since plugins are trusted dependencies, not sandboxed code.
+
+- `loadRecord` / `listRecords` apply that model's `listWhere` (AND, never a
+  spread) and strip `hidden` plus sensitive names (`password` / `hash` /
+  `secret` / `token`) via the same redaction as the audit log.
+- That redaction (`redactForAudit`) is a **whitelist**, not a blacklist: it
+  copies only scalar schema fields onto the result, so `ctx.record`,
+  `loadRecord`, and `listRecords` payloads never carry relation objects,
+  list fields, or unknown/computed columns either — not only the fields
+  named in `hidden` or matched by the sensitive-name predicate.
+- A `:id` outside `listWhere` renders the admin **NotFound** page (HTTP
+  **200**, same as a builtin missing record) — `render` is not called.
+  This is **stricter than edit**: `/admin/user/1` still uses unscoped
+  `getRecord`. `listWhere` is not a tenant wall for the whole admin.
+- A `listWhere` that returns `{}` still throws (fail-loud).
+- Action labels and hrefs are HTML-escaped. Plugin `html` / `styles` /
+  `scripts` are developer-supplied (same trust as `branding.primaryColor`);
+  interpolate database fields with `ctx.escapeHtml`.
+
+POST (and any non-GET) to a plugin page is `405`. Writes stay on the
+builtin list/create/edit POST handlers, or on your own app routes linked
+from a `recordAction`.
