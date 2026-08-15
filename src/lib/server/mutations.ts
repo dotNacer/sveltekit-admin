@@ -1,0 +1,250 @@
+/**
+ * POST create/update/delete handling — split out of `handler.ts`, pure
+ * orchestration over `AdminRuntime`. Reads `formData` unconditionally: the
+ * handler only calls this on `event.request.method === 'POST'`, so the
+ * request body is never consumed on GET.
+ */
+
+import { primaryKeyOf, coerceId, formDataToPrisma } from './data.js';
+import { OPAQUE_FILTER_ERROR } from './adapters/filter.js';
+import {
+  buildAuditEvent,
+  emitAudit,
+  readAuditSnapshot
+} from './audit.js';
+import type { ParsedRoute } from './router.js';
+import { scopeFrom, type AdminRuntime } from './runtime.js';
+
+export async function handleMutation(
+  runtime: AdminRuntime,
+  event: any,
+  route: ParsedRoute
+): Promise<Response | null> {
+  const modelsConfig = runtime.config.models ?? {};
+  const audit = runtime.config.audit;
+
+  const formData = await event.request.formData();
+  const action = formData.get('_action');
+
+  if (!route.model) return null;
+
+  const model = runtime.findModel(route.model);
+  if (!model) {
+    throw new Error(`Model "${route.model}" not found`);
+  }
+
+  const redirectToList = (modelName: string) =>
+    new Response(null, {
+      status: 303,
+      headers: { Location: `${runtime.basePath}/${modelName.toLowerCase()}` }
+    });
+
+  if (action === 'delete' && route.id) {
+    const id = coerceId(route.id, model);
+    const before = audit
+      ? await readAuditSnapshot((m, recId) => runtime.adapter.data.getRecord(m, recId), model, id)
+      : null;
+    await runtime.adapter.data.deleteRecord(model, route.id);
+    if (audit) {
+      await emitAudit(
+        audit,
+        buildAuditEvent({
+          event,
+          action: 'delete',
+          model,
+          id,
+          hidden: runtime.hiddenFieldsOf(model),
+          before
+        })
+      );
+    }
+    return redirectToList(route.model);
+  }
+
+  if (action === 'create' || action === 'update') {
+    const data = formDataToPrisma(formData, model);
+    const m2mInput: Record<string, { targetPkField: string; ids: Array<string | number> }> = {};
+
+    // Validation des FK owning : coercion + existence + self-ref.
+    // Rejoue le `where` de scoping : un ID hors du where est rejeté,
+    // pas seulement caché du select (IDOR par POST forgé).
+    if (runtime.relationGraph) {
+      for (const edge of runtime.relationGraph.edges.values()) {
+        if (edge.model !== model.name || edge.kind !== 'to-one-owning') continue;
+        if (edge.unsupported) continue;
+
+        const scalarName = edge.scalarFields[0]!;
+        // Lu directement depuis le FormData plutôt que `data` :
+        // `formDataToPrisma` omet la clé pour un scalaire required
+        // laissé vide, donc `data[scalarName]` ne suffirait pas ici.
+        const raw = formData.get(scalarName);
+        if (raw === null) continue;
+
+        const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
+
+        // Vide sur relation optionnelle → null (disconnect).
+        if (raw === '' || raw === undefined || raw === null) {
+          if (edge.isRequired) {
+            throw new Error(`${edge.field} is required`);
+          }
+          data[scalarName] = null;
+          continue;
+        }
+
+        // Coercion vers le type de la PK cible. `targetModel` existe
+        // toujours : le graphe n'aurait pas produit d'arête sinon.
+        const targetModel = runtime.schema!.models.find((m) => m.name === edge.target)!;
+        const pkField = targetModel.fields.find((f) => f.isId);
+        const coerced = pkField?.type === 'Int' ? parseInt(String(raw)) : String(raw);
+        if (pkField?.type === 'Int' && !Number.isSafeInteger(coerced)) {
+          throw new Error(`${edge.field}: invalid id`);
+        }
+
+        // Self-ref : la ligne courante ne peut pas être sa propre cible.
+        if (edge.selfReferential && route.id && String(coerced) === String(coerceId(route.id, model))) {
+          throw new Error(`${edge.field}: cannot reference itself`);
+        }
+
+        // Existence + scoping. findFirst et non findUnique : le where
+        // peut porter des conditions arbitraires (scoping multi-tenant).
+        // Si le client ne sait pas répondre, on ne bloque pas l'écriture.
+        try {
+          const idFilter = { op: 'eq' as const, field: primaryKeyOf(targetModel), value: coerced };
+          const scopeFilter = scopeFrom(relConfig, { locals: event.locals });
+          const filter = scopeFilter ? ({ op: 'and', clauses: [idFilter, scopeFilter] } as any) : idFilter;
+          const found = await runtime.adapter.data.findFirst(targetModel, filter);
+          if (!found) {
+            throw new Error(`${edge.field}: invalid value`);
+          }
+        } catch (e: any) {
+          if (e?.message?.includes('invalid value')) throw e;
+          if (
+            e?.message &&
+            (e.message.includes(OPAQUE_FILTER_ERROR) ||
+              OPAQUE_FILTER_ERROR.startsWith(e.message))
+          ) {
+            throw new Error(`${edge.field}: invalid value`);
+          }
+          if (e?.message?.includes('unknown field')) {
+            throw new Error(`${edge.field}: invalid value`);
+          }
+          // Client incapable de vérifier (mock partiel, etc.) : on laisse passer.
+        }
+
+        data[scalarName] = coerced;
+      }
+
+      // N-N implicite : lit `__rel__<field>` (valeurs cochées) et
+      // `__rel_present__<field>` (sentinelle). Sans le sentinelle,
+      // le champ est absent du form (readonly/exclu) → no-op.
+      // Avec le sentinelle mais zéro valeur cochée → vider la
+      // relation (`set: []` / rien à connecter en création).
+      for (const edge of runtime.relationGraph.edges.values()) {
+        if (edge.model !== model.name || edge.kind !== 'm2m') continue;
+        // Pas de garde `edge.unsupported` ici : par construction du
+        // graphe, `unsupported` n'est jamais posé sur une arête
+        // m2m (seulement sur to-one-owning / groupes
+        // ambigus, qui retombent toujours en to-one-owning).
+
+        const present = formData.get(`__rel_present__${edge.field}`);
+        if (present === null) continue;
+
+        const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
+        const targetModel = runtime.schema!.models.find((m) => m.name === edge.target)!;
+        const targetPk = primaryKeyOf(targetModel);
+        const pkIsInt = targetModel.fields.find((f) => f.isId)?.type === 'Int';
+
+        const submitted = formData.getAll(`__rel__${edge.field}`).map(String);
+        const rawIds: string[] =
+          submitted.length === 1 && submitted[0].includes(',')
+            ? submitted[0].split(',').map((s: string) => s.trim()).filter(Boolean)
+            : submitted;
+
+        const ids: (string | number)[] = rawIds.map((v: string) =>
+          pkIsInt ? parseInt(v) : v
+        );
+        if (pkIsInt && ids.some((v) => !Number.isSafeInteger(v))) {
+          throw new Error(`${edge.field}: invalid id`);
+        }
+
+        // Existence + scoping en une requête, sur l'ensemble des IDs
+        // soumis. Un compte différent = au moins un ID invalide ou
+        // hors scoping — IDOR bloqué au même titre que pour les FK.
+        if (ids.length > 0) {
+          const inFilter = { op: 'in' as const, field: targetPk, value: ids };
+          const scopeFilter = scopeFrom(relConfig, { locals: event.locals });
+          const filter = scopeFilter ? ({ op: 'and', clauses: [inFilter, scopeFilter] } as any) : inFilter;
+          try {
+            const found = await runtime.adapter.data.findMany(targetModel, { filter });
+            if (found.length !== new Set(ids.map(String)).size) {
+              throw new Error(`${edge.field}: invalid value`);
+            }
+          } catch (e: any) {
+            if (e?.message?.includes('invalid value')) throw e;
+            if (
+              e?.message &&
+              (e.message.includes(OPAQUE_FILTER_ERROR) ||
+                OPAQUE_FILTER_ERROR.startsWith(e.message))
+            ) {
+              throw new Error(`${edge.field}: invalid value`);
+            }
+            if (e?.message?.includes('unknown field')) {
+              throw new Error(`${edge.field}: invalid value`);
+            }
+            // Client incapable de vérifier : on laisse passer.
+          }
+        }
+
+        m2mInput[edge.field] = { targetPkField: targetPk, ids };
+      }
+    }
+
+    if (action === 'create') {
+      const created = await runtime.adapter.data.createRecord(model, { scalars: data, m2m: m2mInput });
+      if (audit) {
+        await emitAudit(
+          audit,
+          buildAuditEvent({
+            event,
+            action: 'create',
+            model,
+            id: created[primaryKeyOf(model)] as string | number,
+            hidden: runtime.hiddenFieldsOf(model),
+            values: data,
+            m2m: m2mInput,
+            after: created
+          })
+        );
+      }
+    } else if (route.id) {
+      const id = coerceId(route.id, model);
+      const before = audit
+        ? await readAuditSnapshot((m, recId) => runtime.adapter.data.getRecord(m, recId), model, id)
+        : null;
+      const updated = await runtime.adapter.data.updateRecord(model, route.id, {
+        scalars: data,
+        m2m: m2mInput
+      });
+      if (audit) {
+        await emitAudit(
+          audit,
+          buildAuditEvent({
+            event,
+            action: 'update',
+            model,
+            id,
+            hidden: runtime.hiddenFieldsOf(model),
+            values: data,
+            m2m: m2mInput,
+            before,
+            after: updated
+          })
+        );
+      }
+    }
+
+    return redirectToList(route.model);
+  }
+
+  return null;
+}
