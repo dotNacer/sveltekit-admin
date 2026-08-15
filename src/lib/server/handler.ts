@@ -4,9 +4,7 @@
  */
 
 import { render } from 'svelte/server';
-import { type PrismaModel, isSensitiveFieldName } from './introspection/parser.js';
-import type { Schema } from './types/schema.js';
-import { buildRelationGraph, type RelationGraph } from './introspection/relations.js';
+import type { PrismaModel } from './introspection/parser.js';
 import { parseRoute } from './router.js';
 import {
   primaryKeyOf,
@@ -19,9 +17,9 @@ import {
   buildWhere,
   resolveSearchFields
 } from './query/listQuery.js';
-import { normalizeScope, OPAQUE_FILTER_ERROR } from './adapters/filter.js';
+import { OPAQUE_FILTER_ERROR } from './adapters/filter.js';
 import type { DataAdapter, SchemaIntrospector } from './adapters/types.js';
-import { resolveListFilters, validateListFilterConfig, findFkEdge } from './query/filterDetection.js';
+import { resolveListFilters, findFkEdge } from './query/filterDetection.js';
 import { escapeHtml, toLabel } from './views/html.js';
 import {
   buildAuditEvent,
@@ -34,16 +32,7 @@ import Layout from './views/Layout.svelte';
 import Dashboard from './views/Dashboard.svelte';
 import Form from './views/Form.svelte';
 import List from './views/List.svelte';
-import type { ViewModel } from './views/types.js';
-
-const PER_PAGE = 20;
-
-function scopeFrom(
-  relConfig: { where?: (ctx: any) => any } | undefined,
-  ctx: { locals?: any }
-): any {
-  return relConfig?.where ? normalizeScope(relConfig.where(ctx)) : undefined;
-}
+import { createAdminRuntime, scopeFrom } from './runtime.js';
 
 export interface AdminHandlerConfig {
   /**
@@ -209,13 +198,10 @@ export interface AdminHandlerConfig {
 
 export function createAdminHandler(config: AdminHandlerConfig) {
   const {
-    basePath = '/admin',
     authCheck,
     logout,
     logoutRedirectTo = '/',
     audit,
-    exclude = [],
-    hidePivotTables = true,
     models: modelsConfig = {}
   } = config;
 
@@ -223,135 +209,31 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     throw new Error('[sveltekit-admin] createAdminHandler requires `adapter`.');
   }
 
-  const introspector: SchemaIntrospector = config.adapter.introspector;
+  const runtime = createAdminRuntime(config);
+  const {
+    adapter,
+    schema,
+    relationGraph,
+    models,
+    modelList,
+    basePath,
+    perPage,
+    selectThreshold,
+    filterLinkThreshold,
+    labelFieldCandidates,
+    findModel,
+    labelOf,
+    hiddenFieldsOf,
+    viewModel,
+    resolveLabel,
+    resolveFilterableFields
+  } = runtime;
 
-  // Introspect the schema once at startup — same failure handling as before:
-  // a broken/missing schema source degrades to "no models known" rather than
-  // throwing out of `createAdminHandler` itself.
-  let schema: Schema | null = null;
-  let relationGraph: RelationGraph | null = null;
-  try {
-    const introspected = introspector.introspect();
-    if (introspected instanceof Promise) {
-      throw new Error(
-        '[sveltekit-admin] SchemaIntrospector.introspect() returned a Promise — ' +
-          'createAdminHandler only supports synchronous introspection today.'
-      );
-    }
-    schema = introspected;
-    relationGraph = buildRelationGraph(schema);
-    for (const d of relationGraph.diagnostics) {
-      console.warn(`[sveltekit-admin] ${d}`);
-    }
-  } catch (e) {
-    console.warn('[sveltekit-admin] Could not introspect schema:', e);
-  }
-
-  const filteredModels = schema?.models.filter((m) => {
-    // Exclude explicitly excluded models
-    if (exclude.includes(m.name)) return false;
-    // Exclude pivot tables if option is enabled
-    if (hidePivotTables && m.isPivotTable) return false;
-    return true;
-  }) || [];
-
-  // Valider `listFilter` au démarrage : une config invalide (champ
-  // inexistant, sensible, relation, type non supporté) doit échouer fort
-  // ici plutôt que produire silencieusement un filtre mort à chaque rendu
-  // de liste (docs/design §8, même politique que le groupe ambigu de
-  // relations.ts).
-  const hiddenFieldsOf = (m: PrismaModel): Set<string> =>
-    new Set(modelsConfig[m.name]?.hidden ?? []);
-
-  for (const m of filteredModels) {
-    const entries = modelsConfig[m.name]?.listFilter;
-    // Non-null par construction : `filteredModels` n'existe que si le schéma
-    // a été parsé, et le graphe est construit dans la même branche de boot.
-    if (entries) validateListFilterConfig(m.name, entries, m, relationGraph!, hiddenFieldsOf(m));
-  }
-
-  const labelOf = (m: PrismaModel) => {
-    const configured = modelsConfig[m.name]?.label;
-    if (configured) return configured;
-    const label = toLabel(m.name);
-    return label.charAt(0).toUpperCase() + label.slice(1);
-  };
-  const modelList = filteredModels.map((m) => ({ name: m.name, label: labelOf(m) }));
-  const findModel = (name?: string) =>
-    filteredModels.find((m) => m.name.toLowerCase() === name?.toLowerCase());
-  const viewModel = (m: PrismaModel): ViewModel => ({
-    name: m.name,
-    label: labelOf(m),
-    fields: m.fields,
-    primaryKey: primaryKeyOf(m),
-    // Non-null par construction : `m` vient toujours de `filteredModels`,
-    // dérivé du schéma qu'on vient de parser avec succès.
-    relationGraph: relationGraph!
-  });
   const redirectToList = (model: string) =>
     new Response(null, {
       status: 303,
       headers: { Location: `${basePath}/${model.toLowerCase()}` }
     });
-
-  const selectThreshold = config.relationDefaults?.selectThreshold ?? 200;
-  const filterLinkThreshold = config.listFilterDefaults?.linkThreshold ?? 20;
-  const labelFieldCandidates = config.relationDefaults?.labelFields ?? [
-    'name', 'title', 'label', 'email', 'username', 'slug'
-  ];
-
-  const adapter = config.adapter;
-
-  /**
-   * Champs qu'un `?f.<field>=` est autorisé à cibler pour ce modèle : tout
-   * champ scalaire non-liste, non-relation, de type filtrable
-   * (String/Int/Float/Decimal/BigInt/Boolean/DateTime/enum — donc pas
-   * Json/Bytes), non sensible, et non listé dans `hidden` pour ce modèle.
-   * Sans ce dernier point, `hidden: ['internalNotes']` ne fait que masquer
-   * l'affichage : le champ reste un oracle de confirmation de valeur via
-   * `?f.internalNotes=...contains...`, exactement la faille §0.a fermée
-   * ailleurs pour les champs sensibles par nom — `hidden` et le prédicat
-   * de sensibilité sont deux sources distinctes, toutes deux doivent
-   * fermer l'oracle (docs/design §10, "deux sources, un seul prédicat
-   * partagé, sinon divergence garantie"). Défense en profondeur :
-   * `listQuery.ts` revérifie lui-même la sensibilité par nom, ce set est
-   * la première passe et la seule à connaître la config `hidden`.
-   */
-  const resolveFilterableFields = (model: PrismaModel): Set<string> => {
-    const hidden = hiddenFieldsOf(model);
-    const out = new Set<string>();
-    for (const f of model.fields) {
-      if (f.relation || f.isList) continue;
-      if (['Json', 'Bytes'].includes(f.type)) continue;
-      if (isSensitiveFieldName(f.name)) continue;
-      if (hidden.has(f.name)) continue;
-      out.add(f.name);
-    }
-    return out;
-  };
-
-  /**
-   * Résout le label BRUT (non échappé) d'une ligne : premier champ String
-   * candidat présent, sinon template `{a} {b}` si configuré, sinon la PK.
-   * Déterministe. Svelte échappe automatiquement à l'interpolation dans les
-   * composants — pas besoin d'échapper ici.
-   */
-  const resolveLabel = (
-    targetModel: PrismaModel,
-    row: Record<string, unknown>,
-    labelTemplate?: string
-  ): string => {
-    if (labelTemplate) {
-      return labelTemplate.replace(/\{(\w+)\}/g, (_, k) => String(row[k] ?? ''));
-    }
-    for (const candidate of labelFieldCandidates) {
-      const field = targetModel.fields.find((f) => f.name === candidate);
-      if (field && field.type === 'String' && row[candidate] != null) {
-        return String(row[candidate]);
-      }
-    }
-    return String(row[primaryKeyOf(targetModel)]);
-  };
 
   /**
    * Charge les options pour toutes les arêtes to-one-owning et m2m
@@ -553,7 +435,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     const relParam = event.url.searchParams.get('rel') ?? '';
     const [modelName, fieldName] = relParam.split('.');
     const q = event.url.searchParams.get('q') ?? '';
-    const { page } = paginate(event.url.searchParams.get('page'), PER_PAGE);
+    const { page } = paginate(event.url.searchParams.get('page'), perPage);
 
     const model = findModel(modelName);
     const edge = model && relationGraph
@@ -600,8 +482,8 @@ export function createAdminHandler(config: AdminHandlerConfig) {
         adapter.data.findMany(targetModel, {
           filter: searchFilter,
           orderBy: relConfig?.orderBy,
-          skip: (page - 1) * PER_PAGE,
-          take: PER_PAGE
+          skip: (page - 1) * perPage,
+          take: perPage
         })
       ]);
       const options = rows.map((row) => ({
@@ -894,7 +776,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
         content = render(NotFound, { props: { message: 'Page not found', basePath } }).body;
       } else if (route.view === 'dashboard') {
         const modelsWithCounts = await Promise.all(
-          filteredModels.map(async (m) => {
+          models.map(async (m) => {
             let count = 0;
             try {
               count = await adapter.data.countRecords(m);
@@ -923,7 +805,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
             props: { message: `Model "${route.model}" not found`, basePath }
           }).body;
         } else if (route.view === 'list') {
-          const { page } = paginate(event.url.searchParams.get('page'), PER_PAGE);
+          const { page } = paginate(event.url.searchParams.get('page'), perPage);
           const modelSearchConfig = modelsConfig[model.name]?.searchFields;
           const searchFields = resolveSearchFields(model, modelSearchConfig, labelFieldCandidates, hiddenFieldsOf(model));
           const filterableFields = resolveFilterableFields(model);
@@ -953,7 +835,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           }
           // Adapter compiles case-sensitivity; this arg is unused by buildWhere.
           const filter = buildWhere(listQuery, listScope, false, model) as any;
-          const { rows: items, total } = await adapter.data.listRecords(model, { filter, skip: (page - 1) * PER_PAGE, take: PER_PAGE });
+          const { rows: items, total } = await adapter.data.listRecords(model, { filter, skip: (page - 1) * perPage, take: perPage });
           const listFilters = resolveListFilters(
             model,
             schema!.enums,
@@ -987,7 +869,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
             props: {
               model: viewModel(model),
               items,
-              pagination: { page, perPage: PER_PAGE, total },
+              pagination: { page, perPage, total },
               basePath,
               config,
               query: listQuery,
