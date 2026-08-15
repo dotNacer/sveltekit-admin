@@ -1,10 +1,9 @@
 <script lang="ts">
   import type { AdminHandlerConfig } from '../handler.js';
-  import type { ViewModel } from './types.js';
+  import type { ViewModel, ListRecordAction, FkFilterMeta } from './types.js';
   import type { ListQuery } from '../query/listQuery.js';
   import type { ResolvedFilterField } from '../query/filterDetection.js';
   import { DATETIME_PRESETS } from '../query/filterDetection.js';
-  import type { FkFilterMeta } from './types.js';
   import { getDisplayFields } from '../introspection/parser.js';
   import { buildListUrl, hiddenParams } from '../query/urls.js';
   import { escapeHtml, toLabel, formatValue } from './html.js';
@@ -19,7 +18,8 @@
     query,
     currentUrl,
     listFilters,
-    fkFilterMeta
+    fkFilterMeta,
+    recordActions = []
   }: {
     model: ViewModel;
     items: any[];
@@ -34,6 +34,7 @@
     listFilters?: ResolvedFilterField[];
     /** Métadonnées async (options scopées + label actif) pour les filtres FK configurés. */
     fkFilterMeta?: Map<string, FkFilterMeta>;
+    recordActions?: ListRecordAction[];
   } = $props();
 
   const modelConfig = $derived(config.models?.[model.name] || {});
@@ -217,6 +218,12 @@
               <!-- eslint-disable-next-line svelte/no-at-html-tags -- formatValue already escapes string values itself and returns a literal <span> only for null/undefined -->
               {#each displayFields as f (f.name)}<td>{@html formatValue(item[f.name], f.type)}</td>{/each}
               <td class="ska-table__actions">
+                {#each recordActions as action (`${action.label}:${item[model.primaryKey]}`)}
+                  <a
+                    href={action.hrefFor(item[model.primaryKey])}
+                    class="ska-btn ska-btn--secondary ska-btn--sm"
+                  >{action.label}</a>
+                {/each}
                 <a href="{listPath}/{item[model.primaryKey]}" class="ska-btn ska-btn--secondary ska-btn--sm">Edit</a>
                 <!-- eslint-disable-next-line svelte/no-at-html-tags -- Svelte 5 rejects a literal onsubmit string as an event attribute; the PK is escaped manually here since it can't go through Svelte's native attribute escaping; the whole form (not just onsubmit) is rendered as raw HTML because there's no native-Svelte way to attach a plain inline onsubmit="..." string attribute at all in Svelte 5 templates, so the whole element had to be raw text to preserve the exact prior confirm-dialog behavior in a page that's never hydrated by a Svelte runtime -->
                 {@html `<form method="POST" action="${listPath}/${escapeHtml(String(item[model.primaryKey]))}" style="display:inline" onsubmit="return confirm('Delete this item?')"><input type="hidden" name="_action" value="delete"><button type="submit" class="ska-btn ska-btn--danger ska-btn--sm">Delete</button></form>`}
