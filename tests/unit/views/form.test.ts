@@ -211,3 +211,49 @@ describe('Form.svelte (edit)', () => {
     expect(renderForm('edit', viewModel, '/admin', config, item)).not.toContain('name="password"');
   });
 });
+
+describe('Form.svelte — recordActions', () => {
+  const item = { id: 1, email: 'a@b.c' };
+  const actions = [{ label: '<img>', href: '/admin/user/1/graph' }];
+
+  it('n’affiche aucune barre d’actions par défaut en edit', () => {
+    const html = renderForm('edit', viewModel, '/admin', { prisma: {} } as any, item);
+    expect(html).not.toContain('ska-record-actions');
+    expect(html).not.toContain('/admin/user/1/graph');
+  });
+
+  it('en edit, rend les liens hors du form POST et échappe le label', () => {
+    const html = render(Form, {
+      props: {
+        mode: 'edit',
+        model: viewModel,
+        basePath: '/admin',
+        config: { prisma: {} },
+        item,
+        recordActions: actions
+      }
+    }).body;
+    expect(html).toContain('href="/admin/user/1/graph"');
+    expect(html).toContain('ska-record-actions');
+    expect(html).toContain('&lt;img>');
+    expect(html).not.toContain('<img>');
+    const formStart = html.indexOf('<form method="POST"');
+    const actionHref = html.indexOf('href="/admin/user/1/graph"');
+    expect(actionHref).toBeGreaterThan(-1);
+    expect(actionHref).toBeLessThan(formStart);
+  });
+
+  it('en create, ignore recordActions même non vide', () => {
+    const html = render(Form, {
+      props: {
+        mode: 'create',
+        model: viewModel,
+        basePath: '/admin',
+        config: { prisma: {} },
+        recordActions: actions
+      }
+    }).body;
+    expect(html).not.toContain('ska-record-actions');
+    expect(html).not.toContain('/admin/user/1/graph');
+  });
+});

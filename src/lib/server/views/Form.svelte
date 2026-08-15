@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { AdminHandlerConfig } from '../handler.js';
-  import type { ViewModel } from './types.js';
+  import type { RecordAction, ViewModel } from './types.js';
   import FieldInput from './FieldInput.svelte';
   import RelationSelect from './RelationSelect.svelte';
   import RelationCheckboxes from './RelationCheckboxes.svelte';
@@ -11,13 +11,15 @@
     model,
     basePath,
     config,
-    item
+    item,
+    recordActions = []
   }: {
     mode: 'create' | 'edit';
     model: ViewModel;
     basePath: string;
     config: AdminHandlerConfig;
     item?: any;
+    recordActions?: RecordAction[];
   } = $props();
 
   const modelConfig = $derived(config.models?.[model.name] || {});
@@ -90,6 +92,14 @@
 <h1>{mode === 'create' ? 'Create' : 'Edit'} {model.label}</h1>
 {#if mode === 'edit'}
   <p class="ska-subtitle">ID: {item[model.primaryKey]}</p>
+{/if}
+
+{#if mode === 'edit' && recordActions.length > 0}
+  <div class="ska-record-actions">
+    {#each recordActions as action (action.href)}
+      <a href={action.href} class="ska-btn ska-btn--secondary ska-btn--sm">{action.label}</a>
+    {/each}
+  </div>
 {/if}
 
 <div class="ska-card">
