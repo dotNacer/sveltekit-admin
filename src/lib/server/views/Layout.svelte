@@ -33,9 +33,9 @@
   // block would add bytes to every render regardless of extraStyles being set.
   // Concatenating keeps this ONE @html call, byte-identical to the pre-plugin-slots
   // template when extraStyles is ''. extraScripts (bottom of <body>) has no such
-  // pre-existing @html call to fold into, so it stays its own ternary @html — the
-  // smallest achievable footprint, though it still adds a fixed hydration-boundary
-  // comment pair even when empty (see task-6-report.md fix-round-1 notes).
+  // pre-existing @html call to fold into, so it stays its own @html — the smallest
+  // achievable footprint, though it still adds a fixed hydration-boundary comment
+  // pair even when empty (see task-6-report.md fix-round-1 notes).
   //
   // Built as a $derived here (rather than a nested template literal inline in the
   // markup below) so tooling that tag-sniffs {@html} expressions for literal
@@ -43,6 +43,7 @@
   const headStyleHtml = $derived(
     `<style>${styles(primaryColor)}</style>${extraStyles ? `<style>${extraStyles}</style>` : ''}`
   );
+  const bodyScriptHtml = $derived(extraScripts ? '<script>' + extraScripts + '</scr' + 'ipt>' : '');
 </script>
 
 <!doctype html>
@@ -97,6 +98,6 @@
     </main>
   </div>
   <!-- eslint-disable-next-line svelte/no-at-html-tags -- plugin JS is developer-supplied, same trust as branding.primaryColor -->
-  {@html extraScripts ? `<script>${extraScripts}</script>` : ''}
+  {@html bodyScriptHtml}
 </body>
 </html>
