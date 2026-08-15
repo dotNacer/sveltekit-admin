@@ -316,3 +316,62 @@ describe('List.svelte — recherche et filtres (query/currentUrl)', () => {
     expect(html).toContain('href="/admin/user?page=4"');
   });
 });
+
+describe('List.svelte — recordActions', () => {
+  const pagination = { page: 1, perPage: 20, total: 2 };
+
+  it('n’ajoute pas de lien plugin par défaut', () => {
+    const html = renderList(viewModel, items, pagination, '/admin', empty);
+    expect(html).not.toContain('/admin/user/1/graph');
+    expect(html).toContain('>Edit</a>');
+  });
+
+  it('appelle hrefFor avec la PK et rend le lien avant Edit', () => {
+    const html = render(List, {
+      props: {
+        model: viewModel,
+        items,
+        pagination,
+        basePath: '/admin',
+        config: empty,
+        recordActions: [
+          { label: '<img>', hrefFor: (id) => `/admin/user/${id}/graph` }
+        ]
+      }
+    }).body;
+    expect(html).toContain('href="/admin/user/1/graph"');
+    expect(html).toContain('href="/admin/user/2/graph"');
+    // escapeHtml (unlike Svelte's default text-escaping) also escapes `>` — this now
+    // renders via {@html} + escapeHtml (see fix-round-1 notes), not Svelte text interpolation.
+    expect(html).toContain('&lt;img&gt;');
+    expect(html).not.toContain('<img>');
+    expect(html).not.toMatch(/<td class="ska-table__actions">[^<]*<img>/);
+    const row1 = html.slice(html.indexOf('a@b.c'));
+    const graphAt = row1.indexOf('href="/admin/user/1/graph"');
+    const editAt = row1.indexOf('>Edit</a>');
+    expect(graphAt).toBeGreaterThan(-1);
+    expect(graphAt).toBeLessThan(editAt);
+  });
+
+  it('échappe un hrefFor malveillant contenant des guillemets/chevrons', () => {
+    const html = render(List, {
+      props: {
+        model: viewModel,
+        items,
+        pagination,
+        basePath: '/admin',
+        config: empty,
+        recordActions: [
+          { label: 'Graph', hrefFor: (id) => `/admin/user/${id}/graph" onclick="alert(1)` }
+        ]
+      }
+    }).body;
+    expect(html).toContain('href="/admin/user/1/graph&quot; onclick=&quot;alert(1)"');
+    expect(html).not.toContain('href="/admin/user/1/graph" onclick="alert(1)"');
+  });
+
+  it('ne change pas le colspan de la row vide', () => {
+    const html = renderList(viewModel, [], { page: 1, perPage: 20, total: 0 }, '/admin', empty);
+    expect(html).toMatch(/colspan="7"/);
+  });
+});

@@ -1,23 +1,26 @@
 <script lang="ts">
   import type { AdminHandlerConfig } from '../handler.js';
-  import type { ViewModel } from './types.js';
+  import type { RecordAction, ViewModel } from './types.js';
   import FieldInput from './FieldInput.svelte';
   import RelationSelect from './RelationSelect.svelte';
   import RelationCheckboxes from './RelationCheckboxes.svelte';
   import RelatedBlock from './RelatedBlock.svelte';
+  import { escapeHtml } from './html.js';
 
   let {
     mode,
     model,
     basePath,
     config,
-    item
+    item,
+    recordActions = []
   }: {
     mode: 'create' | 'edit';
     model: ViewModel;
     basePath: string;
     config: AdminHandlerConfig;
     item?: any;
+    recordActions?: RecordAction[];
   } = $props();
 
   const modelConfig = $derived(config.models?.[model.name] || {});
@@ -77,6 +80,24 @@
       : []
   );
 
+  // Built as a single string (rather than {#if}/{#each}) so an empty/create-mode
+  // render stays a single @html call: Svelte 5's SSR wraps every {#if}/{#each} node
+  // in its own hydration-boundary comment regardless of the branch/array taken, so
+  // nesting recordActions in its own control-flow blocks would add bytes to every
+  // edit-form render even when recordActions is []. `label` and `href` are both
+  // escaped manually since this goes through @html instead of Svelte's
+  // auto-escaped text/attributes.
+  const recordActionsHtml = $derived(
+    mode === 'edit' && recordActions.length > 0
+      ? `<div class="ska-record-actions">${recordActions
+          .map(
+            (action) =>
+              `<a href="${escapeHtml(action.href)}" class="ska-btn ska-btn--secondary ska-btn--sm">${escapeHtml(action.label)}</a>`
+          )
+          .join('')}</div>`
+      : ''
+  );
+
   const inverseEdges = $derived(
     model.relationGraph
       ? [...model.relationGraph.edges.values()].filter(
@@ -91,6 +112,9 @@
 {#if mode === 'edit'}
   <p class="ska-subtitle">ID: {item[model.primaryKey]}</p>
 {/if}
+
+<!-- eslint-disable-next-line svelte/no-at-html-tags -- recordActionsHtml escapes both action.label and action.href via escapeHtml -->
+{@html recordActionsHtml}
 
 <div class="ska-card">
   <form method="POST" class="ska-form">

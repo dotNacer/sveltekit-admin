@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseRoute } from '../../src/lib/server/router.js';
+import { parseRoute, matchRoute, BUILTIN_ROUTES } from '../../src/lib/server/router.js';
 
 describe('parseRoute avec basePath /admin', () => {
   it.each([
@@ -45,6 +45,32 @@ describe('parseRoute avec basePath personnalisé', () => {
   it('préserve un id contenant des caractères encodés une fois décodés', () => {
     expect(parseRoute('/admin/user/a%20b', '/admin')).toEqual({
       view: 'edit', model: 'user', id: 'a%20b'
+    });
+  });
+});
+
+describe('matchRoute extra pattern (plugin seam, not on parseRoute)', () => {
+  const routes = [
+    ...BUILTIN_ROUTES,
+    { pattern: [':model', ':id', 'graph'], view: 'graph' }
+  ];
+
+  it('matches /admin/user/1/graph when the extra entry is registered', () => {
+    expect(matchRoute('/admin/user/1/graph', '/admin', routes)).toEqual({
+      view: 'graph',
+      model: 'user',
+      id: '1'
+    });
+  });
+
+  it('parseRoute on the same path stays notFound (builtin table only)', () => {
+    expect(parseRoute('/admin/user/1/graph', '/admin')).toEqual({ view: 'notFound' });
+  });
+
+  it('still prefers create over edit for /user/new', () => {
+    expect(matchRoute('/admin/user/new', '/admin', routes)).toEqual({
+      view: 'create',
+      model: 'user'
     });
   });
 });

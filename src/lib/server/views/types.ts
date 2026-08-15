@@ -26,6 +26,16 @@ export interface ViewModel {
   relatedCounts?: Map<string, number>;
 }
 
+export interface RecordAction {
+  label: string;
+  href: string;
+}
+
+export interface ListRecordAction {
+  label: string;
+  hrefFor: (id: string | number) => string;
+}
+
 /**
  * Résolution async d'un filtre FK (kind 'fk' dans ResolvedFilterField) :
  * options scopées pour la sidebar + label du chip actif scopé lui aussi
