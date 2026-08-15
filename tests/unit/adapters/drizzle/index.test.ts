@@ -156,4 +156,13 @@ describe("surface publique sveltekit-admin/adapters/drizzle", () => {
   it("n’exporte pas createPrismaAdapter", () => {
     expect("createPrismaAdapter" in drizzleApi).toBe(false);
   });
+
+  it("réexporte les types AdminPlugin", () => {
+    const src = readFileSync(
+      new URL("../../../../src/lib/server/adapters/drizzle/index.ts", import.meta.url),
+      "utf8",
+    );
+    expect(src).toMatch(/AdminPlugin/);
+    expect(src).toMatch(/PluginPageContext/);
+  });
 });

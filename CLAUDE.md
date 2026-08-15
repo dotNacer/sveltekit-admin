@@ -48,26 +48,28 @@ Semantic Versioning, enforced via [Changesets](https://github.com/changesets/cha
 
 ## Request flow (the core mental model)
 
-Everything funnels through the `handle` hook returned by `createAdminHandler` in `src/lib/server/handler.ts`. Boot lives in `createAdminRuntime` (`runtime.ts`); routing is `router.ts#parseRoute` over `BUILTIN_ROUTES`; loaders / `_search` / POST are `relationLoaders.ts`, `search.ts`, `mutations.ts`.
+Everything funnels through the `handle` hook returned by `createAdminHandler` in `src/lib/server/handler.ts`. Boot lives in `createAdminRuntime` (`runtime.ts`) and `resolvePluginRegistry` (`pluginRegistry.ts`); routing is `router.ts#matchRoute` over `[...registry.routes, ...BUILTIN_ROUTES]`; loaders / `_search` / POST are `relationLoaders.ts`, `search.ts`, `mutations.ts`.
 
-1. **Boot (once, at handler creation, not per-request)**: `createAdminRuntime` asks `adapter.introspector.introspect()` (must be sync) and runs `buildRelationGraph`. Invalid `models[].listFilter` throws here. Result is an `AdminRuntime` (schema, graph, filtered models, label/hidden/filter helpers) passed into every request.
-2. **Routing**: `parseRoute` is `matchRoute(pathname, basePath, BUILTIN_ROUTES)` — dashboard, `_search`, `_logout`, `:model`, `:model/new`, `:model/:id`. Three or more segments stay `notFound`. `matchRoute` accepts extra tables for tests; plugins are not wired yet.
+1. **Boot (once, at handler creation, not per-request)**: `createAdminRuntime` asks `adapter.introspector.introspect()` (must be sync) and runs `buildRelationGraph`. Invalid `models[].listFilter` throws here. Result is an `AdminRuntime` (schema, graph, filtered models, label/hidden/filter helpers) passed into every request. `resolvePluginRegistry(config.plugins ?? [], BUILTIN_ROUTES, runtime.models)` also runs here and throws on an invalid plugin.
+2. **Routing**: `parseRoute` is no longer what the handler uses. The handler calls `matchRoute(pathname, basePath, [...pluginRoutes, ...BUILTIN_ROUTES])` (plugin routes first). `parseRoute` remains builtins-only for tests. Plugin patterns such as `[':model', ':id', 'graph']` match when registered; without `plugins` they stay `notFound`. Do **not** write builtins-first: that order makes `['hello']` and `[':model','stats']` unreachable.
 3. **Logout** is special-cased *before* `authCheck` (POST-only).
 4. **`authCheck`** runs next; a `false`/rejecting result short-circuits to 401.
-5. **POST** (create/update/delete) is `handleMutation`: `formDataToPrisma`, server-side FK/m2m revalidation, then `adapter.data.*`. After a successful write, optional `audit`.
-6. **GET** renders Dashboard / List / Form / NotFound via `render()` from `svelte/server`, wrapped in Layout. Layout `extraStyles` / `extraScripts` and Form/List `recordActions` are always passed empty in this version (slots for a future plugin API — no public `plugins` config yet).
+5. After authCheck / search: plugin views, non-GET → 405; GET → scoped preload + `render` in Layout.
+6. **POST** (create/update/delete) is `handleMutation`: `formDataToPrisma`, server-side FK/m2m revalidation, then `adapter.data.*`. After a successful write, optional `audit`. Plugin pages are GET-only and never reach this branch.
+7. **GET** builtin: Form/List `recordActions` come from the plugin registry (empty if no plugins). Layout `extraStyles` / `extraScripts` are filled only on plugin pages.
 
 ## Where behavior actually lives
 
 - **`introspection/parser.ts`**: regex-based `.prisma` parsing. Also owns `isSensitiveFieldName` — the **single shared predicate** (substring match on `password`/`hash`/`secret`/`token`) used by both the list-view display logic *and* the query/filter whitelist in `query/listQuery.ts`. If you add a new place that decides whether a field is sensitive, it must reuse this predicate, not reimplement it — a second heuristic drifting from this one is exactly the class of bug this codebase has already fixed once.
 - **`introspection/relations.ts`**: relation-field pairing. Golden rule documented at the top of the file — never pair two relation fields by "same target model," always by relation name (a model can have two relations to the same target, e.g. `Post { author User, reviewer User }`). Produces the `RelationGraph` that `relationLoaders.ts` uses for FK dropdowns, m2m checkboxes, inverse-relation counts on edit forms, and FK sidebar filters.
-- **`runtime.ts`**: boot-time `AdminRuntime`. Not a public export. Future plugins will receive this object instead of talking to Prisma/Drizzle directly.
+- **`runtime.ts`**: boot-time `AdminRuntime`. Not a public export. Plugin pages don't receive it directly — `pluginAccess.ts` wraps it into the narrower `PluginPageContext` instead.
 - **`query/listQuery.ts`**: turns `?q=` and `?f.<field>[__<op>]=` query params into a Prisma `where`. The operator space is a fixed whitelist keyed off the field's Prisma type (`allowedOpsFor`) — the URL's operator string is only ever used as a lookup key into that table, never passed through to a Prisma clause key directly. `buildWhere` always composes scope + filters via `AND` (array), **never object spread** — spreading would let a URL-supplied filter on the same field silently overwrite a developer's `listWhere` scope.
 - **`query/filterDetection.ts`**: resolves the list-view sidebar. Auto-detection is deliberately narrow (Boolean + enum only, because their value domain is known statically from the schema with zero extra query); DateTime/numeric-range/FK filters require explicit `models[].listFilter` config, validated at boot.
 - **`data.ts`**: thin Prisma CRUD wrappers plus the FormData → Prisma payload conversion and the model-name-to-Prisma-client-key convention (`toPrismaModel`: `User` → `prisma.user`).
 - **`views/*.svelte` + `views/html.ts`**: server-rendered UI. `html.ts` has `escapeHtml`/`toLabel` helpers used wherever raw strings get interpolated outside a Svelte template's auto-escaping.
 - **`auth.ts`**: `defaultAdminCheck` is an optional convenience helper (checks `role`/`isAdmin`/`roles` on a user object) — most consumers pass their own `authCheck` closure instead.
 - **`audit.ts`**: builds and emits the optional `audit` callback payload after successful writes. Redaction reuses `isSensitiveFieldName` plus `models[].hidden`; diffs and best-effort `emitAudit` live here so `handler.ts` only wires the three write sites.
+- **`plugin.ts` / `pluginRegistry.ts` / `pluginAccess.ts`**: public `AdminPlugin` contract, boot validation (no builtin overlay, no duplicate patterns), scoped reads for plugin pages. Not a public runtime export.
 
 ## Security invariants worth knowing before touching handler.ts or query/*
 
@@ -78,6 +80,8 @@ These aren't incidental — they're fixes for specific IDOR/oracle classes found
 - A `listWhere`/`where` scope function that returns `{}` throws rather than being treated as "no scope" — an empty object composed into `AND` matches every row, i.e. silently fails *open* exactly when the caller (e.g. a `locals.userId` that turned out to be `undefined`) most needed protection.
 - FK/m2m values submitted via POST are re-validated server-side (existence + the same scoping `where` used to build the dropdown) even though the rendered `<select>` already restricts them — a forged POST must not bypass scoping just because the UI wouldn't have offered that value.
 - An FK filter's active-value "chip" resolves its label through the same scoped query as its options list; an out-of-scope id renders as a raw id, never a label — otherwise the chip becomes an oracle for guessing another tenant's record names.
+- Plugin page context has no `adapter`. Record payloads from `loadRecord` / `listRecords` / the preloaded `record` are redacted with `redactForAudit` (`hidden` + `isSensitiveFieldName`). Out-of-`listWhere` `:id` is 404 before `render`. This does not scope builtin edit/delete.
+- Non-GET requests to a plugin view are 405; `handleMutation` stays on builtin list/create/edit only.
 
 ## Notes on source comments
 

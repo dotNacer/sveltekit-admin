@@ -53,7 +53,8 @@ export const contentSections: ContentSectionConfig[] = [
 					{ slug: 'model-configuration', name: 'Model Configuration' },
 					{ slug: 'field-types', name: 'Field Types' },
 					{ slug: 'authentication', name: 'Authentication' },
-					{ slug: 'audit-log', name: 'Audit log' }
+					{ slug: 'audit-log', name: 'Audit log' },
+					{ slug: 'plugins', name: 'Plugins' }
 				]
 			},
 			{

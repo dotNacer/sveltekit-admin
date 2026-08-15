@@ -56,3 +56,11 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     adapter: buildPrismaAdapter(config)
   });
 }
+
+export type {
+  AdminPlugin,
+  AdminPluginPage,
+  AdminPluginRecordAction,
+  PluginPageContext,
+  PluginPageResult
+} from '../../plugin.js';

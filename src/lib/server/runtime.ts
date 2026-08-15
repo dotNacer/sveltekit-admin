@@ -16,6 +16,31 @@ export function scopeFrom(
   return relConfig?.where ? normalizeScope(relConfig.where(ctx)) : undefined;
 }
 
+export function listScopeFrom(
+  runtime: AdminRuntime,
+  model: Model,
+  ctx: { locals?: any }
+): Record<string, unknown> | undefined {
+  const listScope = runtime.config.models?.[model.name]?.listWhere?.(ctx);
+  // A scope function returning `{}` (falsy-looking but truthy as
+  // an object) would otherwise silently fail OPEN — `{}` composed
+  // into an AND matches every row, exactly the opposite of what a
+  // caller configuring listWhere expects (real gap found in
+  // review: `locals.userId` undefined after a session expires is
+  // a realistic way to hit this). Fail loud instead: a scope
+  // function is either omitted entirely, or must return at least
+  // one condition every time it runs.
+  if (listScope && Object.keys(listScope).length === 0) {
+    throw new Error(
+      `[sveltekit-admin] models.${model.name}.listWhere returned an empty object ({}), ` +
+        `which would silently disable list scoping (fail-open). Return undefined/omit the ` +
+        `scope entirely if there is genuinely nothing to scope by for this request, or a ` +
+        `condition that actually restricts rows otherwise.`
+    );
+  }
+  return listScope;
+}
+
 export interface AdminRuntime {
   adapter: { introspector: SchemaIntrospector; data: DataAdapter };
   schema: Schema | null;
