@@ -61,6 +61,18 @@ async function html(res: Response) {
     .replace(/(<style>\s*:root\s*\{[^}]*\})[\s\S]*?(<\/style>)/, '$1/* stripped: static CSS, see note */$2');
 }
 
+// `extraStyles`/`extraScripts` (Layout) and `recordActions` (Form, List) are empty
+// slots in every snapshot below (the handler always passes '' / [] here). Svelte 5's
+// SSR unconditionally wraps every {@html}/{#if}/{#each} node in a hydration-boundary
+// comment (`<!--hash-->...<!---->` / `<!--[--><!--]-->`), even when the value is ''
+// or [] — this is baked into svelte/internal/server's block helpers, not something a
+// prop value can suppress (see task-6-report.md, fix-round-1 notes, for the primary-
+// source proof). So these snapshots DO contain a few such comments around the plugin
+// slots with nothing rendered between them. That is expected and accepted. What would
+// NOT be expected/accepted here: an actual `<style>`/`<script>` tag from a plugin, an
+// `<a>` from `recordActions`, or a `ska-record-actions` wrapper `<div>` — any of those
+// appearing in a future diff means a slot stopped being empty and needs the actual
+// plugin-input fixtures added to this suite, not a blind snapshot update.
 describe('caractérisation du handler', () => {
   afterEach(() => vi.restoreAllMocks());
 
