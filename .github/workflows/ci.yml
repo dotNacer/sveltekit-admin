@@ -19,19 +19,17 @@ jobs:
         node: [20, 22]
     steps:
       - uses: actions/checkout@v4
-      # This repo is managed with bun (bun.lock, no package-lock.json), so `npm ci`
-      # would fail for want of an npm lockfile. setup-node is still useful to fix the
-      # Node version that bun runs the scripts under.
+      # Pinned on purpose: an unpinned setup-pnpm floats to whatever pnpm release is
+      # current, so CI behaviour could change without a commit. 10.25.0 is the version
+      # this branch was developed and verified against.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      # Pinned on purpose: an unpinned setup-bun floats to whatever bun release is
-      # current, so CI behaviour could change without a commit. 1.3.3 is the version
-      # this branch was developed and verified against.
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.3
-      - run: bun install --frozen-lockfile
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       # The Prisma client used by tests/integration/handler.db.test.ts is generated
       # into tests/fixtures/prisma/client/, which is gitignored. `check` type-checks
       # that import, so the client must exist before `check` runs — otherwise
@@ -39,14 +37,14 @@ jobs:
       # Generating it explicitly here keeps every step below independent of any other
       # step's side effects (`check` and the test scripts each run `svelte-kit sync`
       # themselves, and the test scripts re-run `test:gen` idempotently).
-      - run: bun run test:gen
-      - run: bun run check
+      - run: pnpm run test:gen
+      - run: pnpm run check
       # `no-explicit-any` is a warning on purpose (see eslint.config.js), so this step
       # fails only on errors. The script runs `svelte-kit sync` itself: the type-aware
       # rule needs tsconfig.json's generated base config.
-      - run: bun run lint
-      - run: bun run test:coverage
-      - run: bun run package
+      - run: pnpm run lint
+      - run: pnpm run test:coverage
+      - run: pnpm run package
 
   changeset-check:
     # Only meaningful on PRs: a push to main is often the merge of a
@@ -58,10 +56,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: oven-sh/setup-bun@v2
+      - uses: pnpm/action-setup@v4
         with:
-          bun-version: 1.3.3
-      - run: bun install --frozen-lockfile
+          version: 10.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       # Fails if src/ (or any published file) changed since main without a
       # matching .changeset/*.md — catches changes that landed without one,
       # regardless of who wrote them. The extra echo on failure is aimed at
@@ -69,7 +71,7 @@ jobs:
       # about .claude/skills/writing-changesets/SKILL.md, so the failure
       # itself points there instead of relying on the agent stumbling onto it.
       - run: |
-          bunx changeset status --since=origin/main || {
+          pnpm exec changeset status --since=origin/main || {
             echo "::error::No changeset found for this change. If you are an AI agent: read .claude/skills/writing-changesets/SKILL.md in this repo before adding one — it explains how to pick the bump type (patch/minor/major) and write the entry. Then add a .changeset/*.md file and push it to this branch."
             exit 1
           }

@@ -38,5 +38,5 @@ example/prisma/*.db-journal
 # Lock files (keep one)
 package-lock.json
 yarn.lock
-pnpm-lock.yaml
+bun.lock
 .worktrees/

@@ -3,6 +3,16 @@
   "version": "0.6.0",
   "description": "Django-like admin panel for SvelteKit + Prisma",
   "type": "module",
+  "packageManager": "pnpm@10.25.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "better-sqlite3",
+      "esbuild",
+      "prisma"
+    ]
+  },
   "svelte": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -24,21 +34,21 @@
   ],
   "scripts": {
     "dev": "vite dev",
-    "build": "npm run package",
-    "package": "svelte-kit sync && svelte-package -o dist && echo 'Package size:' && bun pm pack --dry-run 2>&1 | grep -E 'Total files|Unpacked size'",
-    "prepublishOnly": "npm run package",
-    "size": "bun run package && node scripts/package-size.mjs",
+    "build": "pnpm run package",
+    "package": "svelte-kit sync && svelte-package -o dist",
+    "prepublishOnly": "pnpm run package",
+    "size": "pnpm run package && node scripts/package-size.mjs",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "test:gen": "prisma generate --schema tests/fixtures/prisma/schema.prisma",
-    "test": "svelte-kit sync && npm run test:gen && vitest run",
-    "test:watch": "svelte-kit sync && npm run test:gen && vitest",
-    "test:coverage": "svelte-kit sync && npm run test:gen && vitest run --coverage",
+    "test": "svelte-kit sync && pnpm run test:gen && vitest run",
+    "test:watch": "svelte-kit sync && pnpm run test:gen && vitest",
+    "test:coverage": "svelte-kit sync && pnpm run test:gen && vitest run --coverage",
     "lint": "svelte-kit sync && eslint .",
     "format": "prettier --write .",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "npm run package && changeset publish"
+    "release": "pnpm run package && changeset publish"
   },
   "peerDependencies": {
     "@prisma/client": ">=5.0.0",

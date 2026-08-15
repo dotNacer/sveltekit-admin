@@ -3,11 +3,17 @@
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
+	"packageManager": "pnpm@10.25.0",
+	"pnpm": {
+		"onlyBuiltDependencies": [
+			"esbuild"
+		]
+	},
 	"scripts": {
 		"docs:changelog": "node scripts/generate-changelog-docs.mjs",
-		"predev": "bun run docs:changelog",
+		"predev": "pnpm run docs:changelog",
 		"dev": "vite dev",
-		"prebuild": "bun run docs:changelog",
+		"prebuild": "pnpm run docs:changelog",
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",

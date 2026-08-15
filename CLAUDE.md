@@ -6,45 +6,45 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `sveltekit-admin` is a Django-like admin panel for SvelteKit + Prisma, published as an npm package. It ships **zero routes**: `createAdminHandler({ prisma })` returns a SvelteKit `handle` hook (`src/hooks.server.ts`) that intercepts every request under `basePath` (default `/admin`) and renders HTML on the fly — no `+page.svelte` files are generated or required in the consuming app. The published entry point is `src/lib/index.ts`; everything under `src/lib/server/` is the implementation.
 
-`src/routes/+page.svelte` and the rest of `src/routes/` are only a throwaway dev harness for `bun run dev` — not part of the published package (see `package.json`'s `files` field: only `dist` ships).
+`src/routes/+page.svelte` and the rest of `src/routes/` are only a throwaway dev harness for `pnpm run dev` — not part of the published package (see `package.json`'s `files` field: only `dist` ships).
 
-`example/` is a separate, standalone SvelteKit app (its own `package.json`, own `bun.lock`) that consumes the library via `link:..` — useful for manually exercising a real Prisma + better-auth setup, not part of the test suite.
+`example/` is a separate, standalone SvelteKit app (its own `package.json`, own `pnpm-lock.yaml`) that consumes the library via `link:..` — useful for manually exercising a real Prisma + better-auth setup, not part of the test suite.
 
 `docs/` is a second, fully independent SvelteKit project (a documentation website with its own `.svelte-kit`, routes, content) — not the library, don't confuse the two when navigating.
 
 ## Commands
 
-Package manager is **bun** (`bun.lock` committed, no `package-lock.json` — CI installs with `bun install --frozen-lockfile`, not `npm ci`).
+Package manager is **pnpm** (`pnpm-lock.yaml` committed, no `package-lock.json` — CI installs with `pnpm install --frozen-lockfile`, not `npm ci`).
 
 ```bash
-bun run dev              # dev harness (src/routes) against the demo Prisma setup
-bun run test:gen         # generate the Prisma client used by tests, into tests/fixtures/prisma/client/ (gitignored)
-bun run test             # svelte-kit sync + test:gen + vitest run — the full suite once
-bun run test:watch       # same, watch mode
-bun run test:coverage    # same + v8 coverage report (text/html/lcov)
-bun run check            # svelte-kit sync + svelte-check (type checking)
-bun run lint             # svelte-kit sync + eslint .
-bun run format           # prettier --write .
-bun run package          # svelte-kit sync + svelte-package -o dist (what actually gets published)
-bun run size             # package + reports unpacked size (scripts/package-size.mjs)
+pnpm run dev              # dev harness (src/routes) against the demo Prisma setup
+pnpm run test:gen         # generate the Prisma client used by tests, into tests/fixtures/prisma/client/ (gitignored)
+pnpm run test             # svelte-kit sync + test:gen + vitest run — the full suite once
+pnpm run test:watch       # same, watch mode
+pnpm run test:coverage    # same + v8 coverage report (text/html/lcov)
+pnpm run check            # svelte-kit sync + svelte-check (type checking)
+pnpm run lint             # svelte-kit sync + eslint .
+pnpm run format           # prettier --write .
+pnpm run package          # svelte-kit sync + svelte-package -o dist (what actually gets published)
+pnpm run size             # package + reports unpacked size (scripts/package-size.mjs)
 ```
 
-Run a single test file or test case with vitest directly (after `bun run test:gen` has been run at least once):
+Run a single test file or test case with vitest directly (after `pnpm run test:gen` has been run at least once):
 
 ```bash
-bunx vitest run tests/unit/listQuery.test.ts
-bunx vitest run -t "some test name"
+pnpm exec vitest run tests/unit/listQuery.test.ts
+pnpm exec vitest run -t "some test name"
 ```
 
 `vitest.config.ts` enforces **100% coverage** (lines/statements/functions/branches) on `src/lib/**`. There is no `exclude` escape hatch and no `/* v8 ignore */` convention in this codebase — every branch you add needs a real test, not a suppression. Don't introduce defensive code paths that can't be exercised (see the "no code for hypothetical inputs" style already in the source — e.g. `data.ts`'s comment on why `listRecords` doesn't reuse `paginate`, or `filterDetection.ts`'s comment on why an unreachable `default` case is left uncovered-but-necessary only when TypeScript requires it).
 
 `tests/integration/setup.ts` (Vitest `globalSetup`) spins up a throwaway SQLite DB via `prisma db push` for `tests/integration/handler.db.test.ts`; unit tests instead use the mock in `tests/fixtures/prismaMock.ts`.
 
-CI (`.github/workflows/ci.yml`) also runs a `changeset-check` job on PRs (`bunx changeset status --since=origin/main`) that fails if publishable source changed without an added `.changeset/*.md`.
+CI (`.github/workflows/ci.yml`) also runs a `changeset-check` job on PRs (`pnpm exec changeset status --since=origin/main`) that fails if publishable source changed without an added `.changeset/*.md`.
 
 ## Versioning & releases
 
-Semantic Versioning, enforced via [Changesets](https://github.com/changesets/changesets) — see `CONTRIBUTING.md` for the exact MAJOR/MINOR/PATCH rules. Any PR that changes published behavior needs `bunx changeset` (or the `writing-changesets` skill) before merge; pure test/CI/tooling PRs don't. Releases are fully automated: merging to `main` runs `.github/workflows/release.yml`, which opens/updates a "Version Packages" PR via `changesets/action`; merging *that* PR bumps `package.json`, regenerates `CHANGELOG.md`, tags, and publishes to npm. Nothing is versioned or published by hand.
+Semantic Versioning, enforced via [Changesets](https://github.com/changesets/changesets) — see `CONTRIBUTING.md` for the exact MAJOR/MINOR/PATCH rules. Any PR that changes published behavior needs `pnpm exec changeset` (or the `writing-changesets` skill) before merge; pure test/CI/tooling PRs don't. Releases are fully automated: merging to `main` runs `.github/workflows/release.yml`, which opens/updates a "Version Packages" PR via `changesets/action`; merging *that* PR bumps `package.json`, regenerates `CHANGELOG.md`, tags, and publishes to npm. Nothing is versioned or published by hand.
 
 ## Request flow (the core mental model)
 

@@ -1,9 +1,18 @@
 ---
 title: Changelog
-description: All notable changes to this project are documented here.
+description: Release notes for sveltekit-admin, generated from the repository changelog.
 ---
 
 > This page is auto-generated from `CHANGELOG.md` in the repository root.
+
+## 0.6.0
+
+### Minor Changes
+
+- de9ed24: Extract a generic `SchemaIntrospector`/`DataAdapter` abstraction behind Prisma, exposed as `createPrismaAdapter`. `createAdminHandler({ prisma, prismaSchemaPath })` keeps working exactly as before; `createAdminHandler({ adapter })` is now also available for anyone building a custom or future non-Prisma adapter.
+- c0008d1: Add a **Drizzle** adapter, imported from `sveltekit-admin/adapters/drizzle` as `createDrizzleAdapter({ db, schema })`, with list/form/dashboard, relations, m2m, filters, and flat `listWhere` parity. `createAdminHandler({ prisma })` is unchanged; `@prisma/client` and `drizzle-orm` are optional peer dependencies so a Drizzle-only app no longer needs Prisma, and a Prisma-only app never has to install `drizzle-orm`.
+
+All notable changes to this project are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
@@ -11,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [0.5.3] - 2026-08-13
 
 ### Changed
+
 - Parallelized independent Prisma queries that were previously awaited
   sequentially in a loop: relation options on create/edit forms
   (`loadRelationOptions`), inverse-relation counts on the "Related" block
@@ -20,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   relation/filter on a single request.
 
 ### Fixed
+
 - `scripts/package-size.mjs` (dev tooling, not published) failed to parse
   `bun pm pack --dry-run` output because `bun` emits ANSI color codes even
   when not attached to a TTY — every release since this script was added
@@ -29,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [0.5.2] - 2026-08-13
 
 ### Changed
+
 - Redesigned the list-view filter sidebar: options render as compact,
   wrapping pill buttons instead of a vertical list of links, cutting the
   filter card's height dramatically on models with several facets or
@@ -39,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [0.5.1] - 2026-08-13
 
 ### Changed
+
 - Widened the default free-text search heuristic: `description`, `content`,
   `body`, and `text` are now recognized alongside `name`, `title`, `label`,
   `email`, `username`, `slug` when auto-detecting searchable String fields
@@ -48,6 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [0.5.0] - 2026-08-12
 
 ### Added
+
 - **Free-text search and query pipeline for list views**:
   - `?q=` search box on list views, matching `searchFields` configured
     per model (or auto-detected String fields when unspecified)
@@ -79,13 +93,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - New `logoutRedirectTo` config option (default: `'/'`).
   - The button submits a `POST {basePath}/_logout` form, never a bare link:
     logging out must never be triggerable by a GET (a crawler, a link
-    prefetch). This route is checked *before* `authCheck`, so a user whose
+    prefetch). This route is checked _before_ `authCheck`, so a user whose
     session already expired can still use it to clean up client-side state
     instead of being stuck behind a 401 with no way back.
 
 ## [0.4.0] - 2026-08-09
 
 ### Added
+
 - **Editable relations in forms**, Django-admin style:
   - Foreign keys (`to-one`) rendered as a `<select>` with readable labels
     instead of a raw ID field; automatic fallback to a text input beyond a
@@ -108,11 +123,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   modifying a relation to point at an unauthorized record (IDOR)
 
 ### Changed
+
 - The Prisma schema parser now correctly recognizes explicitly named
   relations and inverse relations, including when several relations exist
   between the same two models (avoids silent mismatches)
 
 ### Fixed
+
 - A Prisma schema with multiple FKs on the same model (e.g. `author` and
   `reviewer` both pointing at `User`) could previously produce an incorrect
   relation match
@@ -120,15 +137,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [0.3.0] - 2026-08-06
 
 ### Added
+
 - Automatic detection and hiding of pivot tables (implicit many-to-many)
   from the list of administrable models
 - Migration of internal views to Svelte components
 - Test suite with 100% coverage and continuous integration
 
 ### Changed
+
 - Unified API around `createAdminHandler` (single SvelteKit hook)
 
 ### Fixed
+
 - Systematic escaping of values coming from the URL and the database in
   the rendered HTML (potential XSS vulnerability)
 - ID coercion now consults the primary key's actual type (a fully numeric
@@ -142,6 +162,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   rendering black
 
 ### Removed
+
 - **Breaking**: removed the old loader-based API (`createAdmin`,
   `createLayoutLoad`, `createModelListLoad`, etc.) — use
   `createAdminHandler`
@@ -155,15 +176,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [0.2.1] - 2026-08-05
 
 ### Fixed
+
 - Minor fixes to the standalone handler introduced in 0.2.0
 
 ## [0.2.0] - 2026-08-05
 
 ### Added
+
 - Standalone admin handler: no more manual route creation, everything goes
   through a single hook
 
 ## [0.1.0] - 2026-08-05
 
 ### Added
+
 - First public release of `sveltekit-admin`

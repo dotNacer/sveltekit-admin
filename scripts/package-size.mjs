@@ -1,15 +1,6 @@
 #!/usr/bin/env node
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { statSync, unlinkSync } from 'node:fs';
-
-const UNIT_BYTES = { B: 1, KB: 1024, MB: 1024 * 1024 };
-
-function parsePackedLine(line) {
-  const match = line.match(/^packed\s+([\d.]+)(B|KB|MB)\s+(.+)$/);
-  if (!match) return null;
-  const [, size, unit, path] = match;
-  return { path, bytes: parseFloat(size) * UNIT_BYTES[unit] };
-}
 
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes.toFixed(0)}B`;
@@ -23,33 +14,15 @@ function categorize(path) {
   return 'Other (metadata)';
 }
 
-// `execSync` isn't a TTY, but bun still emits ANSI color codes regardless —
-// strip them before line-matching or `parsePackedLine` never matches. Built
-// from `fromCharCode` rather than a `\x1b` literal so the regex doesn't trip
-// `no-control-regex`.
-const ESC = String.fromCharCode(27);
-const stripAnsi = (s) => s.replace(new RegExp(`${ESC}\\[[0-9;]*m`, 'g'), '');
+const { filename, files: entries } = JSON.parse(
+  execFileSync('pnpm', ['pack', '--json'], { encoding: 'utf-8' })
+);
 
-const output = stripAnsi(execSync('bun pm pack --dry-run', { encoding: 'utf-8' }));
-const files = output
-  .split('\n')
-  .map(parsePackedLine)
-  .filter(Boolean);
-
-if (files.length === 0) {
-  console.error('No packed files found — is `bun pm pack --dry-run` producing the expected output?');
-  process.exit(1);
-}
+const files = entries.map(({ path }) => ({ path, bytes: statSync(path).size }));
+const packedBytes = statSync(filename).size;
+unlinkSync(filename);
 
 const total = files.reduce((sum, f) => sum + f.bytes, 0);
-
-// `--dry-run` never writes a tarball, so it can't report the real gzip size a
-// consumer actually downloads via `npm install`. Pack for real (in the project
-// root — `--destination` hangs indefinitely on this bun version), measure it,
-// then delete it immediately: this script never leaves a .tgz behind.
-const packedFilename = execSync('bun pm pack --quiet', { encoding: 'utf-8' }).trim();
-const packedBytes = statSync(packedFilename).size;
-unlinkSync(packedFilename);
 
 const buckets = new Map();
 for (const file of files) {
