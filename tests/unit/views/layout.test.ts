@@ -98,3 +98,44 @@ describe('Layout.svelte — bouton de déconnexion', () => {
     expect(html).toContain('action="/back/_logout"');
   });
 });
+
+describe('Layout.svelte — extraStyles / extraScripts', () => {
+  it('n’injecte aucun <script> par défaut', () => {
+    const html = renderLayout('X', { prisma: {} });
+    expect(html).not.toContain('<script>');
+  });
+
+  it('n’injecte pas un <style> plugin vide en plus du thème', () => {
+    const html = renderLayout('X', { prisma: {} });
+    const pluginStyle = html.match(/<style>\s*<\/style>/g);
+    expect(pluginStyle).toBeNull();
+    expect(html).not.toContain('.ska-plugin-x');
+  });
+
+  it('injecte extraStyles dans le head', () => {
+    const html = render(Layout, {
+      props: {
+        content: 'X',
+        config: { prisma: {} },
+        modelList: models,
+        extraStyles: '.ska-plugin-x{color:red}'
+      }
+    }).body;
+    expect(html).toContain('.ska-plugin-x{color:red}');
+    const head = html.slice(0, html.indexOf('</head>'));
+    expect(head).toContain('.ska-plugin-x{color:red}');
+  });
+
+  it('injecte extraScripts en fin de body', () => {
+    const html = render(Layout, {
+      props: {
+        content: 'X',
+        config: { prisma: {} },
+        modelList: models,
+        extraScripts: 'window.__ska=1'
+      }
+    }).body;
+    expect(html).toContain('<script>window.__ska=1</script>');
+    expect(html.lastIndexOf('<script>')).toBeGreaterThan(html.indexOf('</main>'));
+  });
+});

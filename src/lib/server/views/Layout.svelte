@@ -6,12 +6,16 @@
     content,
     config,
     modelList,
-    currentModel
+    currentModel,
+    extraStyles = '',
+    extraScripts = ''
   }: {
     content: string;
     config: AdminHandlerConfig;
     modelList: Array<{ name: string; label: string }>;
     currentModel?: string;
+    extraStyles?: string;
+    extraScripts?: string;
   } = $props();
 
   const branding = $derived(config.branding ?? {});
@@ -32,6 +36,10 @@
   <title>{title}</title>
   <!-- eslint-disable-next-line svelte/no-at-html-tags -- CSS injected as raw text; a literal <style> block can't take a dynamic value; primaryColor is developer-supplied config, not request/database data, and this raw interpolation is unchanged from the original layout.ts implementation, not a new injection point introduced by this migration -->
   {@html `<style>${styles(primaryColor)}</style>`}
+  {#if extraStyles}
+    <!-- eslint-disable-next-line svelte/no-at-html-tags -- plugin CSS is developer-supplied, same trust as branding.primaryColor -->
+    {@html `<style>${extraStyles}</style>`}
+  {/if}
 </head>
 <!-- eslint-disable-next-line svelte/no-raw-special-elements -- server-only full-document template, never mounted client-side -->
 <body>
@@ -74,5 +82,9 @@
       {@html content}
     </main>
   </div>
+  {#if extraScripts}
+    <!-- eslint-disable-next-line svelte/no-at-html-tags -- plugin JS is developer-supplied, same trust as branding.primaryColor -->
+    {@html `<script>${extraScripts}</script>`}
+  {/if}
 </body>
 </html>
