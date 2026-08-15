@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0
+
+### Minor Changes
+
+- a5d9ab8: Re-export `createAdminHandler` and `defaultAdminCheck` from `sveltekit-admin/adapters/drizzle`, so a Drizzle-only app can import the handler and `createDrizzleAdapter` from one subpath without evaluating the Prisma adapter modules. `createAdminHandler({ prisma })` from `sveltekit-admin` is unchanged; importing the handler from the root entry plus the Drizzle adapter from the subpath still works, but that path keeps loading the Prisma adapter JavaScript.
+- b7e5630: Add a **`plugins`** option on `createAdminHandler` and export the `AdminPlugin` types (new pages inside the existing layout, record-row / edit-screen links, inline CSS/JS). Plugin reads go through scoped helpers (`listWhere` plus `hidden` / sensitive-field redaction), not the ORM client. Omitting `plugins` leaves `createAdminHandler({ prisma })` unchanged.
+- 3cfc154: Add an optional **`audit`** callback on `createAdminHandler`. After a successful create, update, or delete it receives a redacted `AuditEvent` (`action`, `model`, `id`, `values` / `before` / `after` / `changes`, plus the SvelteKit `event` so the actor can be read from `locals`). Sensitive and `hidden` fields are stripped. If the callback throws, the mutation still redirects (the error is logged). No callback means no behavior change.
+
+### Patch Changes
+
+- 07a390e: Extract an internal `AdminRuntime` and a pattern-based route table from `createAdminHandler`, and add empty Layout/Form/List slots for a future plugin API. `createAdminHandler({ prisma })` and `{ adapter }` are unchanged; no new exports or config fields.
+
 ## 0.6.0
 
 ### Minor Changes
