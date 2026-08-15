@@ -116,7 +116,7 @@ describe('Layout.svelte — extraStyles / extraScripts', () => {
     const html = render(Layout, {
       props: {
         content: 'X',
-        config: { prisma: {} },
+        config: { prisma: {} } as any,
         modelList: models,
         extraStyles: '.ska-plugin-x{color:red}'
       }
@@ -130,7 +130,7 @@ describe('Layout.svelte — extraStyles / extraScripts', () => {
     const html = render(Layout, {
       props: {
         content: 'X',
-        config: { prisma: {} },
+        config: { prisma: {} } as any,
         modelList: models,
         extraScripts: 'window.__ska=1'
       }

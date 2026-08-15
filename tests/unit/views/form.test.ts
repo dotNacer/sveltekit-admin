@@ -228,7 +228,7 @@ describe('Form.svelte — recordActions', () => {
         mode: 'edit',
         model: viewModel,
         basePath: '/admin',
-        config: { prisma: {} },
+        config: { prisma: {} } as any,
         item,
         recordActions: actions
       }
@@ -245,13 +245,30 @@ describe('Form.svelte — recordActions', () => {
     expect(actionHref).toBeLessThan(formStart);
   });
 
+  it('échappe un href malveillant contenant des guillemets/chevrons', () => {
+    const html = render(Form, {
+      props: {
+        mode: 'edit',
+        model: viewModel,
+        basePath: '/admin',
+        config: { prisma: {} } as any,
+        item,
+        recordActions: [
+          { label: 'Graph', href: '/admin/user/1/graph" onclick="alert(1)' }
+        ]
+      }
+    }).body;
+    expect(html).toContain('href="/admin/user/1/graph&quot; onclick=&quot;alert(1)"');
+    expect(html).not.toContain('href="/admin/user/1/graph" onclick="alert(1)"');
+  });
+
   it('en create, ignore recordActions même non vide', () => {
     const html = render(Form, {
       props: {
         mode: 'create',
         model: viewModel,
         basePath: '/admin',
-        config: { prisma: {} },
+        config: { prisma: {} } as any,
         recordActions: actions
       }
     }).body;

@@ -139,14 +139,13 @@
   // reusing it would either reorder Edit/recordActions or move the marker in front of
   // Edit for every row, not just when recordActions is non-empty. Neither is
   // byte-identical to the pre-recordActions baseline (see task-6-report.md fix-round-1
-  // notes). `action.label` is escaped manually since this goes through @html instead
-  // of Svelte's auto-escaped text; `hrefFor`'s return value is a developer-supplied
-  // URL (same trust as the row's own Edit/Delete links).
+  // notes). `action.label` and `hrefFor`'s return value are both escaped manually
+  // since this goes through @html instead of Svelte's auto-escaped text/attributes.
   const recordActionsHtml = (id: string | number) =>
     recordActions
       .map(
         (action) =>
-          `<a href="${action.hrefFor(id)}" class="ska-btn ska-btn--secondary ska-btn--sm">${escapeHtml(action.label)}</a>`
+          `<a href="${escapeHtml(action.hrefFor(id))}" class="ska-btn ska-btn--secondary ska-btn--sm">${escapeHtml(action.label)}</a>`
       )
       .join('');
 
@@ -241,7 +240,7 @@
               <!-- eslint-disable-next-line svelte/no-at-html-tags -- formatValue already escapes string values itself and returns a literal <span> only for null/undefined -->
               {#each displayFields as f (f.name)}<td>{@html formatValue(item[f.name], f.type)}</td>{/each}
               <td class="ska-table__actions">
-                <!-- eslint-disable-next-line svelte/no-at-html-tags -- recordActionsHtml escapes action.label itself; hrefFor's return value is developer-supplied, same trust as the Edit link below -->
+                <!-- eslint-disable-next-line svelte/no-at-html-tags -- recordActionsHtml escapes both action.label and hrefFor's return value via escapeHtml -->
                 {@html recordActionsHtml(item[model.primaryKey])}
                 <a href="{listPath}/{item[model.primaryKey]}" class="ska-btn ska-btn--secondary ska-btn--sm">Edit</a>
                 <!-- eslint-disable-next-line svelte/no-at-html-tags -- Svelte 5 rejects a literal onsubmit string as an event attribute; the PK is escaped manually here since it can't go through Svelte's native attribute escaping; the whole form (not just onsubmit) is rendered as raw HTML because there's no native-Svelte way to attach a plain inline onsubmit="..." string attribute at all in Svelte 5 templates, so the whole element had to be raw text to preserve the exact prior confirm-dialog behavior in a page that's never hydrated by a Svelte runtime -->

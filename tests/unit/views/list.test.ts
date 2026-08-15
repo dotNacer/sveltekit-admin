@@ -353,6 +353,23 @@ describe('List.svelte — recordActions', () => {
     expect(graphAt).toBeLessThan(editAt);
   });
 
+  it('échappe un hrefFor malveillant contenant des guillemets/chevrons', () => {
+    const html = render(List, {
+      props: {
+        model: viewModel,
+        items,
+        pagination,
+        basePath: '/admin',
+        config: empty,
+        recordActions: [
+          { label: 'Graph', hrefFor: (id) => `/admin/user/${id}/graph" onclick="alert(1)` }
+        ]
+      }
+    }).body;
+    expect(html).toContain('href="/admin/user/1/graph&quot; onclick=&quot;alert(1)"');
+    expect(html).not.toContain('href="/admin/user/1/graph" onclick="alert(1)"');
+  });
+
   it('ne change pas le colspan de la row vide', () => {
     const html = renderList(viewModel, [], { page: 1, perPage: 20, total: 0 }, '/admin', empty);
     expect(html).toMatch(/colspan="7"/);

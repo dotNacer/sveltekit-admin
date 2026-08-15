@@ -84,15 +84,15 @@
   // render stays a single @html call: Svelte 5's SSR wraps every {#if}/{#each} node
   // in its own hydration-boundary comment regardless of the branch/array taken, so
   // nesting recordActions in its own control-flow blocks would add bytes to every
-  // edit-form render even when recordActions is []. `label` is escaped manually
-  // since it now goes through @html instead of Svelte's auto-escaped text; `href`
-  // is a developer-supplied URL (same trust as `hrefFor` results elsewhere).
+  // edit-form render even when recordActions is []. `label` and `href` are both
+  // escaped manually since this goes through @html instead of Svelte's
+  // auto-escaped text/attributes.
   const recordActionsHtml = $derived(
     mode === 'edit' && recordActions.length > 0
       ? `<div class="ska-record-actions">${recordActions
           .map(
             (action) =>
-              `<a href="${action.href}" class="ska-btn ska-btn--secondary ska-btn--sm">${escapeHtml(action.label)}</a>`
+              `<a href="${escapeHtml(action.href)}" class="ska-btn ska-btn--secondary ska-btn--sm">${escapeHtml(action.label)}</a>`
           )
           .join('')}</div>`
       : ''
@@ -113,7 +113,7 @@
   <p class="ska-subtitle">ID: {item[model.primaryKey]}</p>
 {/if}
 
-<!-- eslint-disable-next-line svelte/no-at-html-tags -- recordActionsHtml escapes action.label itself; href is developer-supplied, same trust as other admin-panel URLs -->
+<!-- eslint-disable-next-line svelte/no-at-html-tags -- recordActionsHtml escapes both action.label and action.href via escapeHtml -->
 {@html recordActionsHtml}
 
 <div class="ska-card">
