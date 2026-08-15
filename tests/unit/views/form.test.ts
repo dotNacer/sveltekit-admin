@@ -235,7 +235,9 @@ describe('Form.svelte — recordActions', () => {
     }).body;
     expect(html).toContain('href="/admin/user/1/graph"');
     expect(html).toContain('ska-record-actions');
-    expect(html).toContain('&lt;img>');
+    // escapeHtml (unlike Svelte's default text-escaping) also escapes `>` — this now
+    // renders via {@html} + escapeHtml (see fix-round-1 notes), not Svelte text interpolation.
+    expect(html).toContain('&lt;img&gt;');
     expect(html).not.toContain('<img>');
     const formStart = html.indexOf('<form method="POST"');
     const actionHref = html.indexOf('href="/admin/user/1/graph"');

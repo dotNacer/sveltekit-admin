@@ -5,6 +5,7 @@
   import RelationSelect from './RelationSelect.svelte';
   import RelationCheckboxes from './RelationCheckboxes.svelte';
   import RelatedBlock from './RelatedBlock.svelte';
+  import { escapeHtml } from './html.js';
 
   let {
     mode,
@@ -79,6 +80,24 @@
       : []
   );
 
+  // Built as a single string (rather than {#if}/{#each}) so an empty/create-mode
+  // render stays a single @html call: Svelte 5's SSR wraps every {#if}/{#each} node
+  // in its own hydration-boundary comment regardless of the branch/array taken, so
+  // nesting recordActions in its own control-flow blocks would add bytes to every
+  // edit-form render even when recordActions is []. `label` is escaped manually
+  // since it now goes through @html instead of Svelte's auto-escaped text; `href`
+  // is a developer-supplied URL (same trust as `hrefFor` results elsewhere).
+  const recordActionsHtml = $derived(
+    mode === 'edit' && recordActions.length > 0
+      ? `<div class="ska-record-actions">${recordActions
+          .map(
+            (action) =>
+              `<a href="${action.href}" class="ska-btn ska-btn--secondary ska-btn--sm">${escapeHtml(action.label)}</a>`
+          )
+          .join('')}</div>`
+      : ''
+  );
+
   const inverseEdges = $derived(
     model.relationGraph
       ? [...model.relationGraph.edges.values()].filter(
@@ -94,13 +113,8 @@
   <p class="ska-subtitle">ID: {item[model.primaryKey]}</p>
 {/if}
 
-{#if mode === 'edit' && recordActions.length > 0}
-  <div class="ska-record-actions">
-    {#each recordActions as action (action.href)}
-      <a href={action.href} class="ska-btn ska-btn--secondary ska-btn--sm">{action.label}</a>
-    {/each}
-  </div>
-{/if}
+<!-- eslint-disable-next-line svelte/no-at-html-tags -- recordActionsHtml escapes action.label itself; href is developer-supplied, same trust as other admin-panel URLs -->
+{@html recordActionsHtml}
 
 <div class="ska-card">
   <form method="POST" class="ska-form">

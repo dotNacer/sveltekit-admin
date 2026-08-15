@@ -341,7 +341,9 @@ describe('List.svelte — recordActions', () => {
     }).body;
     expect(html).toContain('href="/admin/user/1/graph"');
     expect(html).toContain('href="/admin/user/2/graph"');
-    expect(html).toContain('&lt;img>');
+    // escapeHtml (unlike Svelte's default text-escaping) also escapes `>` — this now
+    // renders via {@html} + escapeHtml (see fix-round-1 notes), not Svelte text interpolation.
+    expect(html).toContain('&lt;img&gt;');
     expect(html).not.toContain('<img>');
     expect(html).not.toMatch(/<td class="ska-table__actions">[^<]*<img>/);
     const row1 = html.slice(html.indexOf('a@b.c'));
