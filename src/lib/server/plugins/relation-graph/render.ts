@@ -6,10 +6,11 @@ import type { GraphEdge } from './walk.js';
 export const PAN_ZOOM_SCRIPT =
   '(function(){var vp=document.querySelector(".ska-rg-viewport");var g=document.querySelector(".ska-rg-canvas");if(!vp||!g)return;var s=1,x=0,y=0,px=0,py=0,drag=false;function apply(){g.setAttribute("transform","translate("+x+" "+y+") scale("+s+")");}vp.addEventListener("pointerdown",function(e){drag=true;px=e.clientX;py=e.clientY;vp.setPointerCapture(e.pointerId);});vp.addEventListener("pointerup",function(){drag=false;});vp.addEventListener("pointermove",function(e){if(!drag)return;x+=e.clientX-px;y+=e.clientY-py;px=e.clientX;py=e.clientY;apply();});vp.addEventListener("wheel",function(e){e.preventDefault();var n=e.deltaY<0?s*1.1:s/1.1;if(n<0.4)n=0.4;if(n>3)n=3;s=n;apply();},{passive:false});})();';
 
-const STYLES = `.ska-rg{padding:1rem 1.5rem 2rem;flex:1}
+const STYLES = `.ska-rg{padding:1rem 1.5rem 2rem;display:flex;flex-direction:column;min-height:calc(100vh - 4rem)}
 .ska-rg__title{font-size:1.25rem;margin-bottom:0.5rem}
 .ska-rg__hint{color:#64748b;margin-bottom:0.75rem}
-.ska-rg-viewport{overflow:auto;border:1px solid #e2e8f0;border-radius:8px;background:#fff;min-height:320px;cursor:grab}
+.ska-rg-viewport{overflow:auto;border:1px solid #e2e8f0;border-radius:8px;background:#fff;min-height:320px;flex:1;cursor:grab}
+.ska-rg-svg{display:block;width:100%;height:auto}
 .ska-rg-node__label{font-size:12px;fill:#1e293b;max-width:160px}
 .ska-rg-node--root circle{fill:var(--ska-primary);stroke:var(--ska-primary)}
 .ska-rg-node--root .ska-rg-node__label{fill:#fff}
@@ -72,6 +73,6 @@ export function renderGraphPage(ctx: PluginPageContext, laidOut: LaidOutGraph) {
       : '';
   const edges = laidOut.edges.map((e) => edgeSvg(e, byKey, esc)).join('');
   const nodes = laidOut.nodes.map((n) => nodeSvg(n, esc)).join('');
-  const html = `<div class="ska-rg"><h1 class="ska-rg__title">${esc(root.model)} · ${esc(root.label)}</h1>${hint}<div class="ska-rg-viewport"><svg width="${laidOut.width}" height="${laidOut.height}" viewBox="${esc(laidOut.viewBox)}"><defs><marker id="ska-rg-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ska-primary)"></path></marker></defs><g class="ska-rg-canvas">${edges}${nodes}</g></svg></div></div>`;
+  const html = `<div class="ska-rg"><h1 class="ska-rg__title">${esc(root.model)} · ${esc(root.label)}</h1>${hint}<div class="ska-rg-viewport"><svg class="ska-rg-svg" width="100%" viewBox="${esc(laidOut.viewBox)}" preserveAspectRatio="xMinYMin meet"><defs><marker id="ska-rg-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ska-primary)"></path></marker></defs><g class="ska-rg-canvas">${edges}${nodes}</g></svg></div></div>`;
   return { html, styles: STYLES, scripts: PAN_ZOOM_SCRIPT };
 }

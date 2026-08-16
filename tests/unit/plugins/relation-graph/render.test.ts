@@ -45,6 +45,24 @@ describe('renderGraphPage', () => {
     expect(page.styles).toContain('.ska-rg');
   });
 
+  it('sizes the SVG to the viewport width, not the layout pixel box', () => {
+    const laid = layout({
+      nodes: [
+        node({ key: 'User:1', label: 'Ada', depth: 0 }),
+        node({ key: 'Post:p1', label: 'Hello', depth: 1 }),
+        node({ key: 'Tag:2', label: 'js', depth: 2 })
+      ],
+      edges: []
+    });
+    const page = renderGraphPage(ctx() as PluginPageContext, laid);
+    expect(page.html).toContain(`viewBox="${laid.viewBox}"`);
+    expect(page.html).toMatch(/<svg[^>]*class="ska-rg-svg"/);
+    expect(page.html).toMatch(/<svg[^>]*width="100%"/);
+    expect(page.html).not.toMatch(new RegExp(`<svg[^>]*width="${laid.width}"`));
+    expect(page.html).not.toMatch(new RegExp(`<svg[^>]*height="${laid.height}"`));
+    expect(page.styles).toContain('.ska-rg-svg{display:block;width:100%;height:auto}');
+  });
+
   it('escapes labels, fields, and hrefs; in-scope node is an edit link', () => {
     const laid = layout({
       nodes: [
