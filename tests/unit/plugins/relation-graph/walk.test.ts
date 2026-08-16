@@ -268,7 +268,7 @@ describe('walk', () => {
       route: { model: 'post', id: 'p1' },
       relationGraph: graph([tagsM2m, postsM2m]),
       getM2mSelectedIds: async (modelName) => (modelName === 'Post' ? [2] : ['p1']),
-      loadRecord: async (modelName, id) => {
+      loadRecord: async (modelName, _id) => {
         if (modelName === 'Tag') return { id: 2, name: 'js' };
         if (modelName === 'Post') return { id: 'p1', title: 'Hello' };
         return null;
@@ -316,7 +316,7 @@ describe('walk', () => {
       relationGraph: graph([postsInverse, authorOwning, tagsM2m, postsM2m]),
       listRecords,
       getM2mSelectedIds: getM2m,
-      loadRecord: async (modelName, id) => {
+      loadRecord: async (modelName, _id) => {
         if (modelName === 'Tag') return { id: 2, name: 'js' };
         if (modelName === 'User') return { id: 1, email: 'a@b.c' };
         return null;
