@@ -3,13 +3,115 @@ import { NODE_R } from './layout.js';
 import type { LaidOutGraph, LaidOutNode } from './layout.js';
 import type { GraphEdge } from './walk.js';
 
-export const PAN_ZOOM_SCRIPT =
-  '(function(){var vp=document.querySelector(".ska-rg-viewport");var g=document.querySelector(".ska-rg-canvas");if(!vp||!g)return;var s=1,x=0,y=0,px=0,py=0,drag=false;function apply(){g.setAttribute("transform","translate("+x+" "+y+") scale("+s+")");}vp.addEventListener("pointerdown",function(e){drag=true;px=e.clientX;py=e.clientY;vp.setPointerCapture(e.pointerId);});vp.addEventListener("pointerup",function(){drag=false;});vp.addEventListener("pointermove",function(e){if(!drag)return;x+=e.clientX-px;y+=e.clientY-py;px=e.clientX;py=e.clientY;apply();});vp.addEventListener("wheel",function(e){e.preventDefault();var n=e.deltaY<0?s*1.1:s/1.1;if(n<0.4)n=0.4;if(n>3)n=3;s=n;apply();},{passive:false});})();';
+export type PanZoomViewport = {
+  addEventListener: (type: string, listener: (e: PanZoomPointerEvent) => void, opts?: unknown) => void;
+  setPointerCapture: (id: number) => void;
+};
 
-const STYLES = `.ska-rg{padding:1rem 1.5rem 2rem;display:flex;flex-direction:column;min-height:calc(100vh - 4rem)}
+export type PanZoomCanvas = {
+  setAttribute: (name: string, value: string) => void;
+  ownerSVGElement?: {
+    createSVGPoint?: () => {
+      x: number;
+      y: number;
+      matrixTransform: (m: unknown) => { x: number; y: number };
+    };
+    getScreenCTM?: () => { inverse: () => unknown } | null;
+  } | null;
+};
+
+export type PanZoomPointerEvent = {
+  target?: { closest?: (sel: string) => unknown } | null;
+  clientX?: number;
+  clientY?: number;
+  pointerId?: number;
+  deltaY?: number;
+  preventDefault?: () => void;
+};
+
+export function installRelationGraphPanZoom(
+  vp: PanZoomViewport | null,
+  g: PanZoomCanvas | null
+) {
+  if (!vp || !g) return;
+  let s = 1;
+  let x = 0;
+  let y = 0;
+  let px = 0;
+  let py = 0;
+  let drag = false;
+  function apply() {
+    g.setAttribute(
+      'transform',
+      'translate(' +
+        Math.round(x * 1e6) / 1e6 +
+        ' ' +
+        Math.round(y * 1e6) / 1e6 +
+        ') scale(' +
+        Math.round(s * 1e6) / 1e6 +
+        ')'
+    );
+  }
+  function toSvg(e: PanZoomPointerEvent) {
+    const svg = g.ownerSVGElement;
+    if (!svg || !svg.createSVGPoint || !svg.getScreenCTM) {
+      return { x: e.clientX as number, y: e.clientY as number };
+    }
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return { x: e.clientX as number, y: e.clientY as number };
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX as number;
+    pt.y = e.clientY as number;
+    return pt.matrixTransform(ctm.inverse());
+  }
+  vp.addEventListener('pointerdown', function (e) {
+    const t = e.target;
+    if (t && t.closest && t.closest('a')) return;
+    drag = true;
+    const p = toSvg(e);
+    px = p.x;
+    py = p.y;
+    vp.setPointerCapture(e.pointerId as number);
+  });
+  vp.addEventListener('pointerup', function () {
+    drag = false;
+  });
+  vp.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    const p = toSvg(e);
+    x += p.x - px;
+    y += p.y - py;
+    px = p.x;
+    py = p.y;
+    apply();
+  });
+  vp.addEventListener(
+    'wheel',
+    function (e) {
+      e.preventDefault();
+      let n = (e.deltaY as number) < 0 ? s * 1.1 : s / 1.1;
+      if (n < 0.4) n = 0.4;
+      if (n > 3) n = 3;
+      const p = toSvg(e);
+      const k = n / s;
+      x = p.x - k * (p.x - x);
+      y = p.y - k * (p.y - y);
+      s = n;
+      apply();
+    },
+    { passive: false }
+  );
+}
+
+export const PAN_ZOOM_SCRIPT =
+  '(' +
+  installRelationGraphPanZoom.toString() +
+  ')(document.querySelector(".ska-rg-viewport"),document.querySelector(".ska-rg-canvas"));';
+
+const STYLES = `.ska-rg{padding:1rem 1.5rem 2rem;display:flex;flex-direction:column;height:calc(100vh - 4rem);box-sizing:border-box}
 .ska-rg__title{font-size:1.25rem;margin-bottom:0.5rem}
 .ska-rg__hint{color:#64748b;margin-bottom:0.75rem}
-.ska-rg-viewport{overflow:auto;border:1px solid #e2e8f0;border-radius:8px;background:#fff;min-height:320px;flex:1;cursor:grab}
+.ska-rg-viewport{overflow:auto;border:1px solid #e2e8f0;border-radius:8px;background:#fff;min-height:0;flex:1;cursor:grab}
 .ska-rg-svg{display:block;width:100%;height:auto}
 .ska-rg-node__label{font-size:12px;fill:#1e293b;max-width:160px}
 .ska-rg-node--root circle{fill:var(--ska-primary);stroke:var(--ska-primary)}
