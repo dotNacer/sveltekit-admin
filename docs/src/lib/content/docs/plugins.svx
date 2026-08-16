@@ -46,6 +46,40 @@ Factory options such as `relationGraphPlugin({ models, depth })` belong on
 **the plugin author**, not on `createAdminHandler`. The core only sees
 `AdminPlugin`.
 
+## First-party: `relationGraphPlugin`
+
+A dependency graph for one record, shipped at
+`sveltekit-admin/plugins/relation-graph` (same subpath idea as
+`sveltekit-admin/adapters/drizzle`). Third-party plugins are their own
+npm packages that `import type { AdminPlugin } from 'sveltekit-admin'` —
+they cannot add keys under `sveltekit-admin/plugins/`.
+
+```typescript
+import { createAdminHandler } from 'sveltekit-admin';
+import { relationGraphPlugin } from 'sveltekit-admin/plugins/relation-graph';
+
+export const handle = createAdminHandler({
+  prisma,
+  plugins: [relationGraphPlugin({ models: ['User'], depth: 2 })]
+});
+```
+
+- `models?: string[]` — which models get the **Graph** link and the
+  `/admin/<model>/<id>/graph` page. Omit = every visible model. The walk
+  still visits other visible models as neighbours (a User graph can show
+  Posts).
+- `depth?: number` — BFS hops, default `2`, integer `0..8` (`0` = root
+  only). Invalid values throw when the factory runs (handler boot).
+
+The page is GET-only SVG inside the existing layout. There is no JSON
+endpoint. Relations are **not** on `ctx.record` (`redactForAudit`
+whitelists scalars); the plugin walks `ctx.relationGraph` and the scoped
+helpers. A neighbour outside `listWhere` is an opaque `#id` node with no
+label and no edit link. Inverse relations are already filtered by
+`listRecords`. Fan-out is not capped. Node labels use
+`resolveLabel(model, row)` without `models[].label` /
+`relations[].labelTemplate` (the plugin context does not expose those).
+
 ## `AdminPlugin`
 
 - `name` — unique, non-empty. Used in boot errors and internal view ids.

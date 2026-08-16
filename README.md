@@ -220,15 +220,16 @@ Pass `plugins` to register extra admin pages (SSR HTML + inline CSS/JS)
 and links on edit screens and list rows. See the exported `AdminPlugin`
 type and the documentation site's Plugins page.
 
+A first-party relation graph is available as a subpath (not on the root
+export):
+
 ```typescript
+import { createAdminHandler } from 'sveltekit-admin';
+import { relationGraphPlugin } from 'sveltekit-admin/plugins/relation-graph';
+
 createAdminHandler({
   prisma,
-  plugins: [
-    {
-      name: 'hello',
-      pages: [{ pattern: ['hello'], render: () => ({ html: '<p>Hello</p>' }) }]
-    }
-  ]
+  plugins: [relationGraphPlugin({ models: ['User'] })]
 });
 ```
 
