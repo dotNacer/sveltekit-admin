@@ -34,6 +34,8 @@ export function installRelationGraphPanZoom(
   g: PanZoomCanvas | null
 ) {
   if (!vp || !g) return;
+  const viewport = vp;
+  const canvas = g;
   let s = 1;
   let x = 0;
   let y = 0;
@@ -41,7 +43,7 @@ export function installRelationGraphPanZoom(
   let py = 0;
   let drag = false;
   function apply() {
-    g.setAttribute(
+    canvas.setAttribute(
       'transform',
       'translate(' +
         Math.round(x * 1e6) / 1e6 +
@@ -53,7 +55,7 @@ export function installRelationGraphPanZoom(
     );
   }
   function toSvg(e: PanZoomPointerEvent) {
-    const svg = g.ownerSVGElement;
+    const svg = canvas.ownerSVGElement;
     if (!svg || !svg.createSVGPoint || !svg.getScreenCTM) {
       return { x: e.clientX as number, y: e.clientY as number };
     }
@@ -64,19 +66,19 @@ export function installRelationGraphPanZoom(
     pt.y = e.clientY as number;
     return pt.matrixTransform(ctm.inverse());
   }
-  vp.addEventListener('pointerdown', function (e) {
+  viewport.addEventListener('pointerdown', function (e) {
     const t = e.target;
     if (t && t.closest && t.closest('a')) return;
     drag = true;
     const p = toSvg(e);
     px = p.x;
     py = p.y;
-    vp.setPointerCapture(e.pointerId as number);
+    viewport.setPointerCapture(e.pointerId as number);
   });
-  vp.addEventListener('pointerup', function () {
+  viewport.addEventListener('pointerup', function () {
     drag = false;
   });
-  vp.addEventListener('pointermove', function (e) {
+  viewport.addEventListener('pointermove', function (e) {
     if (!drag) return;
     const p = toSvg(e);
     x += p.x - px;
@@ -85,10 +87,10 @@ export function installRelationGraphPanZoom(
     py = p.y;
     apply();
   });
-  vp.addEventListener(
+  viewport.addEventListener(
     'wheel',
     function (e) {
-      e.preventDefault();
+      if (e.preventDefault) e.preventDefault();
       let n = (e.deltaY as number) < 0 ? s * 1.1 : s / 1.1;
       if (n < 0.4) n = 0.4;
       if (n > 3) n = 3;

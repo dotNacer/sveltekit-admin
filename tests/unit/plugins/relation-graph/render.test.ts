@@ -4,7 +4,8 @@ import { NODE_R, PAD, layout } from '../../../../src/lib/server/plugins/relation
 import {
   PAN_ZOOM_SCRIPT,
   installRelationGraphPanZoom,
-  renderGraphPage
+  renderGraphPage,
+  type PanZoomCanvas
 } from '../../../../src/lib/server/plugins/relation-graph/render.js';
 import type { PluginPageContext } from '../../../../src/lib/server/plugin.js';
 import type { GraphNode } from '../../../../src/lib/server/plugins/relation-graph/walk.js';
@@ -248,11 +249,14 @@ describe('installRelationGraphPanZoom', () => {
           },
           setPointerCapture: vi.fn()
         },
-        g
+        g as PanZoomCanvas
       );
       listeners.wheel({ deltaY: -1, clientX: 100, clientY: 50, preventDefault: vi.fn() });
       expect(g.setAttribute).toHaveBeenCalledWith('transform', 'translate(-10 -5) scale(1.1)');
     }
+    const { listeners, g } = harness();
+    listeners.wheel({ deltaY: -1, clientX: 100, clientY: 50 });
+    expect(g.setAttribute).toHaveBeenCalled();
   });
 
   it('no-ops when the viewport or canvas is missing', () => {
