@@ -1,11 +1,5 @@
 # Changelog
 
-## 0.7.1
-
-### Patch Changes
-
-- 448fdab: Fix the Changesets release workflow so published packages are detected correctly during npm publication.
-
 ## 0.7.0
 
 ### Minor Changes
