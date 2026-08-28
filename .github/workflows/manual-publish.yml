@@ -20,13 +20,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+          cache: pnpm
 
       - run: npm install -g npm@latest
-      - run: npm ci --ignore-scripts
+      - run: pnpm install --frozen-lockfile
       - run: npm run package
 
       - name: Verify package version
