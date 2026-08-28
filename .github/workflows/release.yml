@@ -63,7 +63,8 @@ jobs:
         # actually meant to pair with cli@3 — hence the renamed *-script inputs.
         uses: changesets/action@v2
         with:
-          publish-script: pnpm run release
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          publish-script: npm run package && npm publish --provenance --access public
           version-script: pnpm run version-packages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
