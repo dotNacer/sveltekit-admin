@@ -40,6 +40,18 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Diagnose npm trusted publishing
+        run: |
+          set -eu
+          echo "Node: $(node --version)"
+          echo "npm: $(npm --version)"
+          echo "pnpm: $(pnpm --version)"
+          echo "Registry: $(npm config get registry)"
+          echo "OIDC request URL present: $([ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] && echo yes || echo no)"
+          echo "OIDC request token present: $([ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ] && echo yes || echo no)"
+          npm ping --registry=https://registry.npmjs.org
+          npm view sveltekit-admin version --registry=https://registry.npmjs.org
+
       - name: Create release PR or publish to npm
         # v1 detects what got published by regex-matching "New tag: pkg@x.y.z"
         # in the publish command's stdout — a format @changesets/cli 3.0.0 no
