@@ -1,0 +1,47 @@
+name: Manual npm publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version already present in package.json to publish
+        required: true
+        default: 0.7.0
+        type: string
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - run: npm install -g npm@latest
+      - run: npm ci --ignore-scripts
+      - run: npm run package
+
+      - name: Verify package version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: test "$(node -p "require('./package.json').version")" = "$VERSION"
+
+      - name: Publish package with npm Trusted Publishing
+        run: npm publish --provenance --access public
+
+      - name: Create tag and GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+          gh release create "v$VERSION" --title "v$VERSION" --generate-notes
