@@ -59,7 +59,7 @@ createAdminHandler({
 | `basePath`          | `string`                                  | `'/admin'`                     | URL prefix all admin routes are served under.                                |
 | `authCheck`         | `(event: RequestEvent) => boolean \| Promise<boolean>` | none (open access) | Gate that must return `true` for a request to reach the admin. See [Authentication](/docs/authentication). |
 | `audit`             | `(entry: AuditEvent) => void \| Promise<void>` | none | Called after a successful create/update/delete with a redacted event (actor via `entry.event.locals`). See [Audit log](/docs/audit-log). |
-| `models`            | `Record<string, ModelConfig>`             | `{}`                            | Per-model overrides — hiding/readonly fields and list columns (see [Model Configuration](/docs/model-configuration)), relation rendering (see [Relations](/docs/relations)), and search/filter behavior (see [Search & Filters](/docs/search-filters)). |
+| `models`            | `Record<string, ModelConfig>`             | `{}`                            | Per-model overrides — hiding/readonly fields and list columns (see [Model Configuration](/docs/model-configuration)), relation rendering (see [Relations](/docs/relations)), and search/filter behavior (see [Search & Filters](/docs/search-filters)). A model can also define `scope(ctx)` for tenant isolation; it is applied to every read and mutation. |
 | `exclude`           | `string[]`                                | `[]`                             | Model names to hide from the admin entirely.                                 |
 | `hidePivotTables`   | `boolean`                                  | `true`                          | Automatically hides Prisma's implicit many-to-many pivot/junction tables from the admin. Explicit pivot models (ones you defined yourself with their own fields) are never auto-hidden. |
 | `relationDefaults`  | `{ selectThreshold?: number; labelFields?: string[] }` | `{ selectThreshold: 200, labelFields: ['name','title','label','email','username','slug'] }` | Defaults for relation rendering. `selectThreshold` is the option count above which a foreign-key `<select>` falls back to a raw ID input (see [Relations](/docs/relations)); `labelFields` is the field-name preference order used to auto-pick a relation's display label. |
@@ -68,6 +68,30 @@ createAdminHandler({
 | `branding`          | `{ title?: string; primaryColor?: string }` | template defaults           | Cosmetic overrides for the admin UI.                                          |
 | `plugins`           | `AdminPlugin[]`                           | `[]`                            | Extra pages and per-record links. See [Plugins](/docs/plugins).              |
 
+## Tenant scoping
+
+Use `scope` when a model must be isolated by the current tenant. The function
+receives the same request context as `authCheck` and must return a non-empty
+condition. Flat equality maps are recommended because they can also be applied
+automatically on create:
+
+```ts
+createAdminHandler({
+  prisma,
+  models: {
+    Invoice: {
+      scope: ({ locals }) => ({ organizationId: locals.organizationId })
+    }
+  }
+});
+```
+
+The scope is composed with `AND` for lists, search, dashboard counts, detail
+views, relation options, plugin reads, update, and delete. A missing tenant or
+empty scope fails closed. On create, scoped equality fields override submitted
+form values, preventing a user from creating a record in another tenant. Complex
+filters such as `OR` are allowed for reads but rejected for create because they
+cannot safely determine one tenant-owned value.
 ## Routes handled
 
 The handler intercepts every request under `basePath` and generates HTML

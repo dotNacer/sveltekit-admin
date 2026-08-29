@@ -5,12 +5,13 @@
 
 import { render } from 'svelte/server';
 import { matchRoute, BUILTIN_ROUTES, type ParsedRoute } from './router.js';
-import { paginate } from './data.js';
+import { paginate, coerceId } from './data.js';
 import {
   parseListQuery,
   buildWhere,
   resolveSearchFields
 } from './query/listQuery.js';
+import { normalizeScope } from './adapters/filter.js';
 import type { DataAdapter, SchemaIntrospector } from './adapters/types.js';
 import { resolveListFilters } from './query/filterDetection.js';
 import { escapeHtml, toLabel } from './views/html.js';
@@ -21,7 +22,7 @@ import Layout from './views/Layout.svelte';
 import Dashboard from './views/Dashboard.svelte';
 import Form from './views/Form.svelte';
 import List from './views/List.svelte';
-import { createAdminRuntime, listScopeFrom } from './runtime.js';
+import { createAdminRuntime, listScopeFrom, modelScopeFrom } from './runtime.js';
 import { loadRelationOptions, resolveFkFilterOptions, loadRelatedCounts } from './relationLoaders.js';
 import { handleSearch } from './search.js';
 import { handleMutation } from './mutations.js';
@@ -93,6 +94,7 @@ export interface AdminHandlerConfig {
     readonly?: string[];
     listFields?: string[];
     label?: string;
+    scope?: (ctx: { locals?: any }) => Record<string, unknown> | import('./adapters/types.js').Filter;
     /**
      * Scoping `where` applied to the LIST VIEW ONLY of this model
      * (search, sidebar filters, FK filter, pagination count) — composed
@@ -347,7 +349,10 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           runtime.models.map(async (m) => {
             let count = 0;
             try {
-              count = await runtime.adapter.data.countRecords(m);
+              count = await runtime.adapter.data.countRecords(
+                m,
+                modelScopeFrom(runtime, m, { locals: event.locals })
+              );
             } catch {
               // model absent from the database
             }
@@ -386,8 +391,12 @@ export function createAdminHandler(config: AdminHandlerConfig) {
             filterableFields
           );
           const listScope = listScopeFrom(runtime, model, { locals: event.locals });
+          const modelScope = modelScopeFrom(runtime, model, { locals: event.locals });
+          const scope = modelScope && listScope
+            ? { op: 'and' as const, clauses: [modelScope, normalizeScope(listScope)!] }
+            : modelScope ?? listScope;
           // Adapter compiles case-sensitivity; this arg is unused by buildWhere.
-          const filter = buildWhere(listQuery, listScope, false, model) as any;
+          const filter = buildWhere(listQuery, scope, false, model) as any;
           const { rows: items, total } = await runtime.adapter.data.listRecords(model, { filter, skip: (page - 1) * runtime.perPage, take: runtime.perPage });
           const listFilters = resolveListFilters(
             model,
@@ -465,9 +474,18 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           // atteint ce `else` — or 'edit' est la branche à 2 segments, donc `id` y est
           // toujours défini. La variante 'notFound' ne porte pas de `model` : elle est
           // interceptée en amont et ne peut pas arriver ici.
-          const item = await runtime.adapter.data.getRecord(model, route.id!);
+          const modelScope = modelScopeFrom(runtime, model, { locals: event.locals });
+          const item = modelScope
+            ? await runtime.adapter.data.findFirst(model, {
+                op: 'and',
+                clauses: [
+                  { op: 'eq', field: runtime.viewModel(model).primaryKey, value: coerceId(route.id!, model) },
+                  modelScope
+                ]
+              })
+            : await runtime.adapter.data.getRecord(model, route.id!);
           const relationOptions = await loadRelationOptions(runtime, model, { locals: event.locals }, route.id);
-          const relatedCounts = item ? await loadRelatedCounts(runtime, model, route.id!) : undefined;
+          const relatedCounts = item ? await loadRelatedCounts(runtime, model, route.id!, { locals: event.locals }) : undefined;
           content = item
             ? render(Form, {
                 props: {

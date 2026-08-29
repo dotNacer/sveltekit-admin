@@ -170,6 +170,19 @@ describe("createDrizzleDataAdapter", () => {
     ).rejects.toThrow(/unknown field 'missing'/);
   });
 
+  it("valide les guards de cibles dans la transaction", async () => {
+    seedPostRelations();
+    const guard = { targetModel: users, targetPk: 1, filter: { op: "eq" as const, field: "tenantId", value: 1 } };
+    await adapter.createRecord(posts, { scalars: { title: "guarded", authorId: 1 }, targetGuards: [guard] });
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM posts").get()).toEqual({ n: 1 });
+  });
+
+  it("refuse une cible Drizzle hors scope avant l’écriture", async () => {
+    seedPostRelations();
+    await expect(adapter.createRecord(posts, { scalars: { title: "blocked", authorId: 1 }, targetGuards: [{ targetModel: users, targetPk: 1, filter: { op: "eq", field: "tenantId", value: 2 } }] })).rejects.toThrow(/outside/);
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM posts").get()).toEqual({ n: 0 });
+  });
+
   it("creates scalar records without opening a transaction", async () => {
     const transaction = db.transaction;
     db.transaction = (() => {
@@ -349,6 +362,138 @@ describe("createDrizzleDataAdapter", () => {
     ).resolves.toBe(returned);
   });
 
+  it("fails closed when an authorized update affects no row", async () => {
+    seedUsers();
+    await expect(
+      adapter.updateRecord(users, 2, { scalars: { name: "nope" } }, { op: "eq", field: "tenantId", value: 1 }),
+    ).rejects.toThrow(/outside the authorization scope/);
+  });
+
+  it("does not delete m2m pivots when the scoped parent is absent", async () => {
+    seedPostRelations();
+    sqlite.prepare("INSERT INTO posts (title, author_id) VALUES (?, ?)").run("post", 1);
+    sqlite.prepare("INSERT INTO posts_to_tags (post_id, tag_id) VALUES (?, ?)").run(1, 1);
+    await expect(adapter.deleteRecord(posts, 1, { op: "eq", field: "id", value: 999 })).rejects.toThrow(/outside/);
+    expect(sqlite.prepare("SELECT * FROM posts_to_tags").all()).toHaveLength(1);
+  });
+
+  it("supprime les pivots puis le parent SQLite", async () => {
+    seedPostRelations();
+    sqlite.prepare("INSERT INTO posts (title, author_id) VALUES (?, ?)").run("post", 1);
+    sqlite.prepare("INSERT INTO posts_to_tags (post_id, tag_id) VALUES (?, ?)").run(1, 1);
+    await adapter.deleteRecord(posts, 1);
+    expect(sqlite.prepare("SELECT * FROM posts").all()).toHaveLength(0);
+    expect(sqlite.prepare("SELECT * FROM posts_to_tags").all()).toHaveLength(0);
+  });
+
+  it("supprime un parent async MySQL avec une ligne affectée", async () => {
+    const query = { limit: async () => [{ id: 7 }], then: (resolve: (rows: unknown[]) => void) => resolve([{ id: 7 }]) };
+    const fakeDb: any = { select: () => ({ from: () => ({ where: () => query }) }), delete: () => ({ where: async () => ({ affectedRows: 1 }) }), transaction: (callback: (tx: any) => Promise<unknown>) => callback(fakeDb) };
+    const mysql = createDrizzleDataAdapter(fakeDb, { tables: inspected.tables, m2m: inspected.m2m, dialect: "mysql", caseInsensitiveSearch: false });
+    await mysql.deleteRecord(posts, 7);
+  });
+
+  it("fails closed on missing MySQL and async-dialect updates", async () => {
+    const empty = { limit: async () => [], then: (resolve: (rows: unknown[]) => void) => resolve([]) };
+    const makeDb = (returning: unknown[] | undefined, mysql: boolean) => ({
+      update: () => ({
+        set: () => ({
+          where: () => mysql ? undefined : { returning: async () => returning ?? [] },
+        }),
+      }),
+      select: () => ({ from: () => ({ where: () => empty }) }),
+    });
+    const mysql = createDrizzleDataAdapter(makeDb(undefined, true), { tables: inspected.tables, m2m: inspected.m2m, dialect: "mysql", caseInsensitiveSearch: false });
+    await expect(mysql.updateRecord(users, 7, { scalars: {} }, { op: "eq", field: "tenantId", value: 1 })).rejects.toThrow(/outside/);
+    const pg = createDrizzleDataAdapter(makeDb([], false), { tables: inspected.tables, m2m: inspected.m2m, dialect: "postgresql", caseInsensitiveSearch: false });
+    await expect(pg.updateRecord(users, 7, { scalars: {} }, { op: "eq", field: "tenantId", value: 1 })).rejects.toThrow(/outside/);
+  });
+
+  it("fails closed when a scoped SQLite m2m update affects no row", async () => {
+    seedPostRelations();
+    await expect(
+      adapter.updateRecord(posts, 999, { scalars: { title: "nope" }, m2m: { tags: { targetPkField: "id", ids: [] } } }, { op: "eq", field: "id", value: 1 }),
+    ).rejects.toThrow(/outside the authorization scope/);
+  });
+
+  it("does not delete async m2m pivots when the scoped parent is absent", async () => {
+    let deleteCalls = 0;
+    const emptyDb: any = {
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }),
+      delete: () => ({ where: async () => { deleteCalls += 1; return { affectedRows: 0 }; } }),
+      transaction: async (callback: (tx: any) => unknown) => callback(emptyDb),
+    };
+    const mysqlAdapter = createDrizzleDataAdapter(emptyDb, { tables: inspected.tables, m2m: inspected.m2m, dialect: "mysql", caseInsensitiveSearch: false });
+    await expect(mysqlAdapter.deleteRecord(posts, 7, { op: "eq", field: "id", value: 1 })).rejects.toThrow(/outside/);
+    expect(deleteCalls).toBe(0);
+  });
+
+  it("valide un guard dans une transaction async", async () => {
+    const row = { id: 1, email: "guard@example.com", tenantId: 1 };
+    const query = { limit: async () => [row], then: (resolve: (rows: unknown[]) => void) => resolve([row]) };
+    const fakeDb: any = {
+      update: () => ({ set: () => ({ where: async () => undefined }) }),
+      select: () => ({ from: () => ({ where: () => query }) }),
+      transaction: (callback: (tx: any) => Promise<unknown>) => callback(fakeDb),
+    };
+    const mysql = createDrizzleDataAdapter(fakeDb, { tables: inspected.tables, m2m: inspected.m2m, dialect: "mysql", caseInsensitiveSearch: false });
+    await expect(mysql.updateRecord(users, 1, { scalars: { name: "ok" }, targetGuards: [{ targetModel: users, targetPk: 1, filter: { op: "eq", field: "tenantId", value: 1 } }] })).resolves.toEqual(row);
+  });
+
+  it("refuse un guard async hors scope", async () => {
+    const query = { limit: async () => [], then: (resolve: (rows: unknown[]) => void) => resolve([]) };
+    const fakeDb: any = { update: () => ({ set: () => ({ where: async () => undefined }) }), select: () => ({ from: () => ({ where: () => query }) }), transaction: (callback: (tx: any) => Promise<unknown>) => callback(fakeDb) };
+    const mysql = createDrizzleDataAdapter(fakeDb, { tables: inspected.tables, m2m: inspected.m2m, dialect: "mysql", caseInsensitiveSearch: false });
+    await expect(mysql.updateRecord(users, 1, { scalars: { name: "blocked" }, targetGuards: [{ targetModel: users, targetPk: 1, filter: { op: "eq", field: "tenantId", value: 1 } }] })).rejects.toThrow(/outside/);
+  });
+
+  it("échoue fermé si PostgreSQL ne supprime aucune ligne", async () => {
+    const fakeDb: any = { select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ id: 7 }] }) }) }), delete: () => ({ where: () => ({ returning: async () => [] }) }), transaction: (callback: (tx: any) => Promise<unknown>) => callback(fakeDb) };
+    const pg = createDrizzleDataAdapter(fakeDb, { tables: inspected.tables, m2m: inspected.m2m, dialect: "postgresql", caseInsensitiveSearch: false });
+    await expect(pg.deleteRecord(posts, 7)).rejects.toThrow(/outside/);
+  });
+
+  it("accepte le format mysql result-set header", async () => {
+    const fakeDb: any = { delete: () => ({ where: async () => ({ affectedRows: 1 }) }), transaction: (callback: (tx: any) => Promise<unknown>) => callback(fakeDb) };
+    const mysql = createDrizzleDataAdapter(fakeDb, { tables: inspected.tables, m2m: inspected.m2m, dialect: "mysql", caseInsensitiveSearch: false });
+    await mysql.deleteRecord(users, 1);
+  });
+
+  it("supprime les pivots après un delete parent réussi en async", async () => {
+    let calls = 0;
+    const fakeDb: any = {
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ id: 7 }] }) }) }),
+      delete: () => ({ where: async () => { calls += 1; return { affectedRows: 1 }; } }),
+      transaction: (callback: (tx: any) => Promise<unknown>) => callback(fakeDb),
+    };
+    const mysql = createDrizzleDataAdapter(fakeDb, { tables: inspected.tables, m2m: inspected.m2m, dialect: "mysql", caseInsensitiveSearch: false });
+    await mysql.deleteRecord(posts, 7);
+    expect(calls).toBe(2);
+  });
+
+  it("supprime les pivots après returning PostgreSQL", async () => {
+    let deleteInvocations = 0;
+    const fakeDb: any = {
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ id: 7 }] }) }) }),
+      delete: () => {
+        deleteInvocations += 1;
+        return deleteInvocations === 2
+          ? { where: () => ({ returning: async () => [{ id: 7 }] }) }
+          : { where: async () => undefined };
+      },
+      transaction: (callback: (tx: any) => Promise<unknown>) => callback(fakeDb),
+    };
+    const pg = createDrizzleDataAdapter(fakeDb, { tables: inspected.tables, m2m: inspected.m2m, dialect: "postgresql", caseInsensitiveSearch: false });
+    await pg.deleteRecord(posts, 7);
+    expect(deleteInvocations).toBe(2);
+  });
+
+  it("échoue fermé avec un résultat mysql vide", async () => {
+    const fakeDb: any = { delete: () => ({ where: async () => [] }), transaction: (callback: (tx: any) => Promise<unknown>) => callback(fakeDb) };
+    const mysql = createDrizzleDataAdapter(fakeDb, { tables: inspected.tables, m2m: inspected.m2m, dialect: "mysql", caseInsensitiveSearch: false });
+    await expect(mysql.deleteRecord(users, 1)).rejects.toThrow(/outside/);
+  });
+
   it("performs async-dialect m2m writes in transactions", async () => {
     const returned = { id: 7, title: "Network post", authorId: 1 };
     const insertedValues: unknown[] = [];
@@ -370,7 +515,7 @@ describe("createDrizzleDataAdapter", () => {
         }),
       }),
       delete: () => ({
-        where: async () => undefined,
+        where: async () => ({ affectedRows: 1 }),
       }),
       select: () => ({
         from: () => ({
@@ -400,10 +545,30 @@ describe("createDrizzleDataAdapter", () => {
         tags: { targetPkField: "id", ids: [2] },
         missing: { targetPkField: "id", ids: [1] },
       },
-    });
-    await mysqlAdapter.deleteRecord(posts, 7);
+    }, { op: "eq", field: "id", value: 7 });
+    await mysqlAdapter.deleteRecord(posts, 7, { op: "eq", field: "id", value: 7 });
     await mysqlAdapter.deleteRecord(users, 7);
 
     expect(insertedValues).toContainEqual([{ postId: 7, tagId: 2 }]);
+  });
+
+  it("applies an authorization filter to direct update and delete", async () => {
+    seedUsers();
+    await adapter.updateRecord(users, 1, { scalars: { name: "Scoped" } }, { op: "eq", field: "tenantId", value: 1 });
+    await adapter.deleteRecord(users, 1, { op: "eq", field: "tenantId", value: 1 });
+    expect(sqlite.prepare("SELECT id FROM users WHERE id = 1").get()).toBeUndefined();
+    expect(sqlite.prepare("SELECT id FROM users WHERE id = 2").get()).toMatchObject({ id: 2 });
+  });
+
+  it("applies authorization filters on m2m update and delete", async () => {
+    seedPostRelations();
+    sqlite.prepare("INSERT INTO posts (title, author_id) VALUES (?, ?)").run("Post", 1);
+    sqlite.prepare("INSERT INTO posts_to_tags (post_id, tag_id) VALUES (?, ?)").run(1, 1);
+    const auth = { op: "eq" as const, field: "id", value: 1 };
+    await adapter.updateRecord(posts, 1, { scalars: { title: "Scoped" }, m2m: { tags: { targetPkField: "id", ids: [2] } } }, auth);
+    expect(sqlite.prepare("SELECT title FROM posts WHERE id = 1").get()).toMatchObject({ title: "Scoped" });
+    expect(sqlite.prepare("SELECT tag_id FROM posts_to_tags WHERE post_id = 1").get()).toMatchObject({ tag_id: 2 });
+    await adapter.deleteRecord(posts, 1, auth);
+    expect(sqlite.prepare("SELECT id FROM posts WHERE id = 1").get()).toBeUndefined();
   });
 });

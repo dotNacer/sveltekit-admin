@@ -224,6 +224,63 @@ describe('actions POST', () => {
     expect((callsTo(prisma, 'user', 'create')[0].args as any).data.email).toBe('n@x.y');
   });
 
+  it('force le champ scoped à la création et ignore la valeur forgée', async () => {
+    const { handler, prisma } = build({
+      models: { User: { scope: () => ({ email: 'tenant-a@example.test' }) } }
+    });
+    const { event, resolve } = createEvent({
+      url: '/admin/user/new',
+      body: { _action: 'create', email: 'attacker@example.test', password: 'p' }
+    });
+    expect((await handler({ event, resolve } as any)).status).toBe(303);
+    expect((callsTo(prisma, 'user', 'create')[0].args as any).data.email).toBe('tenant-a@example.test');
+  });
+
+  it('refuse une création scoped si le scope est un filtre non injectible', async () => {
+    const { handler, prisma } = build({
+      models: { User: { scope: () => ({ op: 'or', clauses: [
+        { op: 'eq', field: 'email', value: 'a@example.test' },
+        { op: 'eq', field: 'email', value: 'b@example.test' }
+      ] }) } }
+    });
+    const { event, resolve } = createEvent({
+      url: '/admin/user/new',
+      body: { _action: 'create', email: 'attacker@example.test', password: 'p' }
+    });
+    const res = await handler({ event, resolve } as any);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toMatch(/only equality conditions|scope/);
+    expect(callsTo(prisma, 'user', 'create')).toHaveLength(0);
+  });
+
+  it('refuse une création scoped sans tenant exploitable', async () => {
+    const { handler, prisma } = build({
+      models: { User: { scope: ({ locals }: any) => ({ email: locals.tenantEmail }) } }
+    });
+    const { event, resolve } = createEvent({
+      url: '/admin/user/new',
+      locals: {},
+      body: { _action: 'create', email: 'attacker@example.test', password: 'p' }
+    });
+    const res = await handler({ event, resolve } as any);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toMatch(/scope/);
+    expect(callsTo(prisma, 'user', 'create')).toHaveLength(0);
+  });
+
+  it('compose scope et listWhere sur la liste sans écrasement', async () => {
+    const { handler, prisma } = build({
+      models: { User: {
+        scope: () => ({ email: 'tenant@example.test' }),
+        listWhere: () => ({ role: 'ADMIN' })
+      } }
+    });
+    const { event, resolve } = createEvent({ url: '/admin/user' });
+    await handler({ event, resolve } as any);
+    const where = (callsTo(prisma, 'user', 'findMany')[0].args as any).where;
+    expect(where.AND).toHaveLength(2);
+  });
+
   it('met à jour puis redirige', async () => {
     const { handler, prisma } = build();
     const { event, resolve } = createEvent({
@@ -243,6 +300,29 @@ describe('actions POST', () => {
     expect((callsTo(prisma, 'user', 'delete')[0].args as any).where).toEqual({ id: 1 });
   });
 
+  it('refuse une édition hors scope sans appeler update', async () => {
+    const prisma = createPrismaMock({ user: [{ id: 1, email: 'other@x.y', tenantId: 'tenant-b' }] });
+    const { handler } = build({
+      models: { User: { scope: () => ({ tenantId: 'tenant-a' }) } }
+    }, prisma);
+    const { event, resolve } = createEvent({ url: '/admin/user/1', body: { _action: 'update', email: 'x@y.z' } });
+    const res = await handler({ event, resolve } as any);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('User with ID "1" not found');
+    expect(callsTo(prisma, 'user', 'update')).toHaveLength(0);
+  });
+
+  it('refuse une suppression hors scope sans appeler delete', async () => {
+    const prisma = createPrismaMock({ user: [{ id: 1, email: 'other@x.y', tenantId: 'tenant-b' }] });
+    const { handler } = build({
+      models: { User: { scope: () => ({ tenantId: 'tenant-a' }) } }
+    }, prisma);
+    const { event, resolve } = createEvent({ url: '/admin/user/1', body: { _action: 'delete' } });
+    const res = await handler({ event, resolve } as any);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('User with ID "1" not found');
+    expect(callsTo(prisma, 'user', 'delete')).toHaveLength(0);
+  });
   it('retombe sur le rendu sans _action reconnue', async () => {
     const { handler, prisma } = build();
     const { event, resolve } = createEvent({ url: '/admin/user/1', body: { _action: 'wat' } });

@@ -13,7 +13,8 @@ import {
   readAuditSnapshot
 } from './audit.js';
 import type { ParsedRoute } from './router.js';
-import { scopeFrom, type AdminRuntime } from './runtime.js';
+import { scopeFrom, modelScopeFrom, modelScopeValues, type AdminRuntime } from './runtime.js';
+import type { TargetGuard } from './adapters/types.js';
 
 export async function handleMutation(
   runtime: AdminRuntime,
@@ -39,12 +40,22 @@ export async function handleMutation(
       headers: { Location: `${runtime.basePath}/${modelName.toLowerCase()}` }
     });
 
+  const scopedRecord = async (id: string | number) => {
+    const modelScope = modelScopeFrom(runtime, model, { locals: event.locals });
+    if (!modelScope) return true;
+    return runtime.adapter.data.findFirst(model, {
+      op: 'and',
+      clauses: [{ op: 'eq', field: primaryKeyOf(model), value: coerceId(String(id), model) }, modelScope]
+    });
+  };
+
   if (action === 'delete' && route.id) {
     const id = coerceId(route.id, model);
+    if (!(await scopedRecord(id))) return null;
     const before = audit
       ? await readAuditSnapshot((m, recId) => runtime.adapter.data.getRecord(m, recId), model, id)
       : null;
-    await runtime.adapter.data.deleteRecord(model, route.id);
+    await runtime.adapter.data.deleteRecord(model, route.id, modelScopeFrom(runtime, model, { locals: event.locals }));
     if (audit) {
       await emitAudit(
         audit,
@@ -63,7 +74,9 @@ export async function handleMutation(
 
   if (action === 'create' || action === 'update') {
     const data = formDataToPrisma(formData, model);
+    Object.assign(data, modelScopeValues(runtime, model, { locals: event.locals }));
     const m2mInput: Record<string, { targetPkField: string; ids: Array<string | number> }> = {};
+    const targetGuards: TargetGuard[] = [];
 
     // Validation des FK owning : coercion + existence + self-ref.
     // Rejoue le `where` de scoping : un ID hors du where est rejeté,
@@ -108,10 +121,13 @@ export async function handleMutation(
         // Existence + scoping. findFirst et non findUnique : le where
         // peut porter des conditions arbitraires (scoping multi-tenant).
         // Si le client ne sait pas répondre, on ne bloque pas l'écriture.
+        const scopeFilter = scopeFrom(relConfig, { locals: event.locals });
+        const modelFilter = modelScopeFrom(runtime, targetModel, { locals: event.locals });
         try {
           const idFilter = { op: 'eq' as const, field: primaryKeyOf(targetModel), value: coerced };
-          const scopeFilter = scopeFrom(relConfig, { locals: event.locals });
-          const filter = scopeFilter ? ({ op: 'and', clauses: [idFilter, scopeFilter] } as any) : idFilter;
+          const scopes = [scopeFilter, modelFilter].filter(Boolean);
+          const filter = scopes.length ? ({ op: 'and', clauses: [idFilter, ...scopes] } as any) : idFilter;
+          targetGuards.push({ targetModel, targetPk: coerced, filter: scopes.length ? ({ op: 'and', clauses: scopes } as any) : undefined });
           const found = await runtime.adapter.data.findFirst(targetModel, filter);
           if (!found) {
             throw new Error(`${edge.field}: invalid value`);
@@ -128,7 +144,7 @@ export async function handleMutation(
           if (e?.message?.includes('unknown field')) {
             throw new Error(`${edge.field}: invalid value`);
           }
-          // Client incapable de vérifier (mock partiel, etc.) : on laisse passer.
+          throw new Error(`${edge.field}: invalid value`);
         }
 
         data[scalarName] = coerced;
@@ -173,9 +189,14 @@ export async function handleMutation(
         if (ids.length > 0) {
           const inFilter = { op: 'in' as const, field: targetPk, value: ids };
           const scopeFilter = scopeFrom(relConfig, { locals: event.locals });
-          const filter = scopeFilter ? ({ op: 'and', clauses: [inFilter, scopeFilter] } as any) : inFilter;
+          const modelFilter = modelScopeFrom(runtime, targetModel, { locals: event.locals });
+          const scopes = [scopeFilter, modelFilter].filter(Boolean);
+          const filter = scopes.length ? ({ op: 'and', clauses: [inFilter, ...scopes] } as any) : inFilter;
           try {
             const found = await runtime.adapter.data.findMany(targetModel, { filter });
+            for (const id of [...new Map(ids.map((id) => [String(id), id])).values()]) {
+              targetGuards.push({ targetModel, targetPk: id, filter: scopes.length ? ({ op: 'and', clauses: scopes } as any) : undefined });
+            }
             if (found.length !== new Set(ids.map(String)).size) {
               throw new Error(`${edge.field}: invalid value`);
             }
@@ -191,7 +212,7 @@ export async function handleMutation(
             if (e?.message?.includes('unknown field')) {
               throw new Error(`${edge.field}: invalid value`);
             }
-            // Client incapable de vérifier : on laisse passer.
+            throw new Error(`${edge.field}: invalid value`);
           }
         }
 
@@ -200,7 +221,7 @@ export async function handleMutation(
     }
 
     if (action === 'create') {
-      const created = await runtime.adapter.data.createRecord(model, { scalars: data, m2m: m2mInput });
+      const created = await runtime.adapter.data.createRecord(model, { scalars: data, m2m: m2mInput, targetGuards });
       if (audit) {
         await emitAudit(
           audit,
@@ -218,13 +239,15 @@ export async function handleMutation(
       }
     } else if (route.id) {
       const id = coerceId(route.id, model);
+      if (!(await scopedRecord(id))) return null;
       const before = audit
         ? await readAuditSnapshot((m, recId) => runtime.adapter.data.getRecord(m, recId), model, id)
         : null;
       const updated = await runtime.adapter.data.updateRecord(model, route.id, {
         scalars: data,
-        m2m: m2mInput
-      });
+        m2m: m2mInput,
+        targetGuards
+      }, modelScopeFrom(runtime, model, { locals: event.locals }));
       if (audit) {
         await emitAudit(
           audit,

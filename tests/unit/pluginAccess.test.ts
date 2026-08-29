@@ -151,6 +151,30 @@ describe('createPluginPageContext — getM2mSelectedIds', () => {
     await expect(ctx.getM2mSelectedIds('Post', 'categories', 'p1')).resolves.toEqual(['c1']);
     expect(spy).toHaveBeenCalled();
   });
+
+  it('retourne une liste vide si l’enregistrement parent est absent', async () => {
+    const { ctx, runtime } = ctxFor();
+    const spy = vi.spyOn(runtime.adapter.data, 'getM2mSelectedIds');
+    await expect(ctx.getM2mSelectedIds('Post', 'categories', 'missing')).resolves.toEqual([]);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('normalise en liste vide une réponse undefined de l’adapter', async () => {
+    const { ctx, runtime } = ctxFor();
+    vi.spyOn(runtime.adapter.data, 'getM2mSelectedIds').mockResolvedValue(undefined as any);
+    await expect(ctx.getM2mSelectedIds('Post', 'categories', 'p1')).resolves.toEqual([]);
+  });
+
+  it('applique le scope configuré sur la relation m2m', async () => {
+    const { ctx, runtime } = ctxFor({
+      models: {
+        Post: { relations: { categories: { where: () => ({ id: 'c1' }) } } }
+      }
+    });
+    vi.spyOn(runtime.adapter.data, 'getM2mSelectedIds').mockResolvedValue(['c1', 'c2']);
+    vi.spyOn(runtime.adapter.data, 'findMany').mockResolvedValue([{ id: 'c1' }]);
+    await expect(ctx.getM2mSelectedIds('Post', 'categories', 'p1')).resolves.toEqual(['c1']);
+  });
 });
 
 describe('createPluginPageContext — surface', () => {

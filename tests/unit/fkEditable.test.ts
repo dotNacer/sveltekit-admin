@@ -178,6 +178,17 @@ describe('PR2 — FK éditables', () => {
     expect(callsTo(prisma, 'post', 'update')).toHaveLength(0);
   });
 
+  it('FK ignore une erreur adapter générique quand aucun scope n’est configuré', async () => {
+    const prisma = createPrismaMock(baseData());
+    prisma.user.findFirst = () => { throw new Error('adapter unavailable'); };
+    const { event, resolve } = formEvent('/admin/post/ckp1', {
+      _action: 'update', title: 'T2', authorId: '2'
+    });
+    const html = await (await handler(prisma)({ event, resolve } as any)).text();
+    expect(html).toContain('author: invalid value');
+    expect(callsTo(prisma, 'post', 'update')).toHaveLength(0);
+  });
+
   it('where de scoping : limité aussi aux options du select', async () => {
     const prisma = createPrismaMock(baseData());
     const h = handler(prisma, {

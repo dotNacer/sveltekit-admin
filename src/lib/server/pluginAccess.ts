@@ -1,10 +1,11 @@
-import { normalizeScope } from './adapters/filter.js';
 import type { Filter } from './adapters/types.js';
+import { normalizeScope } from './adapters/filter.js';
 import { redactForAudit } from './audit.js';
 import { coerceId, primaryKeyOf } from './data.js';
 import { isSensitiveFieldName } from './introspection/parser.js';
 import type { PluginPageContext } from './plugin.js';
-import { listScopeFrom, type AdminRuntime } from './runtime.js';
+import { listScopeFrom, modelScopeFrom, scopeFrom, type AdminRuntime } from './runtime.js';
+import { filterSelectedIds } from './relationLoaders.js';
 import type { Model } from './types/schema.js';
 import { escapeHtml } from './views/html.js';
 
@@ -31,8 +32,10 @@ export function createPluginPageContext(
   ): Promise<Record<string, unknown> | null> => {
     const model = runtime.findModel(modelName);
     if (!model) return null;
-    const rawScope = listScopeFrom(runtime, model, { locals: event.locals });
-    const scope = normalizeScope(rawScope);
+    const scope = andFilters(
+      modelScopeFrom(runtime, model, { locals: event.locals }),
+      normalizeScope(listScopeFrom(runtime, model, { locals: event.locals }))
+    );
     const idFilter = {
       op: 'eq' as const,
       field: primaryKeyOf(model),
@@ -49,8 +52,10 @@ export function createPluginPageContext(
   ): Promise<Record<string, unknown>[]> => {
     const model = runtime.findModel(modelName);
     if (!model) return [];
-    const rawScope = listScopeFrom(runtime, model, { locals: event.locals });
-    const scope = normalizeScope(rawScope);
+    const scope = andFilters(
+      modelScopeFrom(runtime, model, { locals: event.locals }),
+      normalizeScope(listScopeFrom(runtime, model, { locals: event.locals }))
+    );
     const filter = andFilters(scope, extraFilter);
     const rows = await runtime.adapter.data.findMany(model, { filter: filter as Filter | undefined });
     return rows.map((row) => redactRow(runtime, model, row));
@@ -80,7 +85,16 @@ export function createPluginPageContext(
         `[sveltekit-admin] getM2mSelectedIds: target model "${edge.target}" is not visible`
       );
     }
-    return runtime.adapter.data.getM2mSelectedIds(model, edge, target, recordId);
+
+    if (!(await loadRecord(model.name, recordId))) return [];
+    const selected = await runtime.adapter.data.getM2mSelectedIds(model, edge, target, recordId);
+    return (await filterSelectedIds(
+      runtime,
+      target,
+      selected,
+      { locals: event.locals },
+      scopeFrom(runtime.config.models?.[model.name]?.relations?.[fieldName], { locals: event.locals })
+    )) ?? [];
   };
 
   return {

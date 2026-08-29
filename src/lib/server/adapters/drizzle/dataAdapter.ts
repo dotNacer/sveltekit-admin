@@ -1,8 +1,8 @@
-import { asc, count, desc, eq, getTableColumns } from "drizzle-orm";
+import { and, asc, count, desc, eq, getTableColumns } from "drizzle-orm";
 import type { Column, Table } from "drizzle-orm";
 import { coerceId, primaryKeyOf } from "../../data.js";
 import type { Model } from "../../types/schema.js";
-import type { DataAdapter, Filter } from "../types.js";
+import type { DataAdapter, Filter, TargetGuard } from "../types.js";
 import { compileFilterToDrizzle } from "./filterCompiler.js";
 import type { DrizzleDialect, M2mLink } from "./inspect.js";
 
@@ -27,16 +27,36 @@ function primaryKeyColumn(table: Table, model: Model): Column {
   ]!;
 }
 
+async function validateTargetGuards(ctx: DrizzleDataAdapterContext, tx: any, guards: TargetGuard[], compile: (table: Table, filter?: Filter) => any) {
+  for (const guard of guards) {
+    const table = tableFor(ctx, guard.targetModel);
+    const where = and(eq(primaryKeyColumn(table, guard.targetModel), guard.targetPk), compile(table, guard.filter));
+    const rows = await tx.select().from(table).where(where).limit(1);
+    if (rows.length === 0) throw new Error("relation target is outside the authorization scope");
+  }
+}
+
+function validateTargetGuardsSqlite(ctx: DrizzleDataAdapterContext, tx: any, guards: TargetGuard[], compile: (table: Table, filter?: Filter) => any) {
+  for (const guard of guards) {
+    const table = tableFor(ctx, guard.targetModel);
+    const where = and(eq(primaryKeyColumn(table, guard.targetModel), guard.targetPk), compile(table, guard.filter));
+    const row = tx.select().from(table).where(where).limit(1).get();
+    if (!row) throw new Error("relation target is outside the authorization scope");
+  }
+}
+
 async function selectByPrimaryKey(
   db: any,
   table: Table,
   model: Model,
   id: string | number,
+  authorizationFilter?: any,
 ): Promise<Record<string, unknown> | null> {
+  const primaryKeyWhere = eq(primaryKeyColumn(table, model), coerceId(String(id), model));
   const rows = await db
     .select()
     .from(table)
-    .where(eq(primaryKeyColumn(table, model), coerceId(String(id), model)))
+    .where(authorizationFilter ? and(primaryKeyWhere, authorizationFilter) : primaryKeyWhere)
     .limit(1);
   return rows[0] ?? null;
 }
@@ -68,15 +88,22 @@ async function updateAndReturn(
   id: string | number,
   scalars: Record<string, unknown>,
   dialect: DrizzleDialect,
+  authorizationFilter?: any,
 ): Promise<Record<string, unknown>> {
   const coercedId = coerceId(String(id), model);
-  const where = eq(primaryKeyColumn(table, model), coercedId);
+  const where = authorizationFilter
+    ? and(eq(primaryKeyColumn(table, model), coercedId), authorizationFilter)
+    : eq(primaryKeyColumn(table, model), coercedId);
   if (dialect === "mysql") {
     await db.update(table).set(scalars).where(where);
-    return (await selectByPrimaryKey(db, table, model, coercedId))!;
+    const row = await selectByPrimaryKey(db, table, model, coercedId, authorizationFilter);
+    if (!row) throw new Error("record is outside the authorization scope");
+    return row;
   }
   const rows = await db.update(table).set(scalars).where(where).returning();
-  return rows[0]!;
+  const row = rows[0];
+  if (!row) throw new Error("record is outside the authorization scope");
+  return row;
 }
 
 async function insertM2mRows(
@@ -108,13 +135,16 @@ function updateAndReturnSqlite(
   model: Model,
   id: string | number,
   scalars: Record<string, unknown>,
+  authorizationFilter?: any,
 ): Record<string, unknown> {
-  return db
+  const row = db
     .update(table)
     .set(scalars)
-    .where(eq(primaryKeyColumn(table, model), coerceId(String(id), model)))
+    .where(authorizationFilter ? and(eq(primaryKeyColumn(table, model), coerceId(String(id), model)), authorizationFilter) : eq(primaryKeyColumn(table, model), coerceId(String(id), model)))
     .returning()
     .get();
+  if (!row) throw new Error("record is outside the authorization scope");
+  return row;
 }
 
 function insertM2mRowsSqlite(
@@ -212,11 +242,13 @@ export function createDrizzleDataAdapter(
     async createRecord(model, input) {
       const table = tableFor(ctx, model);
       const m2mFields = Object.entries(input.m2m ?? {});
-      if (m2mFields.length === 0) {
+      const guards = input.targetGuards ?? [];
+      if (m2mFields.length === 0 && guards.length === 0) {
         return insertAndReturn(db, table, model, input.scalars, ctx.dialect);
       }
       if (ctx.dialect === "sqlite") {
         return db.transaction((tx: any) => {
+          validateTargetGuardsSqlite(ctx, tx, guards, compileHere);
           const parent = insertAndReturnSqlite(tx, table, input.scalars);
           const parentId = parent[primaryKeyOf(model)];
           for (const [field, relation] of m2mFields) {
@@ -228,6 +260,7 @@ export function createDrizzleDataAdapter(
         });
       }
       return db.transaction(async (tx: any) => {
+        await validateTargetGuards(ctx, tx, guards, compileHere);
         const parent = await insertAndReturn(
           tx,
           table,
@@ -242,13 +275,14 @@ export function createDrizzleDataAdapter(
           await insertM2mRows(tx, link, parentId, relation.ids);
         }
         return parent;
-      });
+      }, { isolationLevel: "serializable" });
     },
 
-    async updateRecord(model, id, input) {
+    async updateRecord(model, id, input, authorizationFilter) {
       const table = tableFor(ctx, model);
       const m2mFields = Object.entries(input.m2m ?? {});
-      if (m2mFields.length === 0) {
+      const guards = input.targetGuards ?? [];
+      if (m2mFields.length === 0 && guards.length === 0) {
         return updateAndReturn(
           db,
           table,
@@ -256,16 +290,19 @@ export function createDrizzleDataAdapter(
           id,
           input.scalars,
           ctx.dialect,
+          compileHere(table, authorizationFilter),
         );
       }
       if (ctx.dialect === "sqlite") {
         return db.transaction((tx: any) => {
+          validateTargetGuardsSqlite(ctx, tx, guards, compileHere);
           const parent = updateAndReturnSqlite(
             tx,
             table,
             model,
             id,
             input.scalars,
+            compileHere(table, authorizationFilter),
           );
           const parentId = coerceId(String(id), model);
           for (const [field, relation] of m2mFields) {
@@ -278,6 +315,7 @@ export function createDrizzleDataAdapter(
         });
       }
       return db.transaction(async (tx: any) => {
+        await validateTargetGuards(ctx, tx, guards, compileHere);
         const parent = await updateAndReturn(
           tx,
           table,
@@ -285,6 +323,7 @@ export function createDrizzleDataAdapter(
           id,
           input.scalars,
           ctx.dialect,
+          compileHere(table, authorizationFilter),
         );
         const parentId = coerceId(String(id), model);
         for (const [field, relation] of m2mFields) {
@@ -294,38 +333,48 @@ export function createDrizzleDataAdapter(
           await insertM2mRows(tx, link, parentId, relation.ids);
         }
         return parent;
-      });
+      }, { isolationLevel: "serializable" });
     },
 
-    async deleteRecord(model, id) {
+    async deleteRecord(model, id, authorizationFilter) {
       const table = tableFor(ctx, model);
       const coercedId = coerceId(String(id), model);
       const links = [...ctx.m2m.entries()]
         .filter(([key]) => key.startsWith(`${model.name}.`))
         .map(([, link]) => link);
       if (links.length === 0) {
-        await db
-          .delete(table)
-          .where(eq(primaryKeyColumn(table, model), coercedId));
+        if (ctx.dialect === "sqlite") {
+          const result = db.delete(table).where(and(eq(primaryKeyColumn(table, model), coercedId), compileHere(table, authorizationFilter))).run();
+          if (result.changes !== 1) throw new Error("record is outside the authorization scope");
+        } else {
+          const result = await db.delete(table).where(and(eq(primaryKeyColumn(table, model), coercedId), compileHere(table, authorizationFilter)));
+          if (Number(result?.affectedRows ?? 0) !== 1) throw new Error("record is outside the authorization scope");
+        }
         return;
       }
+      const parentWhere = and(eq(primaryKeyColumn(table, model), coercedId), compileHere(table, authorizationFilter));
       if (ctx.dialect === "sqlite") {
         db.transaction((tx: any) => {
-          for (const link of links) {
-            tx.delete(link.pivot).where(eq(link.selfColumn, coercedId)).run();
-          }
-          tx.delete(table)
-            .where(eq(primaryKeyColumn(table, model), coercedId))
-            .run();
+          const parent = tx.select().from(table).where(parentWhere).limit(1).get();
+          if (!parent) throw new Error("record is outside the authorization scope");
+          for (const link of links) tx.delete(link.pivot).where(eq(link.selfColumn, coercedId)).run();
+          const result = tx.delete(table).where(parentWhere).run();
+          if (result.changes !== 1) throw new Error("record is outside the authorization scope");
         });
         return;
       }
       await db.transaction(async (tx: any) => {
-        for (const link of links) {
-          await tx.delete(link.pivot).where(eq(link.selfColumn, coercedId));
+        const existing = await tx.select().from(table).where(parentWhere).limit(1);
+        if (existing.length !== 1) throw new Error("record is outside the authorization scope");
+        for (const link of links) await tx.delete(link.pivot).where(eq(link.selfColumn, coercedId));
+        if (ctx.dialect === "postgresql") {
+          const deleted = await tx.delete(table).where(parentWhere).returning({ id: primaryKeyColumn(table, model) });
+          if (deleted.length !== 1) throw new Error("record is outside the authorization scope");
+        } else {
+          const result = await tx.delete(table).where(parentWhere);
+          if (Number(result?.affectedRows ?? 0) !== 1) throw new Error("record is outside the authorization scope");
         }
-        await tx.delete(table).where(eq(primaryKeyColumn(table, model), coercedId));
-      });
+      }, { isolationLevel: "serializable" });
     },
 
     async getM2mSelectedIds(model, edge, _targetModel, recordId) {

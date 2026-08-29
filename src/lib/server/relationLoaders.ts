@@ -9,7 +9,33 @@ import { primaryKeyOf, coerceId } from './data.js';
 import type { PrismaModel } from './introspection/parser.js';
 import { findFkEdge } from './query/filterDetection.js';
 import type { RelationMeta, FkFilterMeta } from './views/types.js';
-import { scopeFrom, type AdminRuntime } from './runtime.js';
+import { scopeFrom, modelScopeFrom, type AdminRuntime } from './runtime.js';
+import { normalizeScope } from './adapters/filter.js';
+import type { Filter } from './adapters/types.js';
+
+export function combinedScope(...scopes: Array<Filter | Record<string, unknown> | undefined>): Filter | undefined {
+  const clauses = scopes.map((scope) => normalizeScope(scope)).filter((scope): scope is Filter => scope !== undefined);
+  if (clauses.length === 0) return undefined;
+  if (clauses.length === 1) return clauses[0];
+  return { op: 'and', clauses };
+}
+
+export async function filterSelectedIds(
+  runtime: AdminRuntime,
+  targetModel: PrismaModel,
+  ids: Array<string | number> | undefined,
+  ctx: { locals?: any },
+  relationScope?: Filter | Record<string, unknown>
+): Promise<Array<string | number> | undefined> {
+  if (!ids) return undefined;
+  const scope = combinedScope(modelScopeFrom(runtime, targetModel, ctx), relationScope);
+  if (!scope || ids.length === 0) return ids;
+  const rows = await runtime.adapter.data.findMany(targetModel, {
+    filter: combinedScope(scope, { op: 'in', field: primaryKeyOf(targetModel), value: ids })
+  });
+  const allowed = new Set(rows.map((row) => String(row[primaryKeyOf(targetModel)])));
+  return ids.filter((id) => allowed.has(String(id)));
+}
 
 /**
  * Charge les options pour toutes les arêtes to-one-owning et m2m
@@ -39,14 +65,14 @@ export async function loadRelationOptions(
       const key = `${edge.model}.${edge.field}`;
       const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
       const targetModel = runtime.schema!.models.find((m) => m.name === edge.target)!;
-      const filter = scopeFrom(relConfig, ctx);
+      const filter = combinedScope(modelScopeFrom(runtime, targetModel, ctx), scopeFrom(relConfig, ctx));
 
       try {
         const total = await runtime.adapter.data.countRecords(targetModel, filter);
         if (total > runtime.selectThreshold || relConfig?.widget === 'raw-id') {
           const selectedIds =
             edge.kind === 'm2m' && currentId
-              ? await runtime.adapter.data.getM2mSelectedIds(model, edge, targetModel, currentId)
+              ? await filterSelectedIds(runtime, targetModel, await runtime.adapter.data.getM2mSelectedIds(model, edge, targetModel, currentId), ctx, scopeFrom(relConfig, ctx))
               : undefined;
           return [key, { tooMany: true, options: [], selectedIds }];
         }
@@ -58,7 +84,7 @@ export async function loadRelationOptions(
         }));
         const selectedIds =
           edge.kind === 'm2m' && currentId
-            ? await runtime.adapter.data.getM2mSelectedIds(model, edge, targetModel, currentId)
+            ? await filterSelectedIds(runtime, targetModel, await runtime.adapter.data.getM2mSelectedIds(model, edge, targetModel, currentId), ctx, scopeFrom(relConfig, ctx))
             : undefined;
         return [key, { tooMany: false, options, selectedIds }];
       } catch {
@@ -104,7 +130,7 @@ export async function resolveFkFilterOptions(
   // n'existe pas dans `schema.models`.
 
   const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
-  const scope = scopeFrom(relConfig, ctx);
+  const scope = combinedScope(modelScopeFrom(runtime, targetModel, ctx), scopeFrom(relConfig, ctx));
 
   // Options de la sidebar (comptées puis chargées si sous le seuil) et
   // label du chip actif (§6.3.b) sont deux requêtes indépendantes — l'une
@@ -175,7 +201,8 @@ export async function resolveFkFilterOptions(
 export async function loadRelatedCounts(
   runtime: AdminRuntime,
   model: PrismaModel,
-  currentId: string
+  currentId: string,
+  ctx: { locals?: any }
 ): Promise<Map<string, number>> {
   const edges = [...runtime.relationGraph!.edges.values()].filter(
     (edge) => edge.model === model.name && (edge.kind === 'to-many-inverse' || edge.kind === 'to-one-inverse')
@@ -194,11 +221,10 @@ export async function loadRelatedCounts(
       const key = `${edge.model}.${edge.field}`;
       const targetModel = runtime.schema!.models.find((m) => m.name === edge.target)!;
       try {
-        const count = await runtime.adapter.data.countRecords(targetModel, {
-          op: 'eq',
-          field: scalarName,
-          value: coerceId(currentId, model)
-        });
+        const count = await runtime.adapter.data.countRecords(targetModel, combinedScope(
+          modelScopeFrom(runtime, targetModel, ctx),
+          { op: 'eq', field: scalarName, value: coerceId(currentId, model) }
+        ));
         return [key, count];
       } catch {
         return [key, 0];
