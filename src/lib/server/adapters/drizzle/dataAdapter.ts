@@ -27,17 +27,49 @@ function primaryKeyColumn(table: Table, model: Model): Column {
   ]!;
 }
 
+/**
+ * Ordre de verrouillage déterministe. Les guards m2m sont empilés dans l'ordre
+ * des ids soumis par le formulaire, donc sous contrôle du client : deux
+ * requêtes concurrentes envoyant [1,2] et [2,1] verrouilleraient les mêmes
+ * lignes en sens inverse et se deadlockeraient (PostgreSQL 40P01), ce qui est
+ * bien plus facile à déclencher que la course qu'on cherche à empêcher.
+ * Trier sur (modèle, pk) donne un ordre total stable et supprime le cycle.
+ */
+function orderedGuards(guards: TargetGuard[]): TargetGuard[] {
+  return [...guards].sort(
+    (a, b) =>
+      a.targetModel.name.localeCompare(b.targetModel.name) ||
+      String(a.targetPk).localeCompare(String(b.targetPk)),
+  );
+}
+
 async function validateTargetGuards(ctx: DrizzleDataAdapterContext, tx: any, guards: TargetGuard[], compile: (table: Table, filter?: Filter) => any) {
-  for (const guard of guards) {
+  for (const guard of orderedGuards(guards)) {
     const table = tableFor(ctx, guard.targetModel);
     const where = and(eq(primaryKeyColumn(table, guard.targetModel), guard.targetPk), compile(table, guard.filter));
-    const rows = await tx.select().from(table).where(where).limit(1);
+    const query = tx.select().from(table).where(where).limit(1);
+    // Verrou partagé tenu jusqu'au commit, PostgreSQL uniquement.
+    //
+    // Mesuré (PG 16, les 4 combinaisons) : SERIALIZABLE seul n'annule PAS la
+    // séquence « lire le guard -> un tiers sort la cible du scope -> écrire ».
+    // SSI n'y voit aucun cycle de dépendances, donc cet ordre reste
+    // sérialisable et les deux transactions committent. Seul le verrou de
+    // ligne ferme la fenêtre. Ne pas le retirer en pensant que le niveau
+    // d'isolation suffit : c'est faux, et ça a été vérifié.
+    //
+    // MySQL est exclu volontairement : SERIALIZABLE y transforme déjà les
+    // SELECT en lectures verrouillantes (mesuré : le writer concurrent est
+    // bloqué), donc le verrou n'apporterait rien — et `for share` est une
+    // syntaxe 8.0+, l'émettre casserait les schémas encore en 5.7.
+    const rows = await (ctx.dialect === "postgresql" ? query.for("share") : query);
     if (rows.length === 0) throw new Error("relation target is outside the authorization scope");
   }
 }
 
 function validateTargetGuardsSqlite(ctx: DrizzleDataAdapterContext, tx: any, guards: TargetGuard[], compile: (table: Table, filter?: Filter) => any) {
-  for (const guard of guards) {
+  // Pas de clause de verrou en SQLite (absente de sqlite-core, et inutile :
+  // l'écriture concurrente échoue fermée, cf. le commentaire ci-dessus).
+  for (const guard of orderedGuards(guards)) {
     const table = tableFor(ctx, guard.targetModel);
     const where = and(eq(primaryKeyColumn(table, guard.targetModel), guard.targetPk), compile(table, guard.filter));
     const row = tx.select().from(table).where(where).limit(1).get();
@@ -257,7 +289,7 @@ export function createDrizzleDataAdapter(
             insertM2mRowsSqlite(tx, link, parentId, relation.ids);
           }
           return parent;
-        });
+        }, { behavior: "immediate" });
       }
       return db.transaction(async (tx: any) => {
         await validateTargetGuards(ctx, tx, guards, compileHere);
@@ -312,7 +344,7 @@ export function createDrizzleDataAdapter(
             insertM2mRowsSqlite(tx, link, parentId, relation.ids);
           }
           return parent;
-        });
+        }, { behavior: "immediate" });
       }
       return db.transaction(async (tx: any) => {
         await validateTargetGuards(ctx, tx, guards, compileHere);
@@ -342,30 +374,31 @@ export function createDrizzleDataAdapter(
       const links = [...ctx.m2m.entries()]
         .filter(([key]) => key.startsWith(`${model.name}.`))
         .map(([, link]) => link);
+      const parentWhere = and(eq(primaryKeyColumn(table, model), coercedId), compileHere(table, authorizationFilter));
       if (links.length === 0) {
         if (ctx.dialect === "sqlite") {
-          const result = db.delete(table).where(and(eq(primaryKeyColumn(table, model), coercedId), compileHere(table, authorizationFilter))).run();
+          const result = db.delete(table).where(parentWhere).run();
           if (result.changes !== 1) throw new Error("record is outside the authorization scope");
         } else {
-          const result = await db.delete(table).where(and(eq(primaryKeyColumn(table, model), coercedId), compileHere(table, authorizationFilter)));
+          const result = await db.delete(table).where(parentWhere);
           if (Number(result?.affectedRows ?? 0) !== 1) throw new Error("record is outside the authorization scope");
         }
         return;
       }
-      const parentWhere = and(eq(primaryKeyColumn(table, model), coercedId), compileHere(table, authorizationFilter));
+      // Les pivots partent avant le parent, l'ordre qu'imposent les FK. Le DELETE
+      // scopé du parent sert lui-même de garde : zéro ligne touchée => throw =>
+      // rollback des pivots. Pas de SELECT de vérification préalable, donc aucune
+      // fenêtre TOCTOU entre la lecture du scope et la suppression, et aucune
+      // branche défensive inatteignable.
       if (ctx.dialect === "sqlite") {
         db.transaction((tx: any) => {
-          const parent = tx.select().from(table).where(parentWhere).limit(1).get();
-          if (!parent) throw new Error("record is outside the authorization scope");
           for (const link of links) tx.delete(link.pivot).where(eq(link.selfColumn, coercedId)).run();
           const result = tx.delete(table).where(parentWhere).run();
           if (result.changes !== 1) throw new Error("record is outside the authorization scope");
-        });
+        }, { behavior: "immediate" });
         return;
       }
       await db.transaction(async (tx: any) => {
-        const existing = await tx.select().from(table).where(parentWhere).limit(1);
-        if (existing.length !== 1) throw new Error("record is outside the authorization scope");
         for (const link of links) await tx.delete(link.pivot).where(eq(link.selfColumn, coercedId));
         if (ctx.dialect === "postgresql") {
           const deleted = await tx.delete(table).where(parentWhere).returning({ id: primaryKeyColumn(table, model) });

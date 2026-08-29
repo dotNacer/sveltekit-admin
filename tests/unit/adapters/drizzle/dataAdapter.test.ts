@@ -416,16 +416,161 @@ describe("createDrizzleDataAdapter", () => {
     ).rejects.toThrow(/outside the authorization scope/);
   });
 
-  it("does not delete async m2m pivots when the scoped parent is absent", async () => {
+  it("aborts the async m2m transaction when the scoped parent delete affects no row", async () => {
+    // Les pivots sont bien supprimés en premier (ordre imposé par les FK) : la
+    // garantie n'est pas qu'on ne les touche pas, c'est que le throw remonte
+    // hors du callback de transaction et que le driver annule tout.
     let deleteCalls = 0;
+    let committed = true;
     const emptyDb: any = {
-      select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }),
       delete: () => ({ where: async () => { deleteCalls += 1; return { affectedRows: 0 }; } }),
-      transaction: async (callback: (tx: any) => unknown) => callback(emptyDb),
+      transaction: async (callback: (tx: any) => unknown) => {
+        try {
+          return await callback(emptyDb);
+        } catch (error) {
+          committed = false;
+          throw error;
+        }
+      },
     };
     const mysqlAdapter = createDrizzleDataAdapter(emptyDb, { tables: inspected.tables, m2m: inspected.m2m, dialect: "mysql", caseInsensitiveSearch: false });
     await expect(mysqlAdapter.deleteRecord(posts, 7, { op: "eq", field: "id", value: 1 })).rejects.toThrow(/outside/);
-    expect(deleteCalls).toBe(0);
+    expect(deleteCalls).toBe(2);
+    expect(committed).toBe(false);
+  });
+
+  it("verrouille les lignes de guard en FOR SHARE sur PostgreSQL uniquement", async () => {
+    const strengths: string[] = [];
+    const makeDb = (): any => {
+      const query: any = {
+        limit: () => query,
+        for: (strength: string) => { strengths.push(strength); return query; },
+        then: (resolve: (rows: unknown[]) => void) => resolve([{ id: 1 }]),
+      };
+      const db: any = {
+        select: () => ({ from: () => ({ where: () => query }) }),
+        update: () => ({ set: () => ({ where: () => ({ returning: async () => [{ id: 1 }] }) }) }),
+        transaction: (callback: (tx: any) => Promise<unknown>) => callback(db),
+      };
+      return db;
+    };
+    const guard = { targetModel: users, targetPk: 1, filter: { op: "eq" as const, field: "tenantId", value: 1 } };
+
+    const pg = createDrizzleDataAdapter(makeDb(), { tables: inspected.tables, m2m: inspected.m2m, dialect: "postgresql", caseInsensitiveSearch: false });
+    await pg.updateRecord(users, 1, { scalars: { name: "ok" }, targetGuards: [guard] });
+    expect(strengths).toEqual(["share"]);
+
+    // MySQL ferme déjà la fenêtre via SERIALIZABLE, et `for share` y est une
+    // syntaxe 8.0+ : on ne doit pas l'émettre.
+    strengths.length = 0;
+    const mysqlDb = makeDb();
+    mysqlDb.update = () => ({ set: () => ({ where: async () => undefined }) });
+    mysqlDb.select = () => ({ from: () => ({ where: () => ({ limit: () => ({ then: (r: (rows: unknown[]) => void) => r([{ id: 1 }]) }) }) }) });
+    const mysql = createDrizzleDataAdapter(mysqlDb, { tables: inspected.tables, m2m: inspected.m2m, dialect: "mysql", caseInsensitiveSearch: false });
+    await mysql.updateRecord(users, 1, { scalars: { name: "ok" }, targetGuards: [guard] });
+    expect(strengths).toEqual([]);
+  });
+
+  it("verrouille les guards dans un ordre deterministe quel que soit l'ordre soumis", async () => {
+    // Sans tri, l'ordre vient des ids du formulaire : deux requetes envoyant
+    // [3,1,2] et [2,3,1] verrouilleraient les memes lignes en sens inverse et
+    // pourraient se deadlocker.
+    seedPostRelations();
+    sqlite.prepare("INSERT INTO tags (name) VALUES (?)").run("third");
+
+    const pkOrder = async (submitted: Array<string | number>) => {
+      const queries: Array<[string, unknown[]]> = [];
+      const logged = drizzle(sqlite, {
+        logger: { logQuery: (query: string, params: unknown[]) => { queries.push([query, params]); } },
+      });
+      const logging = createDrizzleDataAdapter(logged, {
+        tables: inspected.tables,
+        m2m: inspected.m2m,
+        dialect: inspected.dialect,
+        caseInsensitiveSearch: false,
+      });
+      await logging.createRecord(posts, {
+        scalars: { title: "t", authorId: 1 },
+        targetGuards: submitted.map((pk) => ({ targetModel: tags, targetPk: pk })),
+      });
+      // Chaque guard émet un `select ... from "tags" where id = ? limit ?`.
+      return queries
+        .filter(([query]) => query.startsWith("select") && query.includes('from "tags"'))
+        .map(([, params]) => params[0]);
+    };
+
+    expect(await pkOrder([3, 1, 2])).toEqual([1, 2, 3]);
+    expect(await pkOrder([2, 3, 1])).toEqual([1, 2, 3]);
+  });
+
+  it("fails closed when a MySQL m2m parent delete returns no result-set header", async () => {
+    // mysql2 renvoie un ResultSetHeader ; un pilote qui renvoie autre chose ne
+    // doit pas être lu comme « une ligne supprimée ».
+    let calls = 0;
+    const fakeDb: any = {
+      delete: () => ({ where: async () => { calls += 1; return calls === 1 ? { affectedRows: 1 } : []; } }),
+      transaction: (callback: (tx: any) => Promise<unknown>) => callback(fakeDb),
+    };
+    const mysql = createDrizzleDataAdapter(fakeDb, { tables: inspected.tables, m2m: inspected.m2m, dialect: "mysql", caseInsensitiveSearch: false });
+    await expect(mysql.deleteRecord(posts, 7)).rejects.toThrow(/outside the authorization scope/);
+  });
+
+  it("fails closed on an out-of-scope SQLite delete without pivots", async () => {
+    seedUsers();
+
+    await expect(
+      adapter.deleteRecord(users, 1, { op: "eq", field: "tenantId", value: 2 }),
+    ).rejects.toThrow(/outside the authorization scope/);
+    expect(sqlite.prepare("SELECT * FROM users WHERE id = 1").all()).toHaveLength(1);
+  });
+
+  it("rolls the pivots back when an out-of-scope SQLite parent delete affects no row", async () => {
+    seedPostRelations();
+    sqlite.prepare("INSERT INTO posts (title, author_id) VALUES (?, ?)").run("post", 1);
+    sqlite.prepare("INSERT INTO posts_to_tags (post_id, tag_id) VALUES (?, ?)").run(1, 1);
+
+    await expect(
+      adapter.deleteRecord(posts, 1, { op: "eq", field: "id", value: 999 }),
+    ).rejects.toThrow(/outside the authorization scope/);
+
+    // Le rollback est réel, pas simulé : les pivots supprimés dans la
+    // transaction sont revenus.
+    expect(sqlite.prepare("SELECT * FROM posts").all()).toHaveLength(1);
+    expect(sqlite.prepare("SELECT * FROM posts_to_tags").all()).toHaveLength(1);
+  });
+
+  it("rolls the pivots back when a RESTRICT foreign key blocks the parent delete", async () => {
+    sqlite.exec(`
+      DROP TABLE posts_to_tags;
+      DROP TABLE posts;
+      CREATE TABLE posts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        author_id INTEGER NOT NULL
+      );
+      CREATE TABLE posts_to_tags (
+        post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE RESTRICT,
+        tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE RESTRICT,
+        PRIMARY KEY (post_id, tag_id)
+      );
+      CREATE TABLE comments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE RESTRICT
+      );
+    `);
+    sqlite.pragma("foreign_keys = ON");
+    seedPostRelations();
+    sqlite.prepare("INSERT INTO posts (title, author_id) VALUES (?, ?)").run("post", 1);
+    sqlite.prepare("INSERT INTO posts_to_tags (post_id, tag_id) VALUES (?, ?)").run(1, 1);
+    sqlite.prepare("INSERT INTO comments (post_id) VALUES (?)").run(1);
+
+    // `comments` n'est pas un pivot m2m : l'adapter ne le nettoie pas, donc le
+    // DELETE du parent viole la contrainte RESTRICT.
+    await expect(adapter.deleteRecord(posts, 1)).rejects.toThrow();
+
+    expect(sqlite.prepare("SELECT * FROM posts").all()).toHaveLength(1);
+    expect(sqlite.prepare("SELECT * FROM posts_to_tags").all()).toHaveLength(1);
+    expect(sqlite.prepare("SELECT * FROM comments").all()).toHaveLength(1);
   });
 
   it("valide un guard dans une transaction async", async () => {
