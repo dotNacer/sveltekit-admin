@@ -439,6 +439,42 @@ describe("createDrizzleDataAdapter", () => {
     expect(committed).toBe(false);
   });
 
+  it("rejoue une transaction d'écriture annulée pour conflit de sérialisation", async () => {
+    // Le moteur annule entièrement la transaction avant de renvoyer 40001 :
+    // rien n'a été écrit, rejouer est sûr et évite un 500 gratuit.
+    let attempts = 0;
+    const row = { id: 7, title: "ok", authorId: 1 };
+    const fakeDb: any = {
+      insert: () => ({ values: () => ({ returning: async () => [row] }) }),
+      transaction: async (callback: (tx: any) => Promise<unknown>) => {
+        attempts += 1;
+        if (attempts === 1) throw Object.assign(new Error("could not serialize access"), { code: "40001" });
+        return callback(fakeDb);
+      },
+    };
+    const pg = createDrizzleDataAdapter(fakeDb, { tables: inspected.tables, m2m: inspected.m2m, dialect: "postgresql", caseInsensitiveSearch: false });
+
+    await expect(
+      pg.createRecord(posts, { scalars: { title: "ok", authorId: 1 }, m2m: { tags: { targetPkField: "id", ids: [] } } }),
+    ).resolves.toEqual(row);
+    expect(attempts).toBe(2);
+  });
+
+  it("ne rejoue pas un refus de scope", async () => {
+    let attempts = 0;
+    const fakeDb: any = {
+      delete: () => ({ where: async () => ({ affectedRows: 0 }) }),
+      transaction: async (callback: (tx: any) => Promise<unknown>) => {
+        attempts += 1;
+        return callback(fakeDb);
+      },
+    };
+    const mysql = createDrizzleDataAdapter(fakeDb, { tables: inspected.tables, m2m: inspected.m2m, dialect: "mysql", caseInsensitiveSearch: false });
+
+    await expect(mysql.deleteRecord(posts, 7, { op: "eq", field: "id", value: 1 })).rejects.toThrow(/outside/);
+    expect(attempts).toBe(1);
+  });
+
   it("verrouille les lignes de guard en FOR SHARE sur PostgreSQL uniquement", async () => {
     const strengths: string[] = [];
     const makeDb = (): any => {

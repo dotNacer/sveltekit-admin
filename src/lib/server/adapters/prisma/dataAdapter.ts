@@ -3,6 +3,7 @@ import type { RelationEdge } from '../../introspection/relations.js';
 import { toPrismaModel, primaryKeyOf, coerceId } from '../../data.js';
 import { compileFilterToPrismaWhere } from './filterCompiler.js';
 import type { DataAdapter, Filter, TargetGuard } from '../types.js';
+import { withWriteRetry } from '../retry.js';
 
 /**
  * Revalidation des cibles de relation à l'intérieur de la transaction d'écriture.
@@ -95,15 +96,17 @@ export function createPrismaDataAdapter(
       if (m2mFields.length === 0 && guards.length === 0) {
         return prisma[key].create({ data: input.scalars });
       }
-      return prisma.$transaction(async (tx: any) => {
-        await validateTargetGuards(tx, guards, compileHere);
-        const data: Record<string, unknown> = { ...input.scalars };
-        for (const field of m2mFields) {
-          const { targetPkField, ids } = input.m2m![field];
-          data[field] = { connect: ids.map((id) => ({ [targetPkField]: id })) };
-        }
-        return tx[key].create({ data });
-      }, { isolationLevel: "Serializable" as any });
+      return withWriteRetry(() =>
+        prisma.$transaction(async (tx: any) => {
+          await validateTargetGuards(tx, guards, compileHere);
+          const data: Record<string, unknown> = { ...input.scalars };
+          for (const field of m2mFields) {
+            const { targetPkField, ids } = input.m2m![field];
+            data[field] = { connect: ids.map((id) => ({ [targetPkField]: id })) };
+          }
+          return tx[key].create({ data });
+        }, { isolationLevel: "Serializable" as any })
+      );
     },
 
     async updateRecord(model: Model, id, input, authorizationFilter?: Filter) {
@@ -117,15 +120,17 @@ export function createPrismaDataAdapter(
       if (m2mFields.length === 0 && guards.length === 0) {
         return prisma[key].update({ where, data: input.scalars });
       }
-      return prisma.$transaction(async (tx: any) => {
-        await validateTargetGuards(tx, guards, compileHere);
-        const data: Record<string, unknown> = { ...input.scalars };
-        for (const field of m2mFields) {
-          const { targetPkField, ids } = input.m2m![field];
-          data[field] = { set: ids.map((id) => ({ [targetPkField]: id })) };
-        }
-        return tx[key].update({ where, data });
-      }, { isolationLevel: "Serializable" as any });
+      return withWriteRetry(() =>
+        prisma.$transaction(async (tx: any) => {
+          await validateTargetGuards(tx, guards, compileHere);
+          const data: Record<string, unknown> = { ...input.scalars };
+          for (const field of m2mFields) {
+            const { targetPkField, ids } = input.m2m![field];
+            data[field] = { set: ids.map((id) => ({ [targetPkField]: id })) };
+          }
+          return tx[key].update({ where, data });
+        }, { isolationLevel: "Serializable" as any })
+      );
     },
 
     async deleteRecord(model: Model, id, authorizationFilter?: Filter) {

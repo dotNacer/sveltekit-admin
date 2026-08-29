@@ -3,6 +3,7 @@ import type { Column, Table } from "drizzle-orm";
 import { coerceId, primaryKeyOf } from "../../data.js";
 import type { Model } from "../../types/schema.js";
 import type { DataAdapter, Filter, TargetGuard } from "../types.js";
+import { withWriteRetry } from "../retry.js";
 import { compileFilterToDrizzle } from "./filterCompiler.js";
 import type { DrizzleDialect, M2mLink } from "./inspect.js";
 
@@ -291,7 +292,7 @@ export function createDrizzleDataAdapter(
           return parent;
         }, { behavior: "immediate" });
       }
-      return db.transaction(async (tx: any) => {
+      return withWriteRetry(() => db.transaction(async (tx: any) => {
         await validateTargetGuards(ctx, tx, guards, compileHere);
         const parent = await insertAndReturn(
           tx,
@@ -307,7 +308,7 @@ export function createDrizzleDataAdapter(
           await insertM2mRows(tx, link, parentId, relation.ids);
         }
         return parent;
-      }, { isolationLevel: "serializable" });
+      }, { isolationLevel: "serializable" }));
     },
 
     async updateRecord(model, id, input, authorizationFilter) {
@@ -346,7 +347,7 @@ export function createDrizzleDataAdapter(
           return parent;
         }, { behavior: "immediate" });
       }
-      return db.transaction(async (tx: any) => {
+      return withWriteRetry(() => db.transaction(async (tx: any) => {
         await validateTargetGuards(ctx, tx, guards, compileHere);
         const parent = await updateAndReturn(
           tx,
@@ -365,7 +366,7 @@ export function createDrizzleDataAdapter(
           await insertM2mRows(tx, link, parentId, relation.ids);
         }
         return parent;
-      }, { isolationLevel: "serializable" });
+      }, { isolationLevel: "serializable" }));
     },
 
     async deleteRecord(model, id, authorizationFilter) {
@@ -398,7 +399,7 @@ export function createDrizzleDataAdapter(
         }, { behavior: "immediate" });
         return;
       }
-      await db.transaction(async (tx: any) => {
+      await withWriteRetry(() => db.transaction(async (tx: any) => {
         for (const link of links) await tx.delete(link.pivot).where(eq(link.selfColumn, coercedId));
         if (ctx.dialect === "postgresql") {
           const deleted = await tx.delete(table).where(parentWhere).returning({ id: primaryKeyColumn(table, model) });
@@ -407,7 +408,7 @@ export function createDrizzleDataAdapter(
           const result = await tx.delete(table).where(parentWhere);
           if (Number(result?.affectedRows ?? 0) !== 1) throw new Error("record is outside the authorization scope");
         }
-      }, { isolationLevel: "serializable" });
+      }, { isolationLevel: "serializable" }));
     },
 
     async getM2mSelectedIds(model, edge, _targetModel, recordId) {

@@ -74,8 +74,13 @@ export async function handleMutation(
 
   if (action === 'create' || action === 'update') {
     const data = formDataToPrisma(formData, model);
+    // Appelé tôt pour échouer vite sur un scope non injectable (`or`, opérateur
+    // autre que `eq`, tenant absent), avant tout travail de validation.
+    // Volontairement PAS appliqué ici : `data` doit conserver ce que le client
+    // a soumis, sinon la confrontation au scope plus bas ne verrait plus que la
+    // valeur déjà corrigée, et ne lèverait que pour les scalaires de relation
+    // — les seuls que la boucle FK réécrit.
     const scopeValues = modelScopeValues(runtime, model, { locals: event.locals });
-    Object.assign(data, scopeValues);
     const m2mInput: Record<string, { targetPkField: string; ids: Array<string | number> }> = {};
     const targetGuards: TargetGuard[] = [];
 
@@ -221,22 +226,22 @@ export async function handleMutation(
       }
     }
 
-    // Réimposition du scope, en dernier et volontairement après les boucles
+    // Imposition du scope, en dernier et volontairement après les boucles
     // ci-dessus : elles réécrivent `data[scalarName]` avec la valeur soumise,
     // et la colonne de tenant est presque toujours un scalaire de relation
-    // (`organizationId`, `authorId`…). Sans ce passage, la valeur forcée plus
-    // haut était écrasée par le formulaire — création dans un autre tenant, ou
-    // déplacement d'un enregistrement possédé vers un autre tenant.
+    // (`organizationId`, `authorId`…). Sans ce passage, un POST forgé créait
+    // dans un autre tenant, ou y déplaçait un enregistrement possédé.
     //
-    // Un conflit est rejeté plutôt qu'écrasé en silence : la valeur est
-    // déterminée par le serveur, donc une divergence est soit un POST forgé,
-    // soit une config cassée, jamais une soumission légitime. Comparaison par
-    // `String` comme ailleurs pour les ids (cf. la garde self-ref), afin qu'un
-    // scope numérique et une PK coercée ne divergent pas sur le seul type.
-    // L'affectation est volontairement HORS du `if` : c'est elle qui porte la
-    // garantie, pas la comparaison. Le test ne décide que de lever ou non une
-    // erreur ; la valeur correcte est réécrite dans tous les cas. Replier ceci
-    // en `if (field in data) { … } else { data[field] = value }` — un
+    // Une valeur soumise divergente est rejetée, pour toute colonne de scope et
+    // pas seulement pour les scalaires de relation : la valeur est déterminée
+    // par le serveur, donc une divergence est soit un POST forgé, soit un
+    // formulaire qui offre un choix qu'il ne devrait pas offrir. Corriger en
+    // silence masquerait les deux. Comparaison par `String` comme ailleurs pour
+    // les ids (cf. la garde self-ref), afin qu'un scope numérique et une PK
+    // coercée ne divergent pas sur le seul type.
+    //
+    // L'affectation est HORS du `if` : c'est elle qui porte la garantie, pas la
+    // comparaison. Replier ceci en `if (field in data) { … } else { … }` — un
     // nettoyage d'apparence anodine — réintroduirait la faille dès qu'une
     // comparaison `String` coïncide par accident.
     for (const [field, value] of Object.entries(scopeValues)) {

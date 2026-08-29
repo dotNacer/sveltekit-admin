@@ -224,13 +224,32 @@ describe('actions POST', () => {
     expect((callsTo(prisma, 'user', 'create')[0].args as any).data.email).toBe('n@x.y');
   });
 
-  it('force le champ scoped à la création et ignore la valeur forgée', async () => {
+  it('refuse une création dont le champ scoped est forgé', async () => {
+    // Le rejet vaut pour toute colonne de scope, pas seulement les scalaires de
+    // relation : une valeur soumise divergente est soit un POST forgé, soit un
+    // formulaire qui offre un choix qu'il ne devrait pas offrir.
     const { handler, prisma } = build({
       models: { User: { scope: () => ({ email: 'tenant-a@example.test' }) } }
     });
     const { event, resolve } = createEvent({
       url: '/admin/user/new',
       body: { _action: 'create', email: 'attacker@example.test', password: 'p' }
+    });
+    const res = await handler({ event, resolve } as any);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toMatch(/outside the authorization scope/);
+    expect(callsTo(prisma, 'user', 'create')).toHaveLength(0);
+  });
+
+  it('impose le champ scoped absent du formulaire', async () => {
+    // Champ non soumis (caché ou readonly) : rien à confronter, la valeur du
+    // scope est simplement posée.
+    const { handler, prisma } = build({
+      models: { User: { scope: () => ({ email: 'tenant-a@example.test' }), hidden: ['email'] } }
+    });
+    const { event, resolve } = createEvent({
+      url: '/admin/user/new',
+      body: { _action: 'create', password: 'p' }
     });
     expect((await handler({ event, resolve } as any)).status).toBe(303);
     expect((callsTo(prisma, 'user', 'create')[0].args as any).data.email).toBe('tenant-a@example.test');
