@@ -233,6 +233,12 @@ export async function handleMutation(
     // soit une config cassée, jamais une soumission légitime. Comparaison par
     // `String` comme ailleurs pour les ids (cf. la garde self-ref), afin qu'un
     // scope numérique et une PK coercée ne divergent pas sur le seul type.
+    // L'affectation est volontairement HORS du `if` : c'est elle qui porte la
+    // garantie, pas la comparaison. Le test ne décide que de lever ou non une
+    // erreur ; la valeur correcte est réécrite dans tous les cas. Replier ceci
+    // en `if (field in data) { … } else { data[field] = value }` — un
+    // nettoyage d'apparence anodine — réintroduirait la faille dès qu'une
+    // comparaison `String` coïncide par accident.
     for (const [field, value] of Object.entries(scopeValues)) {
       if (field in data && String(data[field]) !== String(value)) {
         throw new Error(`${field}: value is outside the authorization scope`);
