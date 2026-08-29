@@ -4,6 +4,26 @@ import { toPrismaModel, primaryKeyOf, coerceId } from '../../data.js';
 import { compileFilterToPrismaWhere } from './filterCompiler.js';
 import type { DataAdapter, Filter, TargetGuard } from '../types.js';
 
+/**
+ * Revalidation des cibles de relation à l'intérieur de la transaction d'écriture.
+ *
+ * Fenêtre résiduelle, assumée : cette lecture ne pose aucun verrou de ligne.
+ * Sur PostgreSQL, `Serializable` ne l'empêche PAS — mesuré sur PG 16 : SSI ne
+ * voit aucun cycle de dépendances dans « lire le guard -> un tiers sort la
+ * cible du scope -> écrire », donc les deux transactions committent. L'adapter
+ * Drizzle ferme cette fenêtre avec un `FOR SHARE` ; Prisma n'expose aucune API
+ * de verrou, et l'émettre demanderait du `$queryRaw` par dialecte, donc les
+ * noms physiques de tables et colonnes (les `@@map`/`@map` ne sont pas parsés)
+ * et un second compilateur de filtres à garder en phase avec
+ * `compileFilterToPrismaWhere` — exactement le duplicata divergent que ce
+ * codebase a déjà payé une fois.
+ *
+ * L'exposition reste bornée : `mutations.ts` a déjà revalidé chaque FK et m2m
+ * par un `findFirst` scopé avant d'appeler l'adapter, et gagner cette course
+ * ne produit qu'une référence orpheline inter-tenant — aucune lecture des
+ * données de l'autre tenant, le scoping des dropdowns et la « chip » anti-oracle
+ * tenant par ailleurs. C'est un défaut d'intégrité, pas une divulgation.
+ */
 async function validateTargetGuards(tx: any, guards: TargetGuard[], compile: (filter?: Filter) => any) {
   for (const guard of guards) {
     const key = toPrismaModel(guard.targetModel.name);
