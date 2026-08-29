@@ -74,7 +74,8 @@ export async function handleMutation(
 
   if (action === 'create' || action === 'update') {
     const data = formDataToPrisma(formData, model);
-    Object.assign(data, modelScopeValues(runtime, model, { locals: event.locals }));
+    const scopeValues = modelScopeValues(runtime, model, { locals: event.locals });
+    Object.assign(data, scopeValues);
     const m2mInput: Record<string, { targetPkField: string; ids: Array<string | number> }> = {};
     const targetGuards: TargetGuard[] = [];
 
@@ -218,6 +219,25 @@ export async function handleMutation(
 
         m2mInput[edge.field] = { targetPkField: targetPk, ids };
       }
+    }
+
+    // Réimposition du scope, en dernier et volontairement après les boucles
+    // ci-dessus : elles réécrivent `data[scalarName]` avec la valeur soumise,
+    // et la colonne de tenant est presque toujours un scalaire de relation
+    // (`organizationId`, `authorId`…). Sans ce passage, la valeur forcée plus
+    // haut était écrasée par le formulaire — création dans un autre tenant, ou
+    // déplacement d'un enregistrement possédé vers un autre tenant.
+    //
+    // Un conflit est rejeté plutôt qu'écrasé en silence : la valeur est
+    // déterminée par le serveur, donc une divergence est soit un POST forgé,
+    // soit une config cassée, jamais une soumission légitime. Comparaison par
+    // `String` comme ailleurs pour les ids (cf. la garde self-ref), afin qu'un
+    // scope numérique et une PK coercée ne divergent pas sur le seul type.
+    for (const [field, value] of Object.entries(scopeValues)) {
+      if (field in data && String(data[field]) !== String(value)) {
+        throw new Error(`${field}: value is outside the authorization scope`);
+      }
+      data[field] = value;
     }
 
     if (action === 'create') {

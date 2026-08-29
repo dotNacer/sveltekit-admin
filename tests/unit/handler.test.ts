@@ -439,3 +439,63 @@ describe('hidePivotTables', () => {
     expect(html).toContain('User Team');
   });
 });
+
+describe('scope portant sur un scalaire de relation', () => {
+  // Les autres tests de scope utilisent `email`/`tenantId`, des colonnes
+  // ordinaires. Or la colonne de tenant est presque toujours un scalaire de
+  // relation (`organizationId`, `authorId`…), et la boucle de revalidation
+  // des FK réécrit `data[scalarName]` avec la valeur soumise — ce qui écrasait
+  // la valeur forcée par le scope.
+  const twoTenants = () =>
+    createPrismaMock({
+      user: [
+        { id: 1, email: 'a@x.y', password: 'p' },
+        { id: 2, email: 'b@x.y', password: 'p' }
+      ],
+      post: [{ id: 'p1', title: 'mine', authorId: 1, published: false }],
+      category: []
+    });
+
+  it("refuse une création qui tente d'écrire dans un autre tenant", async () => {
+    const prisma = twoTenants();
+    const { handler } = build({ models: { Post: { scope: () => ({ authorId: 1 }) } } }, prisma);
+    const { event, resolve } = createEvent({
+      url: '/admin/post/new',
+      body: { _action: 'create', title: 'hi', authorId: '2' }
+    });
+
+    const res = await handler({ event, resolve } as any);
+
+    expect(callsTo(prisma, 'post', 'create')).toHaveLength(0);
+    expect(await res.text()).toContain('authorId');
+  });
+
+  it('force la valeur du scope quand la création soumet le bon tenant', async () => {
+    const prisma = twoTenants();
+    const { handler } = build({ models: { Post: { scope: () => ({ authorId: 1 }) } } }, prisma);
+    const { event, resolve } = createEvent({
+      url: '/admin/post/new',
+      body: { _action: 'create', title: 'hi', authorId: '1' }
+    });
+
+    await handler({ event, resolve } as any);
+
+    const created = callsTo(prisma, 'post', 'create');
+    expect(created).toHaveLength(1);
+    expect((created[0].args as any).data.authorId).toBe(1);
+  });
+
+  it("refuse une édition qui déplacerait l'enregistrement vers un autre tenant", async () => {
+    const prisma = twoTenants();
+    const { handler } = build({ models: { Post: { scope: () => ({ authorId: 1 }) } } }, prisma);
+    const { event, resolve } = createEvent({
+      url: '/admin/post/p1',
+      body: { _action: 'update', title: 'pwned', authorId: '2' }
+    });
+
+    const res = await handler({ event, resolve } as any);
+
+    expect(callsTo(prisma, 'post', 'update')).toHaveLength(0);
+    expect(await res.text()).toContain('authorId');
+  });
+});
