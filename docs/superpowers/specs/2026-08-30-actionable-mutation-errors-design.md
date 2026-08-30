@@ -110,7 +110,11 @@ Les messages actuels sont conservés au mot près : ils sont déjà corrects, et
 
 ### `handler.ts`
 
-Le `catch` ne construit plus de HTML. Il produit un `MutationFailure` (`{ kind, field?, message }`) et laisse la vue GET se rendre normalement — chemin déjà existant, y compris `loadRelationOptions` et `loadRelatedCounts`.
+**Le `catch` partagé n'est PAS le bon point d'accroche.** Il couvre aussi le rendu GET et les pages de plugin : un plugin dont le `render()` lève voit son message rendu (`handler.plugins.test.ts:123`), et une lecture de liste qui échoue affiche `Unknown error` (`handler.test.ts:465`). Y toucher élargirait le changement bien au-delà du point de roadmap, et changerait silencieusement le contrat des plugins.
+
+Les erreurs de mutation sont donc interceptées **au site d'appel de `handleMutation`**, dans son propre `try`. Le `catch` partagé garde son comportement actuel à l'identique.
+
+Ce `try` produit un `MutationFailure` (`{ kind, field?, message }`) et laisse la vue GET se rendre normalement — chemin déjà existant, y compris `loadRelationOptions` et `loadRelatedCounts`.
 
 ### `Form.svelte`
 
@@ -155,6 +159,7 @@ Par PR, sur `tests/unit/` avec le mock existant, plus les tests DB pour les code
 
 - **Classification** : un cas par code du tableau, sur les deux adapters ; un code inconnu retombe sur `unknown`.
 - **Non-fuite** : une erreur pilote arbitraire ne fait apparaître ni son message, ni un nom de table, ni un fragment de requête dans le HTML rendu.
+- **Non-régression du chemin partagé** : les erreurs de plugin et de lecture GET rendent exactement comme avant. Les ~25 assertions existantes sur les messages de `mutations.ts` (`toContain('author: invalid value')` et consorts, dans `fkEditable`, `m2mImplicit`, `handler.drizzle.db`) doivent passer sans être touchées — c'est la preuve que les messages sont conservés au mot près.
 - **Préservation** : après échec, chaque champ soumis est réaffiché ; un champ sensible ne l'est pas ; les cases N-N cochées le restent.
 - **Sonde** : champ nommé quand il est en scope ; message modèle quand la ligne en conflit est hors scope (le test anti-oracle) ; message modèle sur contrainte composite.
 - **Suppression** : compteurs corrects, et un référençant hors scope n'est pas compté.
