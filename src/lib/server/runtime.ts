@@ -8,6 +8,7 @@ import { toLabel } from './views/html.js';
 import type { ViewModel } from './views/types.js';
 import type { DataAdapter, SchemaIntrospector, Filter } from './adapters/types.js';
 import type { AdminHandlerConfig } from './handler.js';
+import { AdminConfigError } from './errors.js';
 
 export function scopeFrom(
   relConfig: { where?: (ctx: any) => any } | undefined,
@@ -31,7 +32,7 @@ export function listScopeFrom(
   // function is either omitted entirely, or must return at least
   // one condition every time it runs.
   if (listScope && Object.keys(listScope).length === 0) {
-    throw new Error(
+    throw new AdminConfigError(
       `[sveltekit-admin] models.${model.name}.listWhere returned an empty object ({}), ` +
         `which would silently disable list scoping (fail-open). Return undefined/omit the ` +
         `scope entirely if there is genuinely nothing to scope by for this request, or a ` +
@@ -50,7 +51,7 @@ export function modelScopeFrom(
   if (!scope) return undefined;
   const raw = scope(ctx);
   if (!raw || (typeof raw === 'object' && !Array.isArray(raw) && Object.keys(raw).length === 0)) {
-    throw new Error(
+    throw new AdminConfigError(
       `[sveltekit-admin] models.${model.name}.scope must return a non-empty condition; ` +
         'refusing to fail open.'
     );
@@ -61,7 +62,7 @@ export function modelScopeFrom(
     return isCompositeFilter(node) && node.clauses.length > 0 && node.clauses.every(valid);
   };
   if (!valid(normalized)) {
-    throw new Error(`[sveltekit-admin] models.${model.name}.scope returned an invalid condition; refusing to fail open.`);
+    throw new AdminConfigError(`[sveltekit-admin] models.${model.name}.scope returned an invalid condition; refusing to fail open.`);
   }
   return normalized;
 }
@@ -82,7 +83,7 @@ export function modelScopeValues(runtime: AdminRuntime, model: Model, ctx: { loc
     return node.clauses.every(visit);
   };
   if (!visit(normalized) || Object.keys(values).length === 0) {
-    throw new Error(`[sveltekit-admin] models.${model.name}.scope must contain only equality conditions for creation`);
+    throw new AdminConfigError(`[sveltekit-admin] models.${model.name}.scope must contain only equality conditions for creation`);
   }
   return values;
 }

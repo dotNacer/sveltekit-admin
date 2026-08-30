@@ -33,6 +33,20 @@ export class AdminMutationError extends Error {
 }
 
 /**
+ * Erreur de configuration de la bibliothèque elle-même (scope non injectable,
+ * tenant absent…), destinée au développeur intégrateur et non à l'utilisateur
+ * de l'admin. Distincte d'`AdminMutationError` : elle ne décrit pas un refus
+ * de la donnée soumise, mais un montage incorrect côté consommateur, et c'est
+ * la SEULE erreur non typée que le chemin de mutation relaie telle quelle.
+ */
+export class AdminConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AdminConfigError';
+  }
+}
+
+/**
  * Les pilotes exposent le code SQLSTATE à des endroits différents : `code` sur
  * `pg`, `mysql2` et `better-sqlite3`, `meta.code` sur une
  * `PrismaClientKnownRequestError` issue d'une transaction interactive.

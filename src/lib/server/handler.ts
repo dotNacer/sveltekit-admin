@@ -26,7 +26,7 @@ import { createAdminRuntime, listScopeFrom, modelScopeFrom } from './runtime.js'
 import { loadRelationOptions, resolveFkFilterOptions, loadRelatedCounts } from './relationLoaders.js';
 import { handleSearch } from './search.js';
 import { handleMutation } from './mutations.js';
-import { classifyWriteError, codeOf } from './errors.js';
+import { classifyWriteError, AdminConfigError } from './errors.js';
 import { verifyOrigin, resolveCsrfConfig, type CsrfConfig } from './csrf.js';
 import { resolvePluginRegistry, actionsForModel } from './pluginRegistry.js';
 import { createPluginPageContext } from './pluginAccess.js';
@@ -325,18 +325,16 @@ export function createAdminHandler(config: AdminHandlerConfig) {
             // Message construit par la bibliothèque (validation, scope, ou
             // code pilote reconnu) : sûr à rendre tel quel.
             mutationError = classified.message;
-          } else if (codeOf(e) !== undefined) {
-            // Code pilote présent mais non reconnu : son texte porte le nom
-            // de la table et un fragment de requête, donc jamais rendu — on
-            // se contente de le journaliser.
-            console.error('[sveltekit-admin] mutation failed:', e);
-            mutationError = 'The change could not be saved.';
-          } else {
-            // Ni AdminMutationError, ni code pilote : une erreur interne à la
-            // bibliothèque elle-même (mauvaise config de `scope`, invariant
-            // violé...), pas une fuite du moteur. Le `catch` partagé plus bas
+          } else if (e instanceof AdminConfigError) {
+            // Mauvaise configuration côté consommateur : message écrit par la
+            // bibliothèque, destiné au développeur. Le `catch` partagé plus bas
             // garde son contrat historique — on le laisse la traiter.
             throw e;
+          } else {
+            // Tout le reste est présumé venir du moteur : son texte peut porter le nom
+            // de la table, un fragment de requête ou un dump d'arguments. Jamais rendu.
+            console.error('[sveltekit-admin] mutation failed:', e);
+            mutationError = 'The change could not be saved.';
           }
         }
       }

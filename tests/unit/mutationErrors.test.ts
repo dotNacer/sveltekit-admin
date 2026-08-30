@@ -115,4 +115,34 @@ describe('rendu des erreurs de mutation', () => {
 
     expect(await (await handler(ev as any)).text()).toContain('author: invalid value');
   });
+
+  it('masque aussi une erreur sans code pilote (PrismaClientValidationError)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    // PrismaClientValidationError n'a pas de `.code` — seule
+    // PrismaClientKnownRequestError en porte un — mais son message contient
+    // l'appel complet et le dump des arguments soumis. Sans code pilote,
+    // rien ne doit distinguer ce cas d'un autre bug moteur : par défaut, on
+    // masque toujours, sauf `AdminMutationError` reconnue.
+    const dump =
+      'Invalid `prisma.user.create()` invocation in\n' +
+      '/app/src/lib/server/data.ts:42:34\n\n' +
+      '  39 await prisma.user.create({\n' +
+      '  40   data: {\n' +
+      '  41     email: "a@b.c",\n' +
+      '→ 42     name: undefined\n' +
+      '  })\n\n' +
+      'Argument `name` is missing.';
+    const prisma = createPrismaMock({ user: [] });
+    prisma.user.create = () => {
+      throw new Error(dump);
+    };
+    const handler = createAdminHandler({ prisma, prismaSchemaPath: FULL_SCHEMA_PATH } as any);
+    const ev = createEvent({ url: '/admin/user/new', body: { _action: 'create', email: 'a@b.c' } });
+
+    const html = await (await handler(ev as any)).text();
+
+    expect(html).not.toContain('prisma.user.create');
+    expect(html).not.toContain('Argument `name` is missing');
+    expect(html).toContain(GENERIC);
+  });
 });
