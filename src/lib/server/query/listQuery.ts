@@ -442,7 +442,7 @@ function clauseOf(filter: ActiveFilter): Filter[] {
  */
 export function buildWhere(
   query: ListQuery,
-  scope: Record<string, unknown> | undefined,
+  scope: Record<string, unknown> | Filter | undefined,
   caseInsensitiveSearch: boolean,
   model: PrismaModel
 ): Filter | Record<string, unknown> | undefined {

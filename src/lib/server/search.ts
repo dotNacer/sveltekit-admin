@@ -4,7 +4,7 @@
  */
 
 import { primaryKeyOf, paginate } from './data.js';
-import { scopeFrom, type AdminRuntime } from './runtime.js';
+import { scopeFrom, modelScopeFrom, type AdminRuntime } from './runtime.js';
 
 /**
  * Endpoint de recherche `GET {basePath}/_search?rel=Model.field&q=...&page=N`.
@@ -36,6 +36,7 @@ export async function handleSearch(runtime: AdminRuntime, event: any): Promise<R
   const targetModel = runtime.schema!.models.find((m) => m.name === edge.target)!;
   const relConfig = modelsConfig[model.name]?.relations?.[edge.field];
   const configWhere = scopeFrom(relConfig, { locals: event.locals });
+  const modelWhere = modelScopeFrom(runtime, targetModel, { locals: event.locals });
 
   // Recherche sur le premier champ String candidat du modèle cible — le
   // même champ que celui utilisé pour construire le label par défaut.
@@ -52,10 +53,11 @@ export async function handleSearch(runtime: AdminRuntime, event: any): Promise<R
     q && searchField
       ? { op: 'containsExact' as const, field: searchField, value: q }
       : undefined;
+  const searchClauses = [modelWhere, configWhere, containsFilter].filter(Boolean);
   const searchFilter: any =
-    containsFilter && configWhere
-      ? { op: 'and', clauses: [configWhere, containsFilter] }
-      : containsFilter ?? configWhere;
+    searchClauses.length > 1
+      ? { op: 'and', clauses: searchClauses }
+      : searchClauses[0];
 
   try {
     // Count + fetch are independent reads — run them in parallel (as this

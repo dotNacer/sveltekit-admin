@@ -26,6 +26,12 @@ export interface SchemaIntrospector {
   introspect(): Schema | Promise<Schema>;
 }
 
+export interface TargetGuard {
+  targetModel: Model;
+  targetPk: string | number;
+  filter?: Filter;
+}
+
 /**
  * Per-request CRUD + relation-read surface `handler.ts` talks to instead of
  * a raw ORM client. See docs/superpowers/specs/2026-08-13-db-adapter-abstraction-design.md
@@ -68,6 +74,7 @@ export interface DataAdapter {
     input: {
       scalars: Record<string, unknown>;
       m2m?: Record<string, { targetPkField: string; ids: Array<string | number> }>;
+      targetGuards?: TargetGuard[];
     }
   ): Promise<Record<string, unknown>>;
 
@@ -77,10 +84,12 @@ export interface DataAdapter {
     input: {
       scalars: Record<string, unknown>;
       m2m?: Record<string, { targetPkField: string; ids: Array<string | number> }>;
-    }
+      targetGuards?: TargetGuard[];
+    },
+    authorizationFilter?: Filter
   ): Promise<Record<string, unknown>>;
 
-  deleteRecord(model: Model, id: string | number): Promise<void>;
+  deleteRecord(model: Model, id: string | number, authorizationFilter?: Filter): Promise<void>;
 
   /** `targetModel` est fourni par l'appelant : chaque site d'appel actuel l'a déjà résolu. */
   getM2mSelectedIds(

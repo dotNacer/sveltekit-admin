@@ -3,10 +3,10 @@ import type { Schema, Model } from './types/schema.js';
 import { buildRelationGraph, type RelationGraph } from './introspection/relations.js';
 import { primaryKeyOf } from './data.js';
 import { validateListFilterConfig } from './query/filterDetection.js';
-import { normalizeScope } from './adapters/filter.js';
+import { isCompositeFilter, isLeafFilter, normalizeScope } from './adapters/filter.js';
 import { toLabel } from './views/html.js';
 import type { ViewModel } from './views/types.js';
-import type { DataAdapter, SchemaIntrospector } from './adapters/types.js';
+import type { DataAdapter, SchemaIntrospector, Filter } from './adapters/types.js';
 import type { AdminHandlerConfig } from './handler.js';
 
 export function scopeFrom(
@@ -39,6 +39,52 @@ export function listScopeFrom(
     );
   }
   return listScope;
+}
+
+export function modelScopeFrom(
+  runtime: AdminRuntime,
+  model: Model,
+  ctx: { locals?: any }
+): Filter | undefined {
+  const scope = runtime.config.models?.[model.name]?.scope;
+  if (!scope) return undefined;
+  const raw = scope(ctx);
+  if (!raw || (typeof raw === 'object' && !Array.isArray(raw) && Object.keys(raw).length === 0)) {
+    throw new Error(
+      `[sveltekit-admin] models.${model.name}.scope must return a non-empty condition; ` +
+        'refusing to fail open.'
+    );
+  }
+  const normalized = normalizeScope(raw);
+  const valid = (node: unknown): node is Filter => {
+    if (isLeafFilter(node)) return node.value !== undefined;
+    return isCompositeFilter(node) && node.clauses.length > 0 && node.clauses.every(valid);
+  };
+  if (!valid(normalized)) {
+    throw new Error(`[sveltekit-admin] models.${model.name}.scope returned an invalid condition; refusing to fail open.`);
+  }
+  return normalized;
+}
+
+/** Extract equality predicates so create can force tenant-owned columns. */
+export function modelScopeValues(runtime: AdminRuntime, model: Model, ctx: { locals?: any }): Record<string, unknown> {
+  const normalized = modelScopeFrom(runtime, model, ctx);
+  if (!normalized) return {};
+  const values: Record<string, unknown> = {};
+  const visit = (node: Filter): boolean => {
+    if (isLeafFilter(node)) {
+      if (node.op !== 'eq') return false;
+      if (node.field in values && values[node.field] !== node.value) return false;
+      values[node.field] = node.value;
+      return true;
+    }
+    if (!isCompositeFilter(node) || node.op === 'or') return false;
+    return node.clauses.every(visit);
+  };
+  if (!visit(normalized) || Object.keys(values).length === 0) {
+    throw new Error(`[sveltekit-admin] models.${model.name}.scope must contain only equality conditions for creation`);
+  }
+  return values;
 }
 
 export interface AdminRuntime {

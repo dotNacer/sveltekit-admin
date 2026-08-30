@@ -100,11 +100,37 @@ describe('createPrismaDataAdapter — createRecord / updateRecord (sans m2m)', (
     expect(callsTo(prisma, 'user', 'update')[0].args).toEqual({ where: { id: 2 }, data: { email: 'new@x.y' } });
   });
 
+  it('valide les guards FK dans la transaction avant create/update', async () => {
+    const prisma = createPrismaMock({ post: [], user: [{ id: 1, tenantId: 7 }] });
+    const adapter = createPrismaDataAdapter(prisma);
+    const guard = { targetModel: User, targetPk: 1, filter: { op: 'eq' as const, field: 'tenantId', value: 7 } };
+    await adapter.createRecord(RelPost, { scalars: { title: 'T', authorId: 1 }, targetGuards: [guard] });
+    await adapter.updateRecord(RelPost, 'p1', { scalars: { title: 'T2' }, targetGuards: [guard] });
+    expect(callsTo(prisma, 'user', 'findFirst')).toHaveLength(2);
+  });
+
+  it('refuse une cible FK hors scope avant toute écriture', async () => {
+    const prisma = createPrismaMock({ post: [], user: [{ id: 1, tenantId: 9 }] });
+    const adapter = createPrismaDataAdapter(prisma);
+    await expect(adapter.createRecord(RelPost, { scalars: { title: 'T' }, targetGuards: [{ targetModel: User, targetPk: 1, filter: { op: 'eq', field: 'tenantId', value: 7 } }] })).rejects.toThrow(/outside/);
+    expect(callsTo(prisma, 'post', 'create')).toHaveLength(0);
+  });
+
   it('deleteRecord par PK coercée', async () => {
     const prisma = createPrismaMock({ user: [{ id: 2 }] });
     const adapter = createPrismaDataAdapter(prisma);
     await adapter.deleteRecord(User, '2');
     expect(callsTo(prisma, 'user', 'delete')[0].args).toEqual({ where: { id: 2 } });
+  });
+
+  it('compose le scope d’autorisation sur update/delete', async () => {
+    const prisma = createPrismaMock({ user: [{ id: 2, tenantId: 1 }] });
+    const adapter = createPrismaDataAdapter(prisma);
+    const scope = { op: 'eq' as const, field: 'tenantId', value: 1 };
+    await adapter.updateRecord(User, '2', { scalars: { email: 'scoped@x.y' } }, scope);
+    await adapter.deleteRecord(User, '2', scope);
+    expect((callsTo(prisma, 'user', 'update')[0].args as any).where).toEqual({ id: 2, AND: [{ tenantId: 1 }] });
+    expect((callsTo(prisma, 'user', 'delete')[0].args as any).where).toEqual({ id: 2, AND: [{ tenantId: 1 }] });
   });
 });
 
