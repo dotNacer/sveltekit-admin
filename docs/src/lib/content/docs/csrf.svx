@@ -1,0 +1,75 @@
+---
+title: Cross-site protection
+name: Cross-site protection
+description: How the admin panel verifies the Origin header on every state-changing request, and when to configure trustedOrigins.
+---
+
+Every state-changing request the admin serves (create, update, delete,
+`_logout`, `_search`) is checked against the `Origin` header before it reaches
+routing, auth, or your database. A request from another origin gets a `403` and
+never touches Prisma. This is on by default and needs no configuration.
+
+## Why the admin re-checks instead of trusting SvelteKit
+
+SvelteKit has its own origin check (`kit.csrf.checkOrigin`). The admin can't
+lean on it:
+
+- **It runs before the `handle` hook.** The admin *is* a `handle` hook, so it
+  can't observe whether the check happened, let alone rely on it.
+- **It's disabled globally, for unrelated reasons.** A `csrf: { checkOrigin:
+  false }` added to `svelte.config.js` to let a payment webhook through also
+  opens every admin mutation, silently.
+- **It's skipped in development** (`if (!__SVELTEKIT_DEV__)`). If your proxy
+  strips `Origin`, what you test locally isn't what you deploy.
+
+Re-checking inside the handler moves the guarantee from the consuming app's
+config file to the admin panel. It runs in development too, so a proxy that
+strips `Origin` breaks on `pnpm run dev` rather than in production.
+
+## A missing `Origin` is rejected
+
+Browsers always send `Origin` on a `POST`. An absent header means a
+non-browser client, or something in front of your app removing it — both
+rejected by default, matching SvelteKit's semantics.
+
+If admin mutations start returning `403` after an infrastructure change, look
+for a proxy dropping the header.
+
+## `trustedOrigins`
+
+List any other origin the admin is legitimately posted to from:
+
+```typescript
+createAdminHandler({
+  prisma,
+  csrf: {
+    trustedOrigins: ['https://ops.example.com']
+  }
+});
+```
+
+Entries are normalized at startup, so `https://ops.example.com` and
+`https://ops.example.com/` are one entry. An entry that isn't an absolute URL,
+or whose origin is opaque (`file:`, `data:`, `javascript:` — all `"null"`, the
+value a sandboxed iframe also sends), throws from `createAdminHandler` instead
+of being ignored per-request.
+
+## Opting out
+
+```typescript
+createAdminHandler({ prisma, csrf: false });
+```
+
+Disables the check for every admin route. You have to write it explicitly.
+After that, `kit.csrf.checkOrigin` is your only protection, and it doesn't run
+in development.
+
+## What this does not cover
+
+Cross-site requests only. There is no per-session token, so a vulnerable route
+on the same host can still forge admin requests that look legitimate.
+Defending against that means serving the admin from its own hostname.
+
+Nor is it authentication: `authCheck` decides *who* may use the admin, this
+decides *where the request came from*. See
+[Authentication](/docs/authentication).

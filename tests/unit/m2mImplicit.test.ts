@@ -22,7 +22,7 @@ function formEvent(url: string, fields: [string, string][]) {
   const request = new Request(url2, {
     method: 'POST',
     body,
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: url2.origin }
   });
   const resolve = Object.assign(async () => new Response('resolved'), { called: false });
   return { event: { url: url2, request, locals: {} }, resolve };
