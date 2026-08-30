@@ -120,24 +120,31 @@ describe('handler sur une vraie base SQLite', () => {
   });
 
   it('rend une alerte sur violation de contrainte unique', async () => {
-    // Le handler journalise l'erreur Prisma via console.error : on la tait pour
-    // garder la sortie de la suite propre.
+    // Le handler ne journalise via console.error que les codes pilote NON
+    // reconnus (cf. handler.ts) : on tait quand même la sortie au cas où,
+    // mais P2002 est classifié — pas de bruit attendu ici.
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     await prisma.widget.create({ data: { name: 'dup' } });
     const html = await (await call('/admin/widget/new', { _action: 'create', name: 'dup' })).text();
     expect(html).toContain(ERROR_ALERT);
-    // Message émis par le moteur Prisma : la contrainte est bien appliquée par SQLite.
-    expect(html).toContain('Unique constraint failed');
-    expect(error).toHaveBeenCalled();
+    // Le code P2002 renvoyé par le vrai moteur SQLite est classifié en
+    // `conflict` : le message générique de la bibliothèque est rendu, jamais
+    // le texte brut du pilote.
+    expect(html).toContain('A record with these values already exists.');
+    expect(error).not.toHaveBeenCalled();
     error.mockRestore();
   });
 
   it("rend une alerte sur suppression d'un id inexistant", async () => {
+    // Idem : P2025 est classifié en `notFound`, donc pas journalisé.
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const html = await (await call('/admin/widget/9999', { _action: 'delete' })).text();
     expect(html).toContain(ERROR_ALERT);
-    expect(html).toContain('records that were required but not found');
-    expect(error).toHaveBeenCalled();
+    // Le code P2025 renvoyé par le vrai moteur SQLite est classifié en
+    // `notFound` : le message générique de la bibliothèque est rendu, jamais
+    // le texte brut du pilote.
+    expect(html).toContain('This record no longer exists.');
+    expect(error).not.toHaveBeenCalled();
     error.mockRestore();
   });
 });

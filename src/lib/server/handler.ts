@@ -26,6 +26,7 @@ import { createAdminRuntime, listScopeFrom, modelScopeFrom } from './runtime.js'
 import { loadRelationOptions, resolveFkFilterOptions, loadRelatedCounts } from './relationLoaders.js';
 import { handleSearch } from './search.js';
 import { handleMutation } from './mutations.js';
+import { AdminMutationError, AdminConfigError } from './errors.js';
 import { verifyOrigin, resolveCsrfConfig, type CsrfConfig } from './csrf.js';
 import { resolvePluginRegistry, actionsForModel } from './pluginRegistry.js';
 import { createPluginPageContext } from './pluginAccess.js';
@@ -300,6 +301,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     let currentModel: string | undefined;
     let extraStyles = '';
     let extraScripts = '';
+    let mutationError: string | undefined;
 
     try {
       // Handle POST requests (create, update, delete). Unrecognised actions fall
@@ -310,8 +312,36 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       // field, never `route.view`, so it cannot be confused by a plugin's
       // view id landing here.
       if (event.request.method === 'POST') {
-        const mutationResponse = await handleMutation(runtime, event, route as ParsedRoute);
-        if (mutationResponse) return mutationResponse;
+        // `try` propre au chemin de mutation, et non le `catch` partagé plus
+        // bas : celui-ci couvre aussi le rendu GET et les pages de plugin,
+        // dont le contrat (rendre le message levé) ne change pas ici.
+        try {
+          const mutationResponse = await handleMutation(runtime, event, route as ParsedRoute);
+          if (mutationResponse) return mutationResponse;
+        } catch (e: unknown) {
+          // Plus de classification ici : `handleMutation` a déjà consommé le
+          // corps de la requête, donc ce site ne peut plus lire `_action` et
+          // ne saurait pas distinguer une création d'une suppression. La
+          // classification par code pilote se fait désormais dans
+          // `mutations.ts`, au site d'appel qui connaît l'action réelle —
+          // ce `catch` ne fait plus qu'un aiguillage à trois branches sur le
+          // type de l'erreur déjà classée.
+          if (e instanceof AdminMutationError) {
+            // Message construit par la bibliothèque (validation, scope, ou
+            // code pilote reconnu) : sûr à rendre tel quel.
+            mutationError = e.message;
+          } else if (e instanceof AdminConfigError) {
+            // Mauvaise configuration côté consommateur : message écrit par la
+            // bibliothèque, destiné au développeur. Le `catch` partagé plus bas
+            // garde son contrat historique — on le laisse la traiter.
+            throw e;
+          } else {
+            // Tout le reste est présumé venir du moteur : son texte peut porter le nom
+            // de la table, un fragment de requête ou un dump d'arguments. Jamais rendu.
+            console.error('[sveltekit-admin] mutation failed:', e);
+            mutationError = 'The change could not be saved.';
+          }
+        }
       }
 
       // GET requests - render views
@@ -529,6 +559,15 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     } catch (e: any) {
       console.error('[sveltekit-admin] Error:', e);
       content = `<div class="ska-alert ska-alert--error">Error: ${escapeHtml(e.message || 'Unknown error')}</div>`;
+    }
+
+    if (mutationError) {
+      // Même préfixe « Error: » que le `catch` partagé, pour une seule
+      // convention d'alerte dans toute la page (cf. handler.test.ts, l'alerte
+      // « modèle inconnu en POST »).
+      content =
+        `<div class="ska-alert ska-alert--error">Error: ${escapeHtml(mutationError)}</div>` +
+        content;
     }
 
     const html = render(Layout, {

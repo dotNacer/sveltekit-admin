@@ -6,7 +6,7 @@
  */
 
 import { primaryKeyOf, coerceId, formDataToPrisma } from './data.js';
-import { OPAQUE_FILTER_ERROR } from './adapters/filter.js';
+import { AdminMutationError, classifyWriteError } from './errors.js';
 import {
   buildAuditEvent,
   emitAudit,
@@ -31,7 +31,7 @@ export async function handleMutation(
 
   const model = runtime.findModel(route.model);
   if (!model) {
-    throw new Error(`Model "${route.model}" not found`);
+    throw new AdminMutationError('notFound', `Model "${route.model}" not found`);
   }
 
   const redirectToList = (modelName: string) =>
@@ -55,7 +55,19 @@ export async function handleMutation(
     const before = audit
       ? await readAuditSnapshot((m, recId) => runtime.adapter.data.getRecord(m, recId), model, id)
       : null;
-    await runtime.adapter.data.deleteRecord(model, route.id, modelScopeFrom(runtime, model, { locals: event.locals }));
+    try {
+      await runtime.adapter.data.deleteRecord(
+        model,
+        route.id,
+        modelScopeFrom(runtime, model, { locals: event.locals })
+      );
+    } catch (e) {
+      // Classé ici et non dans `handler.ts` : seul ce site connaît l'action réelle
+      // (`handleMutation` a déjà consommé le corps de la requête, donc le handler
+      // ne peut plus lire `_action`). Un code non reconnu est relayé tel quel, et
+      // c'est le handler qui le masquera.
+      throw classifyWriteError(e, 'delete') ?? e;
+    }
     if (audit) {
       await emitAudit(
         audit,
@@ -104,7 +116,7 @@ export async function handleMutation(
         // Vide sur relation optionnelle → null (disconnect).
         if (raw === '' || raw === undefined || raw === null) {
           if (edge.isRequired) {
-            throw new Error(`${edge.field} is required`);
+            throw new AdminMutationError('validation', `${edge.field} is required`, edge.field);
           }
           data[scalarName] = null;
           continue;
@@ -116,12 +128,16 @@ export async function handleMutation(
         const pkField = targetModel.fields.find((f) => f.isId);
         const coerced = pkField?.type === 'Int' ? parseInt(String(raw)) : String(raw);
         if (pkField?.type === 'Int' && !Number.isSafeInteger(coerced)) {
-          throw new Error(`${edge.field}: invalid id`);
+          throw new AdminMutationError('validation', `${edge.field}: invalid id`, edge.field);
         }
 
         // Self-ref : la ligne courante ne peut pas être sa propre cible.
         if (edge.selfReferential && route.id && String(coerced) === String(coerceId(route.id, model))) {
-          throw new Error(`${edge.field}: cannot reference itself`);
+          throw new AdminMutationError(
+            'validation',
+            `${edge.field}: cannot reference itself`,
+            edge.field
+          );
         }
 
         // Existence + scoping. findFirst et non findUnique : le where
@@ -136,21 +152,15 @@ export async function handleMutation(
           targetGuards.push({ targetModel, targetPk: coerced, filter: scopes.length ? ({ op: 'and', clauses: scopes } as any) : undefined });
           const found = await runtime.adapter.data.findFirst(targetModel, filter);
           if (!found) {
-            throw new Error(`${edge.field}: invalid value`);
+            throw new AdminMutationError('validation', `${edge.field}: invalid value`, edge.field);
           }
         } catch (e: any) {
-          if (e?.message?.includes('invalid value')) throw e;
-          if (
-            e?.message &&
-            (e.message.includes(OPAQUE_FILTER_ERROR) ||
-              OPAQUE_FILTER_ERROR.startsWith(e.message))
-          ) {
-            throw new Error(`${edge.field}: invalid value`);
-          }
-          if (e?.message?.includes('unknown field')) {
-            throw new Error(`${edge.field}: invalid value`);
-          }
-          throw new Error(`${edge.field}: invalid value`);
+          // Déjà typée par le `if (!found)` ci-dessus : la relayer telle quelle.
+          // Toute autre cause (scope incompilable, champ inconnu, panne pilote)
+          // devient le même refus : la valeur soumise n'est pas acceptable, et on
+          // ne renvoie jamais au client ce que le pilote a dit.
+          if (e instanceof AdminMutationError) throw e;
+          throw new AdminMutationError('validation', `${edge.field}: invalid value`, edge.field);
         }
 
         data[scalarName] = coerced;
@@ -186,7 +196,7 @@ export async function handleMutation(
           pkIsInt ? parseInt(v) : v
         );
         if (pkIsInt && ids.some((v) => !Number.isSafeInteger(v))) {
-          throw new Error(`${edge.field}: invalid id`);
+          throw new AdminMutationError('validation', `${edge.field}: invalid id`, edge.field);
         }
 
         // Existence + scoping en une requête, sur l'ensemble des IDs
@@ -204,21 +214,16 @@ export async function handleMutation(
               targetGuards.push({ targetModel, targetPk: id, filter: scopes.length ? ({ op: 'and', clauses: scopes } as any) : undefined });
             }
             if (found.length !== new Set(ids.map(String)).size) {
-              throw new Error(`${edge.field}: invalid value`);
+              throw new AdminMutationError('validation', `${edge.field}: invalid value`, edge.field);
             }
           } catch (e: any) {
-            if (e?.message?.includes('invalid value')) throw e;
-            if (
-              e?.message &&
-              (e.message.includes(OPAQUE_FILTER_ERROR) ||
-                OPAQUE_FILTER_ERROR.startsWith(e.message))
-            ) {
-              throw new Error(`${edge.field}: invalid value`);
-            }
-            if (e?.message?.includes('unknown field')) {
-              throw new Error(`${edge.field}: invalid value`);
-            }
-            throw new Error(`${edge.field}: invalid value`);
+            // Déjà typée par le contrôle de cardinalité ci-dessus : la relayer
+            // telle quelle. Toute autre cause (scope incompilable, champ
+            // inconnu, panne pilote) devient le même refus : la valeur soumise
+            // n'est pas acceptable, et on ne renvoie jamais au client ce que le
+            // pilote a dit.
+            if (e instanceof AdminMutationError) throw e;
+            throw new AdminMutationError('validation', `${edge.field}: invalid value`, edge.field);
           }
         }
 
@@ -256,13 +261,30 @@ export async function handleMutation(
       const submitted = data[field];
       const asserted = field in data && submitted !== null && submitted !== undefined && submitted !== '';
       if (asserted && String(submitted) !== String(value)) {
-        throw new Error(`${field}: value is outside the authorization scope`);
+        throw new AdminMutationError(
+          'authorization',
+          `${field}: value is outside the authorization scope`,
+          field
+        );
       }
       data[field] = value;
     }
 
     if (action === 'create') {
-      const created = await runtime.adapter.data.createRecord(model, { scalars: data, m2m: m2mInput, targetGuards });
+      let created;
+      try {
+        created = await runtime.adapter.data.createRecord(model, {
+          scalars: data,
+          m2m: m2mInput,
+          targetGuards
+        });
+      } catch (e) {
+        // Classé ici et non dans `handler.ts` : seul ce site connaît l'action réelle
+        // (`handleMutation` a déjà consommé le corps de la requête, donc le handler
+        // ne peut plus lire `_action`). Un code non reconnu est relayé tel quel, et
+        // c'est le handler qui le masquera.
+        throw classifyWriteError(e, 'create') ?? e;
+      }
       if (audit) {
         await emitAudit(
           audit,
@@ -284,11 +306,21 @@ export async function handleMutation(
       const before = audit
         ? await readAuditSnapshot((m, recId) => runtime.adapter.data.getRecord(m, recId), model, id)
         : null;
-      const updated = await runtime.adapter.data.updateRecord(model, route.id, {
-        scalars: data,
-        m2m: m2mInput,
-        targetGuards
-      }, modelScopeFrom(runtime, model, { locals: event.locals }));
+      let updated;
+      try {
+        updated = await runtime.adapter.data.updateRecord(
+          model,
+          route.id,
+          { scalars: data, m2m: m2mInput, targetGuards },
+          modelScopeFrom(runtime, model, { locals: event.locals })
+        );
+      } catch (e) {
+        // Classé ici et non dans `handler.ts` : seul ce site connaît l'action réelle
+        // (`handleMutation` a déjà consommé le corps de la requête, donc le handler
+        // ne peut plus lire `_action`). Un code non reconnu est relayé tel quel, et
+        // c'est le handler qui le masquera.
+        throw classifyWriteError(e, 'update') ?? e;
+      }
       if (audit) {
         await emitAudit(
           audit,

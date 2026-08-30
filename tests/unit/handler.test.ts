@@ -301,7 +301,7 @@ describe('actions POST', () => {
     });
     const res = await handler({ event, resolve } as any);
     expect(res.status).toBe(200);
-    expect(await res.text()).toMatch(/only equality conditions|scope/);
+    expect(await res.text()).toMatch(/only equality conditions/);
     expect(callsTo(prisma, 'user', 'create')).toHaveLength(0);
   });
 
