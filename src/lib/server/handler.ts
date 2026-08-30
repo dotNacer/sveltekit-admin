@@ -26,6 +26,7 @@ import { createAdminRuntime, listScopeFrom, modelScopeFrom } from './runtime.js'
 import { loadRelationOptions, resolveFkFilterOptions, loadRelatedCounts } from './relationLoaders.js';
 import { handleSearch } from './search.js';
 import { handleMutation } from './mutations.js';
+import { verifyOrigin, resolveCsrfConfig, type CsrfConfig } from './csrf.js';
 import { resolvePluginRegistry, actionsForModel } from './pluginRegistry.js';
 import { createPluginPageContext } from './pluginAccess.js';
 import type { AdminPlugin } from './plugin.js';
@@ -63,6 +64,16 @@ export interface AdminHandlerConfig {
   logout?: (event: any) => void | Promise<void>;
   /** Where to redirect after logout (default: '/') */
   logoutRedirectTo?: string;
+  /**
+   * Cross-site protection for every state-changing admin request (create /
+   * update / delete, `_logout`, `_search`). On by default; a missing `Origin`
+   * is rejected, as SvelteKit does. `trustedOrigins` allows a second
+   * legitimate origin, `csrf: false` opts out entirely.
+   *
+   * Why this isn't left to `kit.csrf.checkOrigin`, and the same-origin threat
+   * it does not cover: see `csrf.ts` and /docs/csrf.
+   */
+  csrf?: CsrfConfig;
   /**
    * Audit sink — same "bring your own" philosophy as `authCheck` / `logout`.
    * The library has no log table and no session of its own, so it cannot
@@ -210,6 +221,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
   }
 
   const runtime = createAdminRuntime(config);
+  const csrf = resolveCsrfConfig(config.csrf);
   const registry = resolvePluginRegistry(config.plugins ?? [], BUILTIN_ROUTES, runtime.models);
   const { authCheck, logout, logoutRedirectTo = '/' } = config;
 
@@ -226,6 +238,11 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     if (!pathname.startsWith(runtime.basePath)) {
       return resolve(event);
     }
+
+    // Avant `matchRoute` : couvre le logout (dispatché avant `authCheck`),
+    // `_search`, les mutations, et toute route ajoutée plus tard.
+    const forbidden = verifyOrigin(csrf, event);
+    if (forbidden) return forbidden;
 
     // Plugin routes are checked BEFORE builtins: `resolvePluginRegistry` only
     // rejects a plugin pattern that is an EXACT token-for-token match of a
