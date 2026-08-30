@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.0
+
+### Minor Changes
+
+- 3bda2dc: Verify the `Origin` header on every state-changing request the admin serves (create, update, delete, `_logout`, `_search`), and add a **`csrf`** option (`false | { trustedOrigins?: string[] }`). The check runs before routing, so it covers `_logout` (dispatched before `authCheck` by design) and any route added later; a rejected request gets a static `403` and never reaches the adapter. `GET`/`HEAD`/`OPTIONS` and anything outside `basePath` are untouched.
+
+  SvelteKit's `kit.csrf.checkOrigin` can't carry this guarantee for the admin: it runs before the `handle` hook so the handler never observes it, a `checkOrigin: false` set for an unrelated route (a payment webhook, say) disables it everywhere, and it is skipped in development — so a proxy that strips `Origin` only surfaces in production. A missing `Origin` is rejected, matching SvelteKit's semantics. `trustedOrigins` entries are normalized at startup (`https://ops.example.com/` and `https://ops.example.com` are one entry); an entry that is not an absolute URL, or whose origin is opaque (`"null"`, as a sandboxed iframe sends), throws from `createAdminHandler` rather than being ignored per-request. This is a cross-site defense only: with no per-session token, a compromised same-origin context needs origin isolation.
+
+- f5384a3: Add model-level `scope(ctx)` tenant isolation across reads, mutations, relation options, search, dashboard counts, and plugin access. Scoped creates force equality scope fields and fail closed when the tenant context is missing or ambiguous. The forced values are re-applied after foreign-key revalidation, which matters when the tenant column is itself a relation scalar such as `organizationId` — the common case. A submitted value that conflicts with the scope is rejected rather than written, for every scope column: the value is server-determined, so a mismatch is either a forged POST or a form offering a choice it should not offer, and silently correcting it would hide both. Only a value the client actually asserted is checked: a scope column absent from the form, or present but left empty — which is what a create form renders — is simply set, since an empty field is not a claim to another tenant.
+
+  Relation targets submitted by a POST are re-checked inside the write transaction. On PostgreSQL that check now takes a `FOR SHARE` row lock, because `SERIALIZABLE` alone does not prevent a concurrent transaction from moving the target out of scope between the check and the write — PostgreSQL's SSI finds no dependency cycle in that sequence and lets both transactions commit. MySQL is unaffected: `SERIALIZABLE` already turns those reads into locking reads there, and `FOR SHARE` is 8.0-only syntax. Guards are locked in a deterministic `(model, primary key)` order, so two concurrent requests submitting the same relation ids in a different order cannot deadlock each other.
+
+  The Drizzle `deleteRecord` no longer issues a verification `SELECT` before deleting: the scoped `DELETE` is itself the guard, and a zero-row result rolls the pivot deletions back. This removes the window between the check and the delete.
+
+  Transactional writes are retried on a serialization failure or deadlock (PostgreSQL `40001`/`40P01`, MySQL `ER_LOCK_DEADLOCK`/`ER_LOCK_WAIT_TIMEOUT`), up to three attempts. Those engine errors mean the transaction was rolled back whole and wrote nothing, so replaying it is safe and avoids surfacing a transient conflict as a 500. Nothing else is retried — an authorization refusal is not transient, and replaying it would only repeat the same refusal.
+
 ## 0.7.0
 
 ### Minor Changes
