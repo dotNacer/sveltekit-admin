@@ -19,6 +19,8 @@
  * évite aussi d'introduire des minuteurs dans un chemin d'écriture.
  */
 
+import { codeOf } from '../errors.js';
+
 /** Codes que le moteur n'émet que pour un conflit de concurrence annulable. */
 const RETRYABLE_CODES = new Set([
   '40001', // PostgreSQL / CockroachDB — serialization_failure
@@ -26,17 +28,6 @@ const RETRYABLE_CODES = new Set([
   'ER_LOCK_DEADLOCK', // MySQL 1213
   'ER_LOCK_WAIT_TIMEOUT' // MySQL 1205
 ]);
-
-/**
- * Les pilotes exposent le code SQLSTATE à des endroits différents : `code` sur
- * `pg` et `mysql2`, `meta.code` sur une `PrismaClientKnownRequestError` issue
- * d'une transaction interactive.
- */
-function codeOf(error: unknown): string | undefined {
-  const candidate = error as { code?: unknown; meta?: { code?: unknown } } | null;
-  const raw = candidate?.code ?? candidate?.meta?.code;
-  return typeof raw === 'string' ? raw : undefined;
-}
 
 export function isRetryableWriteError(error: unknown): boolean {
   const code = codeOf(error);
