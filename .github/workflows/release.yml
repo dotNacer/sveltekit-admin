@@ -27,10 +27,16 @@ jobs:
         with:
           version: 10.25.0
 
+      # Pas de `registry-url` ici, volontairement. Il fait écrire à setup-node un
+      # `.npmrc` contenant `_authToken=${NODE_AUTH_TOKEN}`, et sans secret il y
+      # laisse son placeholder littéral `XXXXX-XXXXX-XXXXX-XXXXX`. npm voit
+      # alors un jeton configuré et s'en sert au lieu de faire l'échange OIDC du
+      # Trusted Publishing — d'où un `404 PUT /sveltekit-admin` (npm renvoie 404
+      # et pas 403 pour ne pas révéler l'existence du package). Sans `.npmrc`,
+      # npm n'a aucun jeton et bascule sur l'OIDC, qui est justement le but.
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: "https://registry.npmjs.org"
           cache: pnpm
 
       # Trusted Publishing needs npm >= 11.5.1; Node 22's bundled npm isn't
@@ -64,7 +70,24 @@ jobs:
         uses: changesets/action@v2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          publish-script: npm run package && npm publish --provenance --access public
+          # `pnpm run release` (= `pnpm run package && changeset publish`) and
+          # NOT `npm run package && npm publish`. Two reasons, both load-bearing:
+          #
+          # 1. The action does not run this through a shell — it invokes the
+          #    binary with the rest as ARGV. `npm run` appends extra args to the
+          #    script, escaped, so the `&&` arrived as a literal argument to
+          #    `svelte-package`, which ignored it. `npm publish` never ran, and
+          #    since `svelte-package` exits 0 the job went green while
+          #    publishing nothing (0.7.0 and 0.8.0 were both versioned, tagged
+          #    nowhere, and never reached npm).
+          # 2. `changesets/action@v2` learns what was published by reading the
+          #    CHANGESETS_OUTPUT ndjson stream that only `changeset publish`
+          #    emits. A bare `npm publish` emits none, so the action created no
+          #    git tag and no GitHub Release even when a publish did happen.
+          #
+          # Provenance moves to `publishConfig.provenance` in package.json,
+          # since `changeset publish` takes no `--provenance` flag.
+          publish-script: pnpm run release
           version-script: pnpm run version-packages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

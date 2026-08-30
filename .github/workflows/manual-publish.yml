@@ -24,10 +24,16 @@ jobs:
         with:
           version: 10.25.0
 
+      # Pas de `registry-url` ici, volontairement. Il fait écrire à setup-node un
+      # `.npmrc` contenant `_authToken=${NODE_AUTH_TOKEN}`, et sans secret il y
+      # laisse son placeholder littéral `XXXXX-XXXXX-XXXXX-XXXXX`. npm voit
+      # alors un jeton configuré et s'en sert au lieu de faire l'échange OIDC du
+      # Trusted Publishing — d'où un `404 PUT /sveltekit-admin` (npm renvoie 404
+      # et pas 403 pour ne pas révéler l'existence du package). Sans `.npmrc`,
+      # npm n'a aucun jeton et bascule sur l'OIDC, qui est justement le but.
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
           cache: pnpm
 
       - run: npm install -g npm@latest

@@ -32,6 +32,9 @@
     "!dist/**/*.test.*",
     "!dist/**/*.spec.*"
   ],
+  "publishConfig": {
+    "provenance": true
+  },
   "scripts": {
     "dev": "vite dev",
     "build": "pnpm run package",
