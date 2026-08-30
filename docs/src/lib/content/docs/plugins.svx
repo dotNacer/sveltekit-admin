@@ -85,19 +85,23 @@ Reads must go through `ctx.loadRecord` / `ctx.listRecords` /
 host that stashes one on `event.locals` can still be reached via
 `ctx.event`, since plugins are trusted dependencies, not sandboxed code.
 
-- `loadRecord` / `listRecords` apply that model's `listWhere` (AND, never a
-  spread) and strip `hidden` plus sensitive names (`password` / `hash` /
+- `loadRecord` / `listRecords` apply that model's `scope` and `listWhere` (AND,
+  never a spread) and strip `hidden` plus sensitive names (`password` / `hash` /
   `secret` / `token`) via the same redaction as the audit log.
 - That redaction (`redactForAudit`) is a **whitelist**, not a blacklist: it
   copies only scalar schema fields onto the result, so `ctx.record`,
   `loadRecord`, and `listRecords` payloads never carry relation objects,
   list fields, or unknown/computed columns either — not only the fields
   named in `hidden` or matched by the sensitive-name predicate.
-- A `:id` outside `listWhere` renders the admin **NotFound** page (HTTP
+- A `:id` outside the model's scope renders the admin **NotFound** page (HTTP
   **200**, same as a builtin missing record) — `render` is not called.
-  This is **stricter than edit**: `/admin/user/1` still uses unscoped
-  `getRecord`. `listWhere` is not a tenant wall for the whole admin.
-- A `listWhere` that returns `{}` still throws (fail-loud).
+- `scope` and `listWhere` are not interchangeable here. `scope` is the tenant
+  wall: it also covers the builtin detail, edit and delete paths, so a plugin
+  page and `/admin/user/1` agree on what is out of bounds. `listWhere` narrows
+  the list view (and, historically, plugin reads) but never protected builtin
+  edit or delete — a plugin scoped only by `listWhere` still sits in front of
+  an unscoped edit screen.
+- A `scope` or `listWhere` that returns `{}` still throws (fail-loud).
 - Action labels and hrefs are HTML-escaped. Plugin `html` / `styles` /
   `scripts` are developer-supplied (same trust as `branding.primaryColor`);
   interpolate database fields with `ctx.escapeHtml`.

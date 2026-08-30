@@ -116,6 +116,40 @@ createAdminHandler({
 });
 ```
 
+### Migrating from `listWhere`
+
+If you used `listWhere` for tenant isolation, move that condition to `scope`.
+The two are not equivalent, and the difference is the whole point:
+
+| | `listWhere` | `scope` |
+|---|---|---|
+| List, search, sidebar filters, pagination count | yes | yes |
+| Detail and edit screens | **no** | yes |
+| Update and delete | **no** | yes |
+| Dashboard counts | **no** | yes |
+| Relation dropdowns and relation writes | **no** | yes |
+| Imposed on create | **no** | yes (equality fields) |
+
+`listWhere` hides rows from the list. It never stopped anyone who knew a record
+id from opening `/admin/<model>/<id>`, editing it, or deleting it. If that was
+your tenant boundary, treat it as having been open and audit accordingly.
+
+```ts
+// Before — list-only, direct-id access was not covered
+models: {
+  Invoice: { listWhere: ({ locals }) => ({ organizationId: locals.organizationId }) }
+}
+
+// After — every read and write
+models: {
+  Invoice: { scope: ({ locals }) => ({ organizationId: locals.organizationId }) }
+}
+```
+
+Keep `listWhere` for what it is good at: narrowing a list view for reasons that
+are not authorization — a default "only my drafts" or "archived hidden" view.
+The two compose with `AND` when both are set.
+
 ### What `scope` does not cover
 
 `scope` applies to the requests this handler serves — everything under
