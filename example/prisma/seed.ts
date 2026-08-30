@@ -2,83 +2,88 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+/**
+ * Deux organisations avec des données volontairement homonymes (une catégorie
+ * « Technology » chacune, un « Draft Post » chacune). Si l'isolation fuit, on
+ * voit immédiatement les doublons apparaître dans une seule vue.
+ */
+const TENANTS = [
+  {
+    slug: 'acme',
+    name: 'Acme Corp',
+    users: [
+      { email: 'ada@acme.test', name: 'Ada (Acme)' },
+      { email: 'bob@acme.test', name: 'Bob (Acme)' }
+    ],
+    categories: ['Technology', 'Business'],
+    posts: [
+      { title: 'Acme — roadmap interne', published: true },
+      { title: 'Acme — Draft Post', published: false }
+    ]
+  },
+  {
+    slug: 'globex',
+    name: 'Globex',
+    users: [
+      { email: 'gina@globex.test', name: 'Gina (Globex)' },
+      { email: 'hank@globex.test', name: 'Hank (Globex)' }
+    ],
+    categories: ['Technology', 'Lifestyle'],
+    posts: [
+      { title: 'Globex — plan produit confidentiel', published: true },
+      { title: 'Globex — Draft Post', published: false }
+    ]
+  }
+];
+
 async function main() {
-  // Create admin user
-  const admin = await prisma.user.upsert({
-    where: { email: 'admin@example.com' },
-    update: {},
-    create: {
-      email: 'admin@example.com',
-      name: 'Admin User',
-      role: 'admin',
-      password: 'admin123' // In real app, this would be hashed
-    }
-  });
+  // Base de démo : on repart de zéro à chaque seed pour que les comparaisons
+  // entre tenants restent lisibles.
+  await prisma.post.deleteMany();
+  await prisma.category.deleteMany();
+  await prisma.user.deleteMany();
+  await prisma.organization.deleteMany();
 
-  // Create regular user
-  const user = await prisma.user.upsert({
-    where: { email: 'user@example.com' },
-    update: {},
-    create: {
-      email: 'user@example.com',
-      name: 'Regular User',
-      role: 'user',
-      password: 'user123'
-    }
-  });
-
-  // Create categories
-  const categories = await Promise.all([
-    prisma.category.upsert({
-      where: { name: 'Technology' },
-      update: {},
-      create: { name: 'Technology', description: 'Tech articles and news' }
-    }),
-    prisma.category.upsert({
-      where: { name: 'Lifestyle' },
-      update: {},
-      create: { name: 'Lifestyle', description: 'Life tips and stories' }
-    }),
-    prisma.category.upsert({
-      where: { name: 'Business' },
-      update: {},
-      create: { name: 'Business', description: 'Business insights' }
-    })
-  ]);
-
-  // Create posts
-  const postsCount = await prisma.post.count();
-  if (postsCount === 0) {
-    await prisma.post.createMany({
-      data: [
-        {
-          title: 'Getting Started with SvelteKit',
-          content: 'SvelteKit is an amazing framework...',
-          published: true,
-          authorId: admin.id
-        },
-        {
-          title: 'Why Prisma is Great',
-          content: 'Prisma simplifies database access...',
-          published: true,
-          authorId: admin.id
-        },
-        {
-          title: 'Draft Post',
-          content: 'This is still a draft...',
-          published: false,
-          authorId: user.id
-        }
-      ]
+  for (const tenant of TENANTS) {
+    const org = await prisma.organization.create({
+      data: { slug: tenant.slug, name: tenant.name }
     });
+
+    const users = [];
+    for (const user of tenant.users) {
+      users.push(
+        await prisma.user.create({
+          data: { ...user, role: 'admin', password: 'demo', organizationId: org.id }
+        })
+      );
+    }
+
+    for (const name of tenant.categories) {
+      await prisma.category.create({
+        data: { name, description: `${name} chez ${tenant.name}`, organizationId: org.id }
+      });
+    }
+
+    for (const [index, post] of tenant.posts.entries()) {
+      await prisma.post.create({
+        data: {
+          ...post,
+          content: `Contenu appartenant à ${tenant.name}.`,
+          authorId: users[index % users.length]!.id,
+          organizationId: org.id
+        }
+      });
+    }
+
+    console.log(`${tenant.name} (/${tenant.slug}) : ${tenant.users.length} users, ${tenant.categories.length} catégories, ${tenant.posts.length} posts`);
   }
 
-  console.log('Database seeded!');
-  console.log('Admin:', admin);
-  console.log('User:', user);
-  console.log('Categories:', categories.length);
+  console.log('\nSeed terminé. `pnpm run dev`, puis http://localhost:5173');
 }
 
 main()
-  .catch(console.error)
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  })
   .finally(() => prisma.$disconnect());

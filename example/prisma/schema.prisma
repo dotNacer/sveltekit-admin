@@ -7,31 +7,53 @@ generator client {
   provider = "prisma-client-js"
 }
 
+/// Le tenant. Volontairement `exclude` de l'admin dans hooks.server.ts :
+/// c'est la racine du tenant, elle n'a rien à faire dans un admin scopé.
+model Organization {
+  id         String     @id @default(cuid())
+  slug       String     @unique
+  name       String
+  createdAt  DateTime   @default(now())
+  users      User[]
+  posts      Post[]
+  categories Category[]
+}
+
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  role      String   @default("user")
-  password  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  posts     Post[]
+  id             String       @id @default(cuid())
+  email          String       @unique
+  name           String?
+  role           String       @default("user")
+  password       String
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  posts          Post[]
 }
 
 model Post {
-  id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
-  author    User     @relation(fields: [authorId], references: [id])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String       @id @default(cuid())
+  title          String
+  content        String?
+  published      Boolean      @default(false)
+  authorId       String
+  author         User         @relation(fields: [authorId], references: [id])
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 }
 
 model Category {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  description String?
-  createdAt   DateTime @default(now())
+  id             String       @id @default(cuid())
+  name           String
+  description    String?
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  createdAt      DateTime     @default(now())
+
+  /// Unicité par tenant, pas globale : deux organisations peuvent chacune
+  /// avoir leur catégorie « Technology ».
+  @@unique([organizationId, name])
 }
