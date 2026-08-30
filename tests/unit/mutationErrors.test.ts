@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest';
-import { createPrismaMock, RELATIONS_SCHEMA_PATH } from '../fixtures/prismaMock.js';
+import { describe, it, expect, vi } from 'vitest';
+import { createPrismaMock, RELATIONS_SCHEMA_PATH, FULL_SCHEMA_PATH } from '../fixtures/prismaMock.js';
 import { AdminMutationError } from '../../src/lib/server/errors.js';
 import { handleMutation } from '../../src/lib/server/mutations.js';
 import { createAdminRuntime } from '../../src/lib/server/runtime.js';
 import { createPrismaAdapter } from '../../src/lib/server/adapters/prisma/index.js';
+import { createAdminHandler } from '../../src/lib/server/adapters/prisma/handler.js';
 import { createEvent } from '../fixtures/events.js';
 
 function runtimeFor(prisma: any, config: Record<string, unknown> = {}) {
@@ -59,5 +60,59 @@ describe('handleMutation lève des AdminMutationError', () => {
     await expect(
       handleMutation(runtime, event, { view: 'create', model: 'post' } as any)
     ).rejects.toMatchObject({ kind: 'authorization', field: 'authorId' });
+  });
+});
+
+describe('rendu des erreurs de mutation', () => {
+  const GENERIC = 'The change could not be saved.';
+
+  it('ne rend jamais le message d’une erreur pilote', async () => {
+    const leak =
+      'Invalid `prisma.user.create()` invocation: Unique constraint failed on the fields: (`email`)';
+    const prisma = createPrismaMock({ user: [{ id: 1, email: 'a@b.c' }] });
+    prisma.user.create = () => {
+      throw Object.assign(new Error(leak), { code: 'P2002' });
+    };
+    const handler = createAdminHandler({ prisma, prismaSchemaPath: FULL_SCHEMA_PATH } as any);
+    const ev = createEvent({
+      url: '/admin/user/new',
+      body: { _action: 'create', email: 'a@b.c' }
+    });
+
+    const html = await (await handler(ev as any)).text();
+
+    expect(html).not.toContain('prisma.user.create');
+    expect(html).not.toContain('Unique constraint failed');
+    expect(html).toContain('A record with these values already exists.');
+  });
+
+  it('rend un texte générique sur un code pilote inconnu, et journalise l’original', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const prisma = createPrismaMock({ user: [] });
+    prisma.user.create = () => {
+      throw Object.assign(new Error('connection terminated unexpectedly'), { code: 'ECONNRESET' });
+    };
+    const handler = createAdminHandler({ prisma, prismaSchemaPath: FULL_SCHEMA_PATH } as any);
+    const ev = createEvent({ url: '/admin/user/new', body: { _action: 'create', email: 'x@y.z' } });
+
+    const html = await (await handler(ev as any)).text();
+
+    expect(html).not.toContain('connection terminated');
+    expect(html).toContain(GENERIC);
+    expect(err).toHaveBeenCalled();
+  });
+
+  it('rend le message d’une AdminMutationError de validation, inchangé', async () => {
+    const prisma = createPrismaMock({ user: [], post: [], tag: [] });
+    const handler = createAdminHandler({
+      prisma,
+      prismaSchemaPath: RELATIONS_SCHEMA_PATH
+    } as any);
+    const ev = createEvent({
+      url: '/admin/post/new',
+      body: { _action: 'create', title: 'x', authorId: '999' }
+    });
+
+    expect(await (await handler(ev as any)).text()).toContain('author: invalid value');
   });
 });
