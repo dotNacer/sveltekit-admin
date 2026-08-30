@@ -6,7 +6,7 @@
  */
 
 import { primaryKeyOf, coerceId, formDataToPrisma } from './data.js';
-import { AdminMutationError } from './errors.js';
+import { AdminMutationError, classifyWriteError } from './errors.js';
 import {
   buildAuditEvent,
   emitAudit,
@@ -55,7 +55,19 @@ export async function handleMutation(
     const before = audit
       ? await readAuditSnapshot((m, recId) => runtime.adapter.data.getRecord(m, recId), model, id)
       : null;
-    await runtime.adapter.data.deleteRecord(model, route.id, modelScopeFrom(runtime, model, { locals: event.locals }));
+    try {
+      await runtime.adapter.data.deleteRecord(
+        model,
+        route.id,
+        modelScopeFrom(runtime, model, { locals: event.locals })
+      );
+    } catch (e) {
+      // Classé ici et non dans `handler.ts` : seul ce site connaît l'action réelle
+      // (`handleMutation` a déjà consommé le corps de la requête, donc le handler
+      // ne peut plus lire `_action`). Un code non reconnu est relayé tel quel, et
+      // c'est le handler qui le masquera.
+      throw classifyWriteError(e, 'delete') ?? e;
+    }
     if (audit) {
       await emitAudit(
         audit,
@@ -259,7 +271,20 @@ export async function handleMutation(
     }
 
     if (action === 'create') {
-      const created = await runtime.adapter.data.createRecord(model, { scalars: data, m2m: m2mInput, targetGuards });
+      let created;
+      try {
+        created = await runtime.adapter.data.createRecord(model, {
+          scalars: data,
+          m2m: m2mInput,
+          targetGuards
+        });
+      } catch (e) {
+        // Classé ici et non dans `handler.ts` : seul ce site connaît l'action réelle
+        // (`handleMutation` a déjà consommé le corps de la requête, donc le handler
+        // ne peut plus lire `_action`). Un code non reconnu est relayé tel quel, et
+        // c'est le handler qui le masquera.
+        throw classifyWriteError(e, 'create') ?? e;
+      }
       if (audit) {
         await emitAudit(
           audit,
@@ -281,11 +306,21 @@ export async function handleMutation(
       const before = audit
         ? await readAuditSnapshot((m, recId) => runtime.adapter.data.getRecord(m, recId), model, id)
         : null;
-      const updated = await runtime.adapter.data.updateRecord(model, route.id, {
-        scalars: data,
-        m2m: m2mInput,
-        targetGuards
-      }, modelScopeFrom(runtime, model, { locals: event.locals }));
+      let updated;
+      try {
+        updated = await runtime.adapter.data.updateRecord(
+          model,
+          route.id,
+          { scalars: data, m2m: m2mInput, targetGuards },
+          modelScopeFrom(runtime, model, { locals: event.locals })
+        );
+      } catch (e) {
+        // Classé ici et non dans `handler.ts` : seul ce site connaît l'action réelle
+        // (`handleMutation` a déjà consommé le corps de la requête, donc le handler
+        // ne peut plus lire `_action`). Un code non reconnu est relayé tel quel, et
+        // c'est le handler qui le masquera.
+        throw classifyWriteError(e, 'update') ?? e;
+      }
       if (audit) {
         await emitAudit(
           audit,

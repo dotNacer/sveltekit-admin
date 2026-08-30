@@ -26,7 +26,7 @@ import { createAdminRuntime, listScopeFrom, modelScopeFrom } from './runtime.js'
 import { loadRelationOptions, resolveFkFilterOptions, loadRelatedCounts } from './relationLoaders.js';
 import { handleSearch } from './search.js';
 import { handleMutation } from './mutations.js';
-import { classifyWriteError, AdminConfigError } from './errors.js';
+import { AdminMutationError, AdminConfigError } from './errors.js';
 import { verifyOrigin, resolveCsrfConfig, type CsrfConfig } from './csrf.js';
 import { resolvePluginRegistry, actionsForModel } from './pluginRegistry.js';
 import { createPluginPageContext } from './pluginAccess.js';
@@ -319,12 +319,17 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           const mutationResponse = await handleMutation(runtime, event, route as ParsedRoute);
           if (mutationResponse) return mutationResponse;
         } catch (e: unknown) {
-          const action = route.id ? 'update' : 'create';
-          const classified = classifyWriteError(e, action);
-          if (classified) {
+          // Plus de classification ici : `handleMutation` a déjà consommé le
+          // corps de la requête, donc ce site ne peut plus lire `_action` et
+          // ne saurait pas distinguer une création d'une suppression. La
+          // classification par code pilote se fait désormais dans
+          // `mutations.ts`, au site d'appel qui connaît l'action réelle —
+          // ce `catch` ne fait plus qu'un aiguillage à trois branches sur le
+          // type de l'erreur déjà classée.
+          if (e instanceof AdminMutationError) {
             // Message construit par la bibliothèque (validation, scope, ou
             // code pilote reconnu) : sûr à rendre tel quel.
-            mutationError = classified.message;
+            mutationError = e.message;
           } else if (e instanceof AdminConfigError) {
             // Mauvaise configuration côté consommateur : message écrit par la
             // bibliothèque, destiné au développeur. Le `catch` partagé plus bas

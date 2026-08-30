@@ -102,6 +102,43 @@ describe('rendu des erreurs de mutation', () => {
     expect(err).toHaveBeenCalled();
   });
 
+  it('rend un texte générique sur un code pilote inconnu levé par la mise à jour', async () => {
+    // Couvre le fallback `?? e` du site d'appel `updateRecord` : un code non
+    // reconnu par `classifyWriteError` doit relayer l'erreur d'origine, que
+    // ce `catch` partagé masque ensuite (comportement inchangé).
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const prisma = createPrismaMock({ user: [{ id: 1, email: 'a@b.c' }] });
+    prisma.user.update = () => {
+      throw Object.assign(new Error('connection terminated unexpectedly'), { code: 'ECONNRESET' });
+    };
+    const handler = createAdminHandler({ prisma, prismaSchemaPath: FULL_SCHEMA_PATH } as any);
+    const ev = createEvent({ url: '/admin/user/1', body: { _action: 'update', email: 'x@y.z' } });
+
+    const html = await (await handler(ev as any)).text();
+
+    expect(html).not.toContain('connection terminated');
+    expect(html).toContain(GENERIC);
+    expect(err).toHaveBeenCalled();
+  });
+
+  it('rend un texte générique sur un code pilote inconnu levé par la suppression', async () => {
+    // Couvre le fallback `?? e` du site d'appel `deleteRecord`, symétrique
+    // du cas update ci-dessus.
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const prisma = createPrismaMock({ tag: [{ id: 1, name: 'x' }] });
+    prisma.tag.delete = () => {
+      throw Object.assign(new Error('connection terminated unexpectedly'), { code: 'ECONNRESET' });
+    };
+    const handler = createAdminHandler({ prisma, prismaSchemaPath: RELATIONS_SCHEMA_PATH } as any);
+    const ev = createEvent({ url: '/admin/tag/1', body: { _action: 'delete' } });
+
+    const html = await (await handler(ev as any)).text();
+
+    expect(html).not.toContain('connection terminated');
+    expect(html).toContain(GENERIC);
+    expect(err).toHaveBeenCalled();
+  });
+
   it('rend le message d’une AdminMutationError de validation, inchangé', async () => {
     const prisma = createPrismaMock({ user: [], post: [], tag: [] });
     const handler = createAdminHandler({
@@ -114,6 +151,47 @@ describe('rendu des erreurs de mutation', () => {
     });
 
     expect(await (await handler(ev as any)).text()).toContain('author: invalid value');
+  });
+
+  it('rend "referenced by other records" (restrict) sur une suppression bloquée par une FK, jamais "reference"', async () => {
+    // Couvre la branche `restrict` de `classifyWriteError` : `reference` et
+    // `restrict` partagent le même code SQLSTATE (P2003 / 23503), seule
+    // l'action en cours les distingue. Cette classification se fait
+    // désormais dans `mutations.ts`, au site d'appel de `deleteRecord` — le
+    // seul qui connaît encore l'action, `handler.ts` ayant déjà perdu le
+    // corps de la requête à ce stade.
+    const prisma = createPrismaMock({ tag: [{ id: 1, name: 'x' }] });
+    prisma.tag.delete = () => {
+      throw Object.assign(new Error('Foreign key constraint failed on the field: `posts`'), {
+        code: 'P2003'
+      });
+    };
+    const handler = createAdminHandler({ prisma, prismaSchemaPath: RELATIONS_SCHEMA_PATH } as any);
+    const ev = createEvent({ url: '/admin/tag/1', body: { _action: 'delete' } });
+
+    const html = await (await handler(ev as any)).text();
+
+    expect(html).toContain('This record is referenced by other records.');
+    expect(html).not.toContain('A referenced record no longer exists.');
+  });
+
+  it('classe aussi un code pilote levé par la mise à jour (kind=conflict)', async () => {
+    // Couvre le site d'appel `updateRecord` de `mutations.ts`, distinct de
+    // celui de `createRecord` et `deleteRecord` : les trois sites classent
+    // désormais indépendamment, chacun avec sa propre action.
+    const prisma = createPrismaMock({ user: [{ id: 1, email: 'a@b.c' }] });
+    prisma.user.update = () => {
+      throw Object.assign(new Error('Unique constraint failed on the fields: (`email`)'), {
+        code: 'P2002'
+      });
+    };
+    const handler = createAdminHandler({ prisma, prismaSchemaPath: FULL_SCHEMA_PATH } as any);
+    const ev = createEvent({ url: '/admin/user/1', body: { _action: 'update', email: 'taken@b.c' } });
+
+    const html = await (await handler(ev as any)).text();
+
+    expect(html).not.toContain('Unique constraint failed');
+    expect(html).toContain('A record with these values already exists.');
   });
 
   it('masque aussi une erreur sans code pilote (PrismaClientValidationError)', async () => {
