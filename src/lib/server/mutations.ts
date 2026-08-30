@@ -240,12 +240,22 @@ export async function handleMutation(
     // les ids (cf. la garde self-ref), afin qu'un scope numérique et une PK
     // coercée ne divergent pas sur le seul type.
     //
+    // Seule une valeur réellement affirmée par le client est confrontée au
+    // scope. `formDataToPrisma` renvoie `''` (String) ou `null` (Int, Float,
+    // DateTime) pour un champ présent mais vide — et le formulaire de création
+    // rend justement la colonne de scope vide. Traiter ce vide comme un conflit
+    // rendrait toute création impossible dès que la colonne est visible.
+    // Un vide veut dire « le formulaire n'a rien fourni », pas « le client
+    // revendique un autre tenant » : on impose alors la valeur sans lever.
+    //
     // L'affectation est HORS du `if` : c'est elle qui porte la garantie, pas la
-    // comparaison. Replier ceci en `if (field in data) { … } else { … }` — un
-    // nettoyage d'apparence anodine — réintroduirait la faille dès qu'une
-    // comparaison `String` coïncide par accident.
+    // comparaison. Replier ceci en `if (…) { … } else { … }` — un nettoyage
+    // d'apparence anodine — réintroduirait la faille dès qu'une comparaison
+    // `String` coïncide par accident.
     for (const [field, value] of Object.entries(scopeValues)) {
-      if (field in data && String(data[field]) !== String(value)) {
+      const submitted = data[field];
+      const asserted = field in data && submitted !== null && submitted !== undefined && submitted !== '';
+      if (asserted && String(submitted) !== String(value)) {
         throw new Error(`${field}: value is outside the authorization scope`);
       }
       data[field] = value;

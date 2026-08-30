@@ -241,6 +241,39 @@ describe('actions POST', () => {
     expect(callsTo(prisma, 'user', 'create')).toHaveLength(0);
   });
 
+  it('impose le champ scoped rendu vide par le formulaire de création', async () => {
+    // `formDataToPrisma` renvoie '' (String) ou null (Int/Float/DateTime) pour
+    // un champ présent mais vide — et le formulaire de création rend la colonne
+    // de scope vide. Un vide n'est pas une revendication d'un autre tenant :
+    // le traiter comme un conflit rendrait toute création impossible.
+    const prisma = createPrismaMock({ user: [], post: [], category: [] });
+    const { handler } = build({
+      models: { User: { scope: () => ({ name: 'tenant-a' }) } }
+    }, prisma);
+    const { event, resolve } = createEvent({
+      url: '/admin/user/new',
+      body: { _action: 'create', email: 'n@x.y', password: 'p', name: '' }
+    });
+
+    expect((await handler({ event, resolve } as any)).status).toBe(303);
+    expect((callsTo(prisma, 'user', 'create')[0].args as any).data.name).toBe('tenant-a');
+  });
+
+  it('impose le champ scoped numérique laissé vide', async () => {
+    // Type numérique : le vide devient `null`, pas ''. Même traitement.
+    const prisma = createPrismaMock({ user: [], post: [], category: [] });
+    const { handler } = build({
+      models: { User: { scope: () => ({ visits: 7 }) } }
+    }, prisma);
+    const { event, resolve } = createEvent({
+      url: '/admin/user/new',
+      body: { _action: 'create', email: 'n@x.y', password: 'p', visits: '' }
+    });
+
+    expect((await handler({ event, resolve } as any)).status).toBe(303);
+    expect((callsTo(prisma, 'user', 'create')[0].args as any).data.visits).toBe(7);
+  });
+
   it('impose le champ scoped absent du formulaire', async () => {
     // Champ non soumis (caché ou readonly) : rien à confronter, la valeur du
     // scope est simplement posée.
