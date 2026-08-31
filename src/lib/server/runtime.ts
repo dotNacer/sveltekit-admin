@@ -1,5 +1,7 @@
 import { isSensitiveFieldName } from './introspection/parser.js';
 import type { Schema, Model } from './types/schema.js';
+import { resolveListColumns } from './query/listColumns.js';
+import type { ActiveSort } from './query/sortQuery.js';
 import { buildRelationGraph, type RelationGraph } from './introspection/relations.js';
 import { primaryKeyOf } from './data.js';
 import { validateListFilterConfig } from './query/filterDetection.js';
@@ -97,6 +99,8 @@ export interface AdminRuntime {
   config: AdminHandlerConfig;
   basePath: string;
   perPage: number;
+  /** `models[].defaultSort` validé au démarrage, par nom de modèle. */
+  defaultSortOf(model: Model): ActiveSort | undefined;
   selectThreshold: number;
   filterLinkThreshold: number;
   labelFieldCandidates: string[];
@@ -175,6 +179,35 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
     // a été parsé, et le graphe est construit dans la même branche de boot.
     if (entries) validateListFilterConfig(m.name, entries, m, relationGraph!, hiddenFieldsOf(m));
   }
+
+  /**
+   * `defaultSort` validé ici pour la même raison que `listFilter` : une colonne
+   * inexistante, ou que la liste n'affiche pas, produirait un tri mort à chaque
+   * rendu sans qu'aucun en-tête ne l'annonce — et l'utilisateur n'aurait aucun
+   * moyen d'en sortir, puisque seule une colonne affichée porte un lien. La
+   * liste des colonnes autorisées est la même que celle du tri par URL.
+   */
+  const defaultSortOf = (m: Model): ActiveSort | undefined => {
+    const configured = modelsConfig[m.name]?.defaultSort;
+    if (!configured) return undefined;
+    const sortable = resolveListColumns(m.fields, {
+      hidden: modelsConfig[m.name]?.hidden,
+      listFields: modelsConfig[m.name]?.listFields
+    }).map((f) => f.name);
+    if (!sortable.includes(configured.field)) {
+      throw new AdminConfigError(
+        `[sveltekit-admin] models.${m.name}.defaultSort targets "${configured.field}", ` +
+          `which the list view does not display. Displayed columns: [${sortable.join(', ')}].`
+      );
+    }
+    if (configured.dir !== undefined && configured.dir !== 'asc' && configured.dir !== 'desc') {
+      throw new AdminConfigError(
+        `[sveltekit-admin] models.${m.name}.defaultSort.dir must be "asc" or "desc".`
+      );
+    }
+    return { field: configured.field, dir: configured.dir ?? 'asc' };
+  };
+  const defaultSorts = new Map(models.map((m) => [m.name, defaultSortOf(m)]));
 
   const labelOf = (m: Model) => {
     const configured = modelsConfig[m.name]?.label;
@@ -262,6 +295,7 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
     config,
     basePath,
     perPage: 20,
+    defaultSortOf: (m: Model) => defaultSorts.get(m.name),
     selectThreshold,
     filterLinkThreshold,
     labelFieldCandidates,

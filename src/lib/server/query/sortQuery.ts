@@ -26,13 +26,23 @@ export interface SortState {
   ignored: boolean;
 }
 
-export function parseSortQuery(params: URLSearchParams, sortable: string[]): SortState {
+/**
+ * `fallback` est le `models[].defaultSort` déjà validé au démarrage. Il
+ * s'applique quand l'URL ne demande rien, ET quand elle demande une colonne
+ * refusée : le refus reste signalé (`ignored`), mais la liste garde un ordre
+ * intentionnel plutôt que de retomber sur la clé primaire.
+ */
+export function parseSortQuery(
+  params: URLSearchParams,
+  sortable: string[],
+  fallback?: ActiveSort
+): SortState {
   const requested = params.get('sort');
   // Vide == absent : `?sort=` est un artefact d'interface (un form GET qui
   // sérialise un champ non renseigné), pas une demande à refuser bruyamment.
-  if (!requested) return { active: null, ignored: false };
+  if (!requested) return { active: fallback ?? null, ignored: false };
 
-  if (!sortable.includes(requested)) return { active: null, ignored: true };
+  if (!sortable.includes(requested)) return { active: fallback ?? null, ignored: true };
 
   // Domaine à deux valeurs : tout ce qui n'est pas `desc` est ascendant. Rien à
   // refuser ici — contrairement au champ, une direction inconnue ne désigne

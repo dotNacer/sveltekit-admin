@@ -123,6 +123,36 @@ Sorting *by* the primary key does not add a redundant second key.
 An unrecognised `?dir=` is read as ascending rather than refused: unlike a
 column name, a direction designates nothing and cannot reveal anything.
 
+### A default order per model
+
+Without configuration, a list arrives ordered by primary key, descending —
+newest first. `models[].defaultSort` changes what a visitor sees before
+touching anything:
+
+```ts
+createAdminHandler({
+  adapter,
+  models: {
+    User: { defaultSort: { field: 'name' } },          // ascending
+    Post: { defaultSort: { field: 'title', dir: 'desc' } }
+  }
+})
+```
+
+A `?sort=` in the URL always wins over it. A `?sort=` on a column that cannot
+be sorted is still refused and reported, and the list falls back to this
+default rather than to the primary key.
+
+`field` must name a column the list **displays**. It is checked when the
+handler is created, not per request: a column that is hidden, dropped by the
+name heuristic, or beyond the six-column cap would give a sort that no heading
+can announce and that a visitor has no way to leave, so it fails at boot
+instead.
+
+There is deliberately no automatic "sort by `name` if the model has one".
+Guessing would silently reorder every existing list, and the guess would drift
+from what the view actually shows.
+
 ## Case sensitivity
 
 `contains` search is only made explicitly case-insensitive (`mode: 'insensitive'`) on providers that support it in Prisma — PostgreSQL, CockroachDB, and MongoDB. The provider is auto-detected from your Prisma schema's `datasource` block; override with:
