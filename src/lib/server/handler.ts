@@ -36,6 +36,7 @@ import { resolvePluginRegistry, actionsForModel } from './pluginRegistry.js';
 import { createPluginPageContext } from './pluginAccess.js';
 import type { AdminPlugin } from './plugin.js';
 import type { NavigationConfig } from './config.js';
+import type { DashboardConfig } from './dashboard.js';
 
 export interface AdminHandlerConfig {
   /**
@@ -47,6 +48,12 @@ export interface AdminHandlerConfig {
   adapter: { introspector: SchemaIntrospector; data: DataAdapter };
   /** Base path for admin routes (default: /admin) */
   basePath?: string;
+  /**
+   * Composition du dashboard : titre, sous-titre et widgets dans l'ordre
+   * d'affichage. Omis, le dashboard historique est rendu. Validé au
+   * démarrage — un modèle inconnu ou exclu lève ici, pas à l'écran.
+   */
+  dashboard?: DashboardConfig;
   /** Authentication check - return true if user can access admin */
   authCheck?: (event: any) => boolean | Promise<boolean>;
   /**
