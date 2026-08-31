@@ -1,0 +1,115 @@
+---
+title: Troubleshooting
+name: Troubleshooting
+description: Fix common setup, adapter, authentication, security, and mutation problems.
+---
+
+Use this page as a symptom-first checklist. Reproduce the problem locally, apply the smallest fix, then run the verification command shown for your adapter.
+
+## `Cannot find module @prisma/client` or an ungenerated client
+
+**Cause:** the Prisma client has not been generated in the application that owns the schema.
+
+**Fix:** install `@prisma/client` and `prisma` in that app, then generate before starting SvelteKit:
+
+```bash
+pnpm exec prisma generate
+pnpm run dev
+```
+
+If the schema is not at `./prisma/schema.prisma`, pass `prismaSchemaPath` to `createAdminHandler`. Verify with `pnpm exec prisma validate --schema ./prisma/schema.prisma`.
+
+## `Schema file not found` or an empty dashboard
+
+**Cause:** schema discovery is relative to the process working directory, not `src/hooks.server.ts`.
+
+**Fix:** start the app from its project root or set the explicit path:
+
+```ts
+createAdminHandler({ prisma, prismaSchemaPath: './prisma/schema.prisma' });
+```
+
+Verify with `pnpm exec prisma validate --schema ./prisma/schema.prisma`, then restart the dev server. Schema introspection happens at handler creation, so changing the schema requires recreating/restarting the handler.
+
+## Drizzle import or adapter errors
+
+**Cause:** the Drizzle adapter is a subpath export, and it needs the schema object as well as the database instance.
+
+**Fix:** import both symbols from the same subpath and pass `schema`:
+
+```ts
+import { createAdminHandler, createDrizzleAdapter } from 'sveltekit-admin/adapters/drizzle';
+const adapter = createDrizzleAdapter({ db, schema });
+export const handle = createAdminHandler({ adapter });
+```
+
+Use your table/relations export object, not a Prisma schema path. Verify the package surface with `pnpm exec svelte-kit sync` and `pnpm run check`.
+
+## `/admin` returns 401
+
+**Cause:** `authCheck` returned `false`, usually because the auth handler ran after the admin handler or did not populate `event.locals`.
+
+**Fix:** compose with `sequence(authHandle, adminHandle)` and check the same locals property in both places. The library does not create sessions.
+
+Verify with an authenticated browser request and a request without the session cookie. Do not remove `authCheck` to hide the symptom: without it, anyone who can reach `basePath` is allowed.
+
+## A mutation returns 403 / CSRF failure
+
+**Cause:** state-changing requests validate the request `Origin` by default. A missing or unexpected Origin is rejected.
+
+**Fix:** use the same origin for the admin request, or explicitly add a legitimate trusted origin:
+
+```ts
+csrf: { trustedOrigins: ['https://admin.example.com'] }
+```
+
+Only disable CSRF when the surrounding deployment provides an equivalent guarantee. Verify in the browser network panel that the POST has the expected `Origin`; do not “fix” this by changing a GET into a write.
+
+## Tenant rows are visible or editable unexpectedly
+
+**Cause:** `listWhere` is list-only. It does not protect detail, edit, delete, dashboard counts, relation options, or plugin reads.
+
+**Fix:** put the authorization predicate in `models[].scope`:
+
+```ts
+models: {
+  Post: {
+    scope: ({ locals }) => ({ tenantId: locals.tenantId })
+  }
+}
+```
+
+A missing or ambiguous scope fails closed. Verify with two tenants: list, direct detail URL, relation picker, update, delete, and bulk delete must all stay inside the current scope.
+
+## A valid-looking form returns 422
+
+**Cause:** 422 means the submitted mutation was refused. Common causes are required fields left empty, invalid numbers/JSON/enums, invalid relation ids, or a database constraint.
+
+**Fix:** read the field-level error and correct the submitted value. The form preserves raw submitted values; database driver error text is not exposed. A unique conflict may appear as a page-level error.
+
+Verify by resubmitting the corrected form and checking for the normal 303 redirect. Required `Bytes` fields, composite foreign keys, and some unsupported relation shapes need application-specific UI; see [Field Types](/docs/field-types) and [Relations](/docs/relations).
+
+## Composite FK or `Bytes` fields cannot be edited
+
+This is a current limitation, not a missing configuration. Composite foreign keys are not editable through generated forms, and `Bytes` fields are excluded from forms because a text input cannot safely produce the adapter's binary value. Manage these records in an app-specific form or use a custom admin surface.
+
+## Search, filters, or sorting show no results
+
+Search and filters are allowlisted. Sensitive/hidden fields cannot be searched or filtered, unknown fields/operators are ignored, and only rendered list columns can be sorted. Check `searchFields`, `listFilter`, `listFields`, `hidden`, and the URL spelling.
+
+Verify by starting with a visible string field (`?q=...`), then add one filter at a time. For a filter configuration error, restart the handler: invalid `listFilter` entries fail at boot rather than creating a dead control.
+
+## Packaged app works differently from the workspace
+
+Build and exercise the published artifact, not only source-linked development:
+
+```bash
+pnpm run package
+pnpm run smoke:packaged
+```
+
+The smoke test catches missing package files, broken exports such as `sveltekit-admin/adapters/drizzle`, and incompatible peer dependencies. For the docs site itself, run from `docs/`: `pnpm run check`, `pnpm run lint`, and `pnpm run build`.
+
+## Still stuck?
+
+Capture the exact URL, status code, adapter, schema path/dialect, and the relevant server log without including credentials or sensitive form data. Then compare the setup against [Installation](/docs/installation), [How It Works](/docs/how-it-works), and the [Configuration Reference](/docs/configuration-reference).

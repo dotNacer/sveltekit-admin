@@ -60,3 +60,24 @@ The order matters: `authHandle` must run before `adminHandle` so that
 `authCheck` only gates access. To record which administrator created,
 updated, or deleted a row, pass [`audit`](/docs/audit-log) — it receives
 the same `event` (so the same `locals`) after every successful write.
+
+## Logout
+
+The library cannot invalidate a session it does not own. If you provide
+`logout`, it adds a sidebar button that submits a **POST-only**
+`{basePath}/_logout` request. The callback clears your cookie or calls your
+auth provider, and the handler redirects to `/` by default:
+
+```typescript
+createAdminHandler({
+  prisma,
+  authCheck: (event) => event.locals.session?.user?.role === 'admin',
+  logout: (event) => {
+    event.cookies.delete('session', { path: '/' });
+  },
+  logoutRedirectTo: '/login'
+});
+```
+
+Logout runs before `authCheck`, so an expired session can still clean up its
+local state. No logout button is rendered when `logout` is omitted.

@@ -1,92 +1,112 @@
 ---
 title: Installation & Quick Start
 name: Installation & Quick Start
-description: Install sveltekit-admin and wire it into your SvelteKit hooks in three lines of code.
+description: Install the package and connect a Prisma or Drizzle adapter to SvelteKit.
 ---
 
 <script lang="ts">
-	import { InstallationTabs, Steps, Step } from '$lib';
+  import { InstallationTabs } from '$lib';
 </script>
 
-## Install
+This page gets a local admin running with the smallest complete `hooks.server.ts`. The handler reads your schema once when it is created and serves the admin below `/admin` by default.
+
+## 1. Install
 
 <InstallationTabs pkg="sveltekit-admin" />
 
-## Quick start (3 lines!)
+Install the ORM package and its runtime dependencies in the application as well. For Prisma, run `prisma generate` after changing the schema. For Drizzle, keep exporting the same table schema object that your application uses.
 
-<Steps>
-	<Step title="Add the admin handler to your hooks">
+## 2. Prisma quick start
 
-```typescript
+```ts
 // src/hooks.server.ts
 import { createAdminHandler } from 'sveltekit-admin';
 import { prisma } from '$lib/server/prisma';
 
-export const handle = createAdminHandler({ prisma });
-```
-
-</Step>
-
-	<Step title="Start your dev server">
-
-```bash
-npm run dev
-```
-
-</Step>
-
-	<Step title="Open /admin">
-
-That's it — no routes to create. You'll see a dashboard with model
-statistics, list views with pagination, and auto-generated create/edit forms
-for every model in your Prisma schema.
-
-</Step>
-</Steps>
-
-## Using a Drizzle adapter
-
-Prisma is the shortest path, but Drizzle is supported through the dedicated
-subpath export. Import both the handler and adapter from that subpath:
-
-```typescript
-import { createAdminHandler, createDrizzleAdapter } from 'sveltekit-admin/adapters/drizzle';
-import { db } from './db';
-import * as schema from './db/schema';
-
 export const handle = createAdminHandler({
-  adapter: createDrizzleAdapter({ db, schema })
+  prisma,
+  authCheck: (event) => event.locals.session?.user?.role === 'admin'
 });
 ```
 
-A custom adapter can provide the same `{ introspector, data }` pair. See the
-configuration reference for the complete adapter contract.
+The Prisma schema is read from `./prisma/schema.prisma` by default. If the app starts from another working directory or uses a non-standard schema location, set `prismaSchemaPath` explicitly:
 
-## Using it alongside existing auth
+```ts
+export const handle = createAdminHandler({
+  prisma,
+  prismaSchemaPath: './prisma/admin-schema.prisma'
+});
+```
 
-If you already have an auth handler, combine the two with SvelteKit's
-`sequence`:
+Run the app and open `http://localhost:5173/admin`:
 
-```typescript
-import { createAdminHandler } from 'sveltekit-admin';
+```bash
+pnpm exec prisma generate
+pnpm run dev
+```
+
+There are no `src/routes/admin` files to add. The `authCheck` in the first example assumes an earlier auth hook has populated `event.locals.session`; see [Authentication](/docs/authentication).
+
+## 3. Drizzle quick start
+
+Use the dedicated subpath so a Drizzle-only app does not import the Prisma adapter:
+
+```ts
+// src/hooks.server.ts
+import {
+  createAdminHandler,
+  createDrizzleAdapter
+} from 'sveltekit-admin/adapters/drizzle';
+import { db } from '$lib/server/db';
+import * as schema from '$lib/server/db/schema';
+
+const adapter = createDrizzleAdapter({
+  db,
+  schema
+});
+
+export const handle = createAdminHandler({
+  adapter,
+  authCheck: (event) => event.locals.session?.user?.role === 'admin'
+});
+```
+
+`schema` must be the object containing your Drizzle table exports (including `relations()` exports when your schema uses them). Model keys in `models` are the schema export keys, such as `users`, rather than Prisma-style `User`. If the dialect cannot be inferred, pass `dialect: 'postgresql' | 'mysql' | 'sqlite'`.
+
+```bash
+pnpm run dev
+```
+
+For SQLite many-to-many writes, the current adapter expects better-sqlite3's synchronous transaction API. PostgreSQL and MySQL use async transactions; async SQLite drivers are not supported for those writes in this version.
+
+## Existing authentication
+
+Compose your auth hook before the admin hook:
+
+```ts
 import { sequence } from '@sveltejs/kit/hooks';
+import { createAdminHandler } from 'sveltekit-admin';
 import { prisma } from '$lib/server/prisma';
 
 const authHandle = async ({ event, resolve }) => {
-	event.locals.session = await getSession(event);
-	return resolve(event);
+  event.locals.session = await getSession(event);
+  return resolve(event);
 };
 
 const adminHandle = createAdminHandler({
-	prisma,
-	authCheck: (event) => {
-		return event.locals.session?.user?.role === 'admin';
-	}
+  prisma,
+  authCheck: (event) => event.locals.session?.user?.role === 'admin'
 });
 
 export const handle = sequence(authHandle, adminHandle);
 ```
 
-See [Authentication](/docs/authentication) for more on `authCheck`, and
-[Configuration Reference](/docs/configuration-reference) for the full set of
-options `createAdminHandler` accepts.
+## First-admin checklist
+
+- [ ] The schema/client exists and is generated.
+- [ ] `authCheck` denies an anonymous request and allows an administrator.
+- [ ] `models[].scope` is present for tenant data.
+- [ ] `/admin` works locally and a create/update/delete has been tested with a non-production database.
+- [ ] CSRF and sensitive-field defaults have not been disabled casually.
+
+Continue with [Model Configuration](/docs/model-configuration), [Relations](/docs/relations), or [Troubleshooting](/docs/troubleshooting).
