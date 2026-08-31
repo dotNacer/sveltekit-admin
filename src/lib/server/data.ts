@@ -64,7 +64,14 @@ export function formDataToPrisma(formData: FormData, model: PrismaModel): Record
         }
         break;
       default:
-        data[field.name] = value.toString();
+        // Le vide vaut `null`, comme pour les types au-dessus. Écrire `''`
+        // rendait une chaîne vide indistinguable d'une valeur voulue, violait
+        // une colonne `String? @unique` dès la deuxième ligne vidée, et
+        // n'était de toute façon pas une valeur qu'un type enum déclare.
+        // Un champ ABSENT du formulaire ne passe pas par ici (`continue`
+        // au-dessus) : c'est cette distinction que `mutations.ts` exploite
+        // pour séparer « non soumis » de « vidé ».
+        data[field.name] = value.toString() || null;
     }
   }
 

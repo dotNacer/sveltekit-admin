@@ -151,16 +151,13 @@ export async function handleMutation(
     const schemaEnums = runtime.schema!.enums;
     for (const field of model.fields) {
       if (!field.isEnum || !(field.name in data)) continue;
+      // Le vide (ce que poste le « — aucun — » du widget) ne se décide pas ici
+      // mais dans le contrôle unique en fin de fonction, après l'imposition du
+      // scope : une colonne de tenant qui se trouve être un enum est rendue
+      // vide par le formulaire de création, et la refuser ici rendrait le
+      // modèle incréable. Cette boucle ne valide plus que le domaine.
+      if (data[field.name] === null) continue;
 
-      if (data[field.name] === '') {
-        if (field.isRequired) {
-          throw new AdminMutationError('validation', `${field.name} is required`, field.name);
-        }
-        // Ce que poste le « — aucun — » du widget. La colonne accepte NULL,
-        // mais pas la chaîne vide : aucun type enum ne la déclare.
-        data[field.name] = null;
-        continue;
-      }
       if (!schemaEnums.get(field.type)!.includes(String(data[field.name]))) {
         throw new AdminMutationError('validation', `${field.name}: invalid value`, field.name);
       }
@@ -316,10 +313,10 @@ export async function handleMutation(
     // coercée ne divergent pas sur le seul type.
     //
     // Seule une valeur réellement affirmée par le client est confrontée au
-    // scope. `formDataToPrisma` renvoie `''` (String) ou `null` (Int, Float,
-    // DateTime) pour un champ présent mais vide — et le formulaire de création
-    // rend justement la colonne de scope vide. Traiter ce vide comme un conflit
-    // rendrait toute création impossible dès que la colonne est visible.
+    // scope. `formDataToPrisma` renvoie `null` pour un champ présent mais vide,
+    // quel que soit son type — et le formulaire de création rend justement la
+    // colonne de scope vide. Traiter ce vide comme un conflit rendrait toute
+    // création impossible dès que la colonne est visible.
     // Un vide veut dire « le formulaire n'a rien fourni », pas « le client
     // revendique un autre tenant » : on impose alors la valeur sans lever.
     //
@@ -338,6 +335,40 @@ export async function handleMutation(
         );
       }
       data[field] = value;
+    }
+
+    /**
+     * Vide sur une colonne qui n'accepte pas NULL : refus, et le champ fautif
+     * est nommé. `formDataToPrisma` distingue déjà les deux sens du mot vide —
+     * une clé ABSENTE n'a pas été soumise (readonly, masquée, colonne à défaut
+     * que le formulaire de création n'affiche pas) et n'écrit rien ; une clé
+     * PRÉSENTE à `null` est une saisie vidée.
+     *
+     * Placé ici, en dernier, et pas plus haut avec les autres validations :
+     *
+     * - après l'imposition du scope, parce que le formulaire de création rend
+     *   la colonne de tenant vide (voir le bloc juste au-dessus). À ce point la
+     *   valeur imposée par le serveur est déjà posée, donc plus rien à refuser ;
+     * - après la boucle FK, qui rattache son refus à l'arête (`author is
+     *   required`) et non au scalaire (`authorId`). C'est cet ordre qui lui en
+     *   laisse la propriété, pas un garde ici : une arête optionnelle a un
+     *   scalaire optionnel (Prisma lie les deux), donc le seul scalaire de
+     *   relation qui puisse encore être `null` en arrivant ici appartient à une
+     *   arête que la boucle FK ne gère pas — une FK composite, qu'aucun widget
+     *   ne rend et que seul ce contrôle-ci peut alors nommer.
+     *
+     * Les champs sensibles n'y passent pas non plus : leur boucle, tout en
+     * haut, supprime déjà la clé d'une colonne optionnelle vide plutôt que d'y
+     * écrire `null` — `''` y serait indistinguable d'un secret réellement vide.
+     *
+     * `hasDefault` n'entre pas dans la décision : à la création la colonne à
+     * défaut n'est pas rendue, donc la clé est absente ; à l'édition la ligne a
+     * déjà une valeur, et la vider est une saisie, pas une absence.
+     */
+    for (const field of model.fields) {
+      if (!field.isRequired || !(field.name in data) || data[field.name] !== null) continue;
+
+      throw new AdminMutationError('validation', `${field.name} is required`, field.name);
     }
 
     if (action === 'create') {
