@@ -4,8 +4,23 @@ name: Configuration Reference
 description: Every option createAdminHandler accepts, in one place.
 ---
 
-`createAdminHandler` takes a single configuration object. Only `prisma` is
-required — everything else has a sensible default.
+`createAdminHandler` takes a single configuration object. Provide either a
+`prisma` client or an explicit `adapter`; everything else has a sensible default.
+
+For Prisma, the shorthand is:
+
+```typescript
+createAdminHandler({ prisma });
+```
+
+For Drizzle, import the handler and adapter from
+`sveltekit-admin/adapters/drizzle`:
+
+```typescript
+createAdminHandler({
+  adapter: createDrizzleAdapter({ db, schema })
+});
+```
 
 ## Full example
 
@@ -54,8 +69,9 @@ createAdminHandler({
 
 | Option             | Type                                    | Default                       | Description                                                                 |
 | ------------------ | ---------------------------------------- | ------------------------------ | ----------------------------------------------------------------------------- |
-| `prisma`            | `PrismaClient`                           | —                               | Required. Your Prisma client instance.                                       |
-| `prismaSchemaPath`  | `string`                                  | `'./prisma/schema.prisma'`     | Path to the schema file the admin introspects to discover models and fields. |
+| `prisma`            | `PrismaClient`                           | —                               | Prisma client shortcut. Provide this or `adapter`. |
+| `adapter`           | `{ introspector: SchemaIntrospector; data: DataAdapter }` | —                  | Explicit Prisma, Drizzle or custom adapter pair. Provide this or `prisma`. |
+| `prismaSchemaPath`  | `string`                                  | `'./prisma/schema.prisma'`     | Path used by the Prisma shortcut to discover models and fields. |
 | `basePath`          | `string`                                  | `'/admin'`                     | URL prefix all admin routes are served under.                                |
 | `authCheck`         | `(event: RequestEvent) => boolean \| Promise<boolean>` | none (open access) | Gate that must return `true` for a request to reach the admin. See [Authentication](/docs/authentication). |
 | `csrf`              | `false \| { trustedOrigins?: string[] }`  | check enabled          | Origin verification for every state-changing admin request. On by default; `false` opts out entirely. See [Cross-site protection](/docs/csrf). |

@@ -1,39 +1,34 @@
 ---
 title: sveltekit-admin
 name: Introduction
-description: A Django-like admin panel for SvelteKit applications with Prisma. Auto-generated CRUD, list views, and forms from your Prisma schema in three lines of code.
+description: A zero-route admin panel for SvelteKit with Prisma and Drizzle adapters.
 ---
 
-**sveltekit-admin** is a Django-like admin panel for SvelteKit applications
-backed by Prisma. Point it at your Prisma client and it introspects your
-schema to generate a full admin interface — no routes to write, no forms to
-hand-build.
+**sveltekit-admin** turns an existing Prisma or Drizzle schema into a server-rendered admin panel. It is a SvelteKit `handle` hook: there are no generated routes, no admin database, and no UI scaffold to maintain.
 
-## Features
+## Choose your path
 
-- **Auto-introspection** of your Prisma schema
-- **CRUD operations** auto-generated for every model
-- **Standalone UI** — no external CSS required
-- **Zero routes** — everything is handled via a single SvelteKit hook
-- **3 lines of code** to set up
-- **Customizable** — hide fields, mark fields readonly, set custom labels
+- **Prisma** — use the root package export and pass your generated client. This is the shortest path and is covered by the [Prisma quick start](/docs/installation).
+- **Drizzle** — import both `createAdminHandler` and `createDrizzleAdapter` from `sveltekit-admin/adapters/drizzle`. The adapter receives the `db` and the schema object you already export.
+- **Custom adapter** — implement the public `{ introspector, data }` contract when your data source is neither Prisma nor Drizzle. See the [configuration reference](/docs/configuration-reference).
 
 ## What you get
 
-Once installed, navigating to `/admin` gives you:
+Opening `/admin` (or your configured `basePath`) provides a dashboard, paginated lists, generated create/edit forms, relation widgets, search, filters, sorting, and destructive actions with confirmation. The handler intercepts only its admin paths; your application routes remain yours.
 
-- A dashboard with per-model statistics
-- List views with pagination
-- Create/edit forms generated from your Prisma schema
-- Delete with confirmation
-- Editable relations: foreign keys as dropdowns, many-to-many as checkboxes
+## The important safety defaults
+
+Before exposing the panel, configure an `authCheck`. Use `models[].scope` for tenant or row authorization; `listWhere` only narrows list/search results and is **not** an authorization boundary. CSRF Origin verification is enabled for state-changing requests. Fields named like `password`, `hash`, `secret`, or `token`, plus fields in `hidden`, are excluded from sensitive UI and callback payloads.
 
 ## Requirements
 
-- SvelteKit 2.x
-- Prisma 5.x or 6.x
+- SvelteKit 2 and Svelte 5
+- Prisma 5+ for the Prisma shortcut, or Drizzle ORM 0.32+ for the Drizzle adapter
+- Node.js and pnpm/npm/bun suitable for your SvelteKit app
 
 ## Next steps
 
-Head to [Installation & Quick Start](/docs/installation) to add the admin
-panel to your app.
+1. Follow [Installation & Quick Start](/docs/installation).
+2. Add [authentication and logout](/docs/authentication) before sharing `/admin`.
+3. Configure [models, fields, and scopes](/docs/model-configuration).
+4. Keep the [troubleshooting guide](/docs/troubleshooting) nearby while integrating.
