@@ -183,6 +183,19 @@ export function styles(primaryColor: string): string {
       letter-spacing: 0.05em;
     }
 
+    .ska-pagination__pages {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      flex-wrap: wrap;
+    }
+    .ska-pagination__gap { padding: 0 0.25rem; color: #64748b; }
+    .ska-pagination__current {
+      background: var(--ska-primary);
+      color: #fff;
+      border-color: var(--ska-primary);
+      cursor: default;
+    }
     .ska-table th a.ska-th-sort {
       color: inherit;
       text-decoration: none;

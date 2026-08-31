@@ -7,6 +7,7 @@
   import { DATETIME_PRESETS } from '../query/filterDetection.js';
   import { resolveListColumns } from '../query/listColumns.js';
   import { buildListUrl, hiddenParams } from '../query/urls.js';
+  import { paginationWindow } from './pagination.js';
   import { escapeHtml, toLabel, formatValue } from './html.js';
   import ListFilters from './ListFilters.svelte';
 
@@ -91,6 +92,7 @@
     if (!currentUrl) return (n: number) => `?page=${n}`;
     return (n: number) => buildListUrl(currentUrl, { page: String(n) });
   });
+  const pageWindow = $derived(paginationWindow(pagination.page, totalPages));
   const clearHref = $derived(currentUrl ? currentUrl.pathname : listPath);
   const searchHiddenParams = $derived(currentUrl ? hiddenParams(currentUrl, ['q']) : []);
 
@@ -279,8 +281,27 @@
       <span class="ska-pagination__info">
         Showing {(pagination.page - 1) * pagination.perPage + 1} to {Math.min(pagination.page * pagination.perPage, pagination.total)} of {pagination.total}
       </span>
-      {#if pagination.page > 1}<a href={pageHref(pagination.page - 1)} class="ska-btn ska-btn--secondary ska-btn--sm">Previous</a>{/if}
-      {#if pagination.page < totalPages}<a href={pageHref(pagination.page + 1)} class="ska-btn ska-btn--secondary ska-btn--sm">Next</a>{/if}
+      <nav class="ska-pagination__pages" aria-label="Pagination">
+        {#if pagination.page > 1}
+          <a href={pageHref(1)} class="ska-btn ska-btn--secondary ska-btn--sm" aria-label="First page">«</a>
+          <a href={pageHref(pagination.page - 1)} class="ska-btn ska-btn--secondary ska-btn--sm">Previous</a>
+        {/if}
+        {#each pageWindow as entry, i (i)}
+          {#if entry === 'gap'}
+            <span class="ska-pagination__gap" aria-hidden="true">…</span>
+          {:else if entry === pagination.page}
+            <!-- Page courante : repère, pas lien. Un lien vers l'endroit où on
+                 est déjà est un piège au clavier autant qu'un bruit inutile. -->
+            <span class="ska-btn ska-btn--sm ska-pagination__current" aria-current="page">{entry}</span>
+          {:else}
+            <a href={pageHref(entry)} class="ska-btn ska-btn--secondary ska-btn--sm">{entry}</a>
+          {/if}
+        {/each}
+        {#if pagination.page < totalPages}
+          <a href={pageHref(pagination.page + 1)} class="ska-btn ska-btn--secondary ska-btn--sm">Next</a>
+          <a href={pageHref(totalPages)} class="ska-btn ska-btn--secondary ska-btn--sm" aria-label="Last page">»</a>
+        {/if}
+      </nav>
     </div>
   {/if}
 </div>
