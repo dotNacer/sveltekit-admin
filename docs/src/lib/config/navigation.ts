@@ -51,6 +51,7 @@ export const contentSections: ContentSectionConfig[] = [
 				items: [
 					{ slug: 'configuration-reference', name: 'Configuration Reference' },
 					{ slug: 'model-configuration', name: 'Model Configuration' },
+					{ slug: 'dashboard', name: 'Dashboard' },
 					{ slug: 'field-types', name: 'Field Types' },
 					{ slug: 'authentication', name: 'Authentication' },
 					{ slug: 'csrf', name: 'Cross-site protection' },

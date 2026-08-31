@@ -35,7 +35,7 @@ import { readSubmittedForm, type SubmittedForm } from './submitted.js';
 import { resolvePluginRegistry, actionsForModel } from './pluginRegistry.js';
 import { createPluginPageContext } from './pluginAccess.js';
 import type { AdminPlugin } from './plugin.js';
-import type { DashboardConfig } from './dashboard.js';
+import { loadDashboard, type DashboardConfig } from './dashboard.js';
 
 export interface AdminHandlerConfig {
   /**
@@ -455,30 +455,10 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       } else if (route.view === 'notFound') {
         content = render(NotFound, { props: { message: 'Page not found', basePath: runtime.basePath } }).body;
       } else if (route.view === 'dashboard') {
-        const modelsWithCounts = await Promise.all(
-          runtime.models.map(async (m) => {
-            let count = 0;
-            try {
-              count = await runtime.adapter.data.countRecords(
-                m,
-                modelScopeFrom(runtime, m, { locals: event.locals })
-              );
-            } catch {
-              // model absent from the database
-            }
-            return { name: m.name, label: runtime.labelOf(m), count };
-          })
-        );
-
-        const totalRecords = modelsWithCounts.reduce((sum, m) => sum + m.count, 0);
-
-        content = render(Dashboard, {
-          props: {
-            models: modelsWithCounts,
-            stats: { total: totalRecords, models: modelsWithCounts.length },
-            basePath: runtime.basePath
-          }
-        }).body;
+        const data = await loadDashboard(runtime, event);
+        // `basePath` n'est plus une prop : les liens arrivent déjà construits
+        // par `loadDashboard`, la vue n'a plus rien à concaténer.
+        content = render(Dashboard, { props: data }).body;
       } else if (route.model) {
         currentModel = route.model;
         const model = runtime.findModel(route.model);

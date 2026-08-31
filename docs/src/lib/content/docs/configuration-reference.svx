@@ -20,6 +20,11 @@ createAdminHandler({
   // Base path for admin routes (default: '/admin')
   basePath: '/admin',
 
+  // Dashboard composition (default: global stats + one card per model)
+  dashboard: {
+    widgets: [{ type: 'stats' }, { type: 'models', title: 'Models' }]
+  },
+
   // Authentication check (optional)
   authCheck: async (event) => {
     const session = event.locals.session;

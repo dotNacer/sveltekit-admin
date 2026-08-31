@@ -23,3 +23,4 @@ export type {
   PluginPageContext,
   PluginPageResult
 } from './server/plugin.js';
+export type { DashboardConfig, DashboardWidget } from './server/dashboard.js';

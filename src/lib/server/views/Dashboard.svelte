@@ -1,38 +1,35 @@
 <script lang="ts">
   import StatCard from './StatCard.svelte';
   import ModelCard from './ModelCard.svelte';
+  import type { DashboardRow } from '../dashboard.js';
 
   let {
-    models,
-    stats,
-    basePath
-  }: {
-    models: Array<{ name: string; label: string; count: number }>;
-    stats: { total: number; models: number };
-    basePath: string;
-  } = $props();
+    title,
+    subtitle,
+    rows
+  }: { title: string; subtitle: string; rows: DashboardRow[] } = $props();
 </script>
 
 <header class="ska-dashboard__header">
-  <h1>Dashboard</h1>
-  <p class="ska-subtitle">Welcome to your admin panel</p>
+  <h1>{title}</h1>
+  <p class="ska-subtitle">{subtitle}</p>
 </header>
 
-<div class="ska-stats">
-  <StatCard icon="models" value={stats.models} label="Models" />
-  <StatCard icon="records" value={stats.total} label="Total Records" />
-</div>
-
-<section class="ska-dashboard__section">
-  <h2>Models</h2>
-  <div class="ska-models">
-    {#each models as m (m.name)}
-      <ModelCard
-        href="{basePath}/{m.name.toLowerCase()}"
-        newHref="{basePath}/{m.name.toLowerCase()}/new"
-        label={m.label}
-        count={m.count}
-      />
-    {/each}
-  </div>
-</section>
+{#each rows as row, rowIndex (rowIndex)}
+  {#if row.kind === 'cards'}
+    <div class="ska-stats">
+      {#each row.cards as card, cardIndex (cardIndex)}
+        <StatCard value={card.value} label={card.label} icon={card.icon} />
+      {/each}
+    </div>
+  {:else}
+    <section class="ska-dashboard__section">
+      {#if row.title}<h2>{row.title}</h2>{/if}
+      <div class="ska-models">
+        {#each row.cards as m (m.name)}
+          <ModelCard href={m.href} newHref={m.newHref} label={m.label} count={m.count} />
+        {/each}
+      </div>
+    </section>
+  {/if}
+{/each}
