@@ -53,8 +53,23 @@ config shape/behavior in a way existing callers must react to — see
   writing this by hand, not running the interactive `changeset` CLI that
   generates those; a descriptive name is what the next person reads in
   `git blame` or the `.changeset/` directory listing.
-- Skip the changeset entirely for changes with no effect on published
-  behavior (tests, CI, internal dev tooling, docs) — per `CONTRIBUTING.md`.
+- A change with no effect on published behavior (tests, CI, internal dev
+  tooling, docs) still gets a file — an **empty** changeset, frontmatter with
+  no package and no bump, plus a one-line body:
+
+  ```md
+  ---
+  ---
+
+  Docs only — nothing published changes. <what this PR does>
+  ```
+
+  Do **not** omit the file. The `changeset-check` job runs
+  `changeset status --since=origin/main`, which reports the package as changed
+  for *any* modified file — so a docs-only or test-only PR with no changeset
+  fails CI exactly like a source PR would. Precedent:
+  `.changeset/scope-migration-docs.md` (#35),
+  `.changeset/fix-automated-release.md` (#38).
 
 ## Content: writing the body
 

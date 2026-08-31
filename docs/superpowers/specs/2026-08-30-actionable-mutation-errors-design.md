@@ -120,12 +120,28 @@ Ce `try` produit un `MutationFailure` (`{ kind, field?, message }`) et laisse la
 
 Deux props nouvelles :
 
-- `submitted?: Record<string, string | string[]>` — le **FormData brut**, pas le payload de `formDataToPrisma`. Si l'utilisateur tape `abc` dans un Int, le payload coercé vaut `null` ; réafficher ça effacerait sa saisie et masquerait l'erreur.
-- `fieldErrors?: Map<string, string>` — l'erreur rattachée à son champ, plus un emplacement pour l'erreur au niveau formulaire.
+- `submitted?: SubmittedForm` — le **FormData brut**, pas le payload de `formDataToPrisma`. Si l'utilisateur tape `abc` dans un Int, le payload coercé vaut `null` ; réafficher ça effacerait sa saisie et masquerait l'erreur.
+- `mutationError?: { message: string; field? }` — l'erreur, rattachée à son champ quand elle en nomme un.
 
-Le mécanisme de pré-remplissage existe déjà : la vue `create` passe un `item: itemPrefill` partiel pour le pré-remplissage FK depuis la query string. `submitted` réutilise ce chemin de rendu au lieu d'en ouvrir un second.
+> **Révisé à l'implémentation (PR #41).** Ce paragraphe décrivait `submitted?:
+> Record<string, string | string[]>` réutilisant le chemin `item: itemPrefill`
+> de la vue `create`, et un `fieldErrors?: Map<string, string>`. Les deux ont
+> été écartés, pour des raisons qui n'apparaissent qu'en écrivant le code :
+>
+> - **`item` ne peut pas porter le soumis.** Il contient des valeurs typées
+>   base (`Date`, nombres, booléens, JSON parsé) là où le soumis est de la
+>   chaîne brute : les fondre obligerait chaque consommateur à deviner lequel
+>   il a reçu. Surtout, `item` ne sait pas exprimer l'absence — `undefined`
+>   y confond « pas soumis » et « pas dans la ligne », or c'est précisément
+>   cette distinction qui fait qu'une case décochée reste décochée. D'où un
+>   prop distinct, et un type `SubmittedForm { values, m2m }` dont le champ
+>   `m2m` préserve la sémantique du sentinelle `__rel_present__`.
+> - **`fieldErrors` serait une Map à une entrée.** `AdminMutationError` porte
+>   exactement un `field`. Une Map promettrait une capacité que le type
+>   d'erreur ne livre pas. À élargir le jour où de la validation multi-champs
+>   existe, pas avant.
 
-Pour les N-N, `RelationMeta.selectedIds` est alimenté depuis les `__rel__<field>` soumis plutôt que depuis la base.
+Pour les N-N, les ids cochés viennent des `__rel__<field>` soumis plutôt que de la base (via `submitted.m2m`, pas en écrasant `RelationMeta.selectedIds` — celui-ci reste ce que `loadRelationOptions` a lu).
 
 ### Sonde du champ en conflit
 
@@ -170,11 +186,11 @@ Gate 100 % sur les quatre métriques, sans `exclude` ni `v8 ignore`.
 
 ## Découpage en PRs
 
-| PR | Contenu | Livrable seul |
-|---|---|---|
-| 1 | `errors.ts`, classification, `AdminMutationError` dans `mutations.ts`, fallback générique, `e.message` retiré du rendu | Oui — ferme la fuite, qui est le vrai P0 |
-| 2 | Réaffichage du formulaire : `submitted`, `fieldErrors`, `422` | Oui — l'UX |
-| 3 | Messages riches : sonde d'unicité, suppression bloquée via `loadRelatedCounts` | Oui — le confort |
+| PR | Contenu | Livrable seul | État |
+|---|---|---|---|
+| 1 | `errors.ts`, classification, `AdminMutationError` dans `mutations.ts`, fallback générique, `e.message` retiré du rendu | Oui — ferme la fuite, qui est le vrai P0 | Livré — #37 |
+| 2 | Réaffichage du formulaire : `submitted`, `mutationError`, `422` | Oui — l'UX | Livré — #41 |
+| 3 | Messages riches : sonde d'unicité, suppression bloquée via `loadRelatedCounts` | Oui — le confort | À faire |
 
 Si seuls 1 et 2 étaient livrés, le point de roadmap serait substantiellement clos.
 
