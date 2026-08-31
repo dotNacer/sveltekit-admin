@@ -276,3 +276,100 @@ describe('Form.svelte — recordActions', () => {
     expect(html).not.toContain('/admin/user/1/graph');
   });
 });
+
+describe('FieldInput.svelte — enum', () => {
+  const renderEnum = (field: any, value: any, isReadonly = false, map: any = schema.enums) =>
+    render(FieldInput, { props: { field, value, isReadonly, enums: map } }).body;
+
+  /** `role` est `Role @default(USER)` : obligatoire (donc non nullable) ET à défaut. */
+  const optionalEnum = { name: 'role', type: 'Role', isEnum: true, isRequired: false, hasDefault: false } as any;
+  const requiredEnum = { name: 'role', type: 'Role', isEnum: true, isRequired: true, hasDefault: false } as any;
+
+  it("rend un select avec une option par valeur de l'enum", () => {
+    const html = renderEnum(f('role'), 'ADMIN');
+    expect(html).toContain('name="role"');
+    expect(html).toContain('<select');
+    expect(html).toContain('<option value="USER"');
+    expect(html).toContain('<option value="ADMIN"');
+    expect(html).toContain('<option value="MODERATOR"');
+  });
+
+  it('sélectionne la valeur courante', () => {
+    const html = renderEnum(f('role'), 'ADMIN');
+    expect(html).toMatch(/<option value="ADMIN"[^>]*selected/);
+    expect(html).not.toMatch(/<option value="USER"[^>]*selected/);
+  });
+
+  it('ajoute une option vide sur une colonne nullable', () => {
+    expect(renderEnum(optionalEnum, null)).toContain('<option value="">— aucun —</option>');
+  });
+
+  it("n'ajoute pas d'option vide sur une colonne non nullable", () => {
+    // `isRequired` (la colonne accepte-t-elle NULL) et non l'attribut `required`
+    // du widget : `role` a un défaut, donc pas d'astérisque, mais la colonne
+    // reste non nullable et « aucun » n'est pas une valeur qu'elle accepte.
+    expect(renderEnum(f('role'), 'USER')).not.toContain('<option value="">— aucun —</option>');
+  });
+
+  it('place un placeholder désactivé sur une colonne non nullable sans valeur', () => {
+    // Sans lui, le navigateur présélectionne la première valeur de l'enum et
+    // la création écrit un choix que l'utilisateur n'a jamais fait.
+    const html = renderEnum(f('role'), null);
+    expect(html).toMatch(/<option value=""[^>]*disabled[^>]*selected/);
+    expect(html).not.toMatch(/<option value="USER"[^>]*selected/);
+  });
+
+  it('marque requis un enum obligatoire sans défaut', () => {
+    const html = renderEnum(requiredEnum, null);
+    expect(html).toContain(' *</label>');
+    expect(html).toMatch(/<select[^>]*required/);
+  });
+
+  it('donne la priorité à la valeur soumise sur la valeur en base', () => {
+    const submitted = { values: { role: 'MODERATOR' }, m2m: {} };
+    const html = render(FieldInput, {
+      props: { field: f('role'), value: 'ADMIN', isReadonly: false, enums: schema.enums, submitted }
+    }).body;
+    expect(html).toMatch(/<option value="MODERATOR"[^>]*selected/);
+    expect(html).not.toMatch(/<option value="ADMIN"[^>]*selected/);
+  });
+
+  it('désactive le select en lecture seule', () => {
+    // Un `<select>` n'a pas de `readonly` : `disabled` le sort du POST, donc
+    // `formDataToPrisma` ignore la clé et la colonne n'est pas réécrite.
+    expect(renderEnum(f('role'), 'ADMIN', true)).toMatch(/<select[^>]*disabled/);
+  });
+
+  it("porte les attributs d'erreur du champ", () => {
+    const html = render(FieldInput, {
+      props: {
+        field: f('role'), value: 'ADMIN', isReadonly: false,
+        enums: schema.enums, errorMessage: 'Invalid role'
+      }
+    }).body;
+    expect(html).toMatch(/<select[^>]*aria-invalid="true"/);
+    expect(html).toMatch(/<select[^>]*aria-describedby="role-error"/);
+    expect(html).toContain('Invalid role');
+  });
+
+  it("retombe sur un input texte quand la map ne connaît pas le type", () => {
+    expect(renderField(f('role'), 'ADMIN', false)).toContain('type="text"');
+  });
+
+  it('reçoit les valeurs portées par le ViewModel via Form', () => {
+    const html = renderForm(
+      'edit',
+      { ...viewModel, enums: schema.enums },
+      '/admin',
+      { prisma: {} } as any,
+      { id: 1, email: 'a@b.c', role: 'ADMIN' }
+    );
+    expect(html).toMatch(/<select[^>]*id="role"/);
+    expect(html).toMatch(/<option value="ADMIN"[^>]*selected/);
+  });
+
+  it('retombe sur un input texte quand le ViewModel ne porte pas les enums', () => {
+    const html = renderForm('edit', viewModel, '/admin', { prisma: {} } as any, { id: 1, role: 'ADMIN' });
+    expect(html).toMatch(/id="role"[^>]*type="text"/);
+  });
+});

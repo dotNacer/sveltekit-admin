@@ -1,0 +1,33 @@
+// Corpus dédié aux enums côté écriture : une colonne enum non nullable avec
+// défaut, une colonne enum nullable, et un scalaire ordinaire pour vérifier
+// que la revalidation ne touche qu'aux enums.
+//
+// Fixture séparée plutôt qu'un champ ajouté à `search.prisma` ou `full.prisma` :
+// une colonne enum de plus y modifierait l'auto-détection des filtres et le
+// rendu des formulaires, donc les attentes de tests qui ne parlent pas d'enums.
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  USER
+  ADMIN
+  MODERATOR
+}
+
+enum Tier {
+  FREE
+  PRO
+}
+
+model Member {
+  id    Int    @id @default(autoincrement())
+  email String @unique
+  role  Role   @default(USER)
+  tier  Tier?
+}

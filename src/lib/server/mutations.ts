@@ -130,6 +130,42 @@ export async function handleMutation(
       if (isEmpty) delete data[field.name];
     }
 
+    /**
+     * Revalidation des enums. Le `<select>` rendu par `FieldInput` ne propose
+     * que des valeurs déclarées, mais un POST forgé n'y est pas tenu — même
+     * raison que la revalidation des cibles FK/m2m plus bas : ce que
+     * l'interface n'aurait pas offert ne doit pas passer sous prétexte qu'elle
+     * ne l'aurait pas offert. Sans ça, la valeur inventée part au pilote et
+     * ressort en message générique, sans désigner le champ fautif.
+     *
+     * `schema!` et `get(...)!` sont sûrs par construction : `isEnum` n'est posé
+     * qu'à partir de la table des enums du schéma (`parser.ts:220`, et
+     * `inspect.ts` côté Drizzle qui alimente les deux ensemble), et un modèle
+     * résolu implique un schéma introspecté.
+     *
+     * Le vide se décide sur `isRequired` seul, sans le `!hasDefault` de la
+     * boucle au-dessus : celle-ci couvre une création où le défaut de la base
+     * peut encore remplir la colonne, alors qu'ici « vide » vise une colonne
+     * qui n'accepte pas NULL — un `@default` n'y change rien.
+     */
+    const schemaEnums = runtime.schema!.enums;
+    for (const field of model.fields) {
+      if (!field.isEnum || !(field.name in data)) continue;
+
+      if (data[field.name] === '') {
+        if (field.isRequired) {
+          throw new AdminMutationError('validation', `${field.name} is required`, field.name);
+        }
+        // Ce que poste le « — aucun — » du widget. La colonne accepte NULL,
+        // mais pas la chaîne vide : aucun type enum ne la déclare.
+        data[field.name] = null;
+        continue;
+      }
+      if (!schemaEnums.get(field.type)!.includes(String(data[field.name]))) {
+        throw new AdminMutationError('validation', `${field.name}: invalid value`, field.name);
+      }
+    }
+
     // Validation des FK owning : coercion + existence + self-ref.
     // Rejoue le `where` de scoping : un ID hors du where est rejeté,
     // pas seulement caché du select (IDOR par POST forgé).

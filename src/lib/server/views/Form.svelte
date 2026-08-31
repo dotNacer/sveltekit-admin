@@ -167,6 +167,7 @@
         isReadonly={isFieldReadonly(f)}
         {submitted}
         errorMessage={errorFor(f.name)}
+        enums={model.enums}
       />
     {/each}
     {#each relationSelects as edge (edge.field)}
