@@ -680,6 +680,7 @@ export function styles(primaryColor: string): string {
     .ska-back:focus-visible,
     .ska-checkbox:focus-visible,
     .ska-logout__btn:focus-visible,
+    .ska-stat--link:focus-visible,
     .ska-skip:focus-visible {
       outline: 2px solid var(--ska-primary);
       outline-offset: 2px;

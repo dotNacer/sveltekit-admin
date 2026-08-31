@@ -9,7 +9,7 @@
  * bloc vide à chaque rendu (même politique que `validateListFilterConfig`).
  */
 import { AdminConfigError } from './errors.js';
-import { modelScopeFrom, type AdminRuntime } from './runtime.js';
+import { combinedScopeFrom, type AdminRuntime } from './runtime.js';
 import type { Model } from './types/schema.js';
 import { buildWhere, parseListQuery, type ListQuery } from './query/listQuery.js';
 import type { Filter } from './adapters/types.js';
@@ -251,22 +251,27 @@ function cardsOf(widget: Exclude<LoadedWidget, { type: 'models' }>): DashboardCa
  * réutilisent le même comptage. Sans ça, composer son dashboard se paierait
  * en requêtes dupliquées.
  *
- * `modelScopeFrom` est appelé HORS du `try/catch` : il lève volontairement sur
- * un scope qui échouerait ouvert (`{}`), et cette erreur-là ne doit jamais être
- * confondue avec « la table n'existe pas encore ». `countRecords` n'est pas
- * `async` (voir `adapters/prisma/dataAdapter.ts`) : un driver qui lève de
- * façon SYNCHRONE — ex. table absente — le ferait avant qu'un `.catch()`
- * puisse s'attacher. L'IIFE `async` capture ce cas comme le rejet asynchrone.
+ * `combinedScopeFrom` est appelé HORS du `try/catch` : il lève volontairement
+ * sur un scope (`scope` ou `listWhere`) qui échouerait ouvert (`{}`), et cette
+ * erreur-là ne doit jamais être confondue avec « la table n'existe pas
+ * encore ». `countRecords` n'est pas `async` (voir
+ * `adapters/prisma/dataAdapter.ts`) : un driver qui lève de façon SYNCHRONE —
+ * ex. table absente — le ferait avant qu'un `.catch()` puisse s'attacher.
+ * L'IIFE `async` capture ce cas comme le rejet asynchrone.
  */
 function makeCounter(runtime: AdminRuntime, locals: unknown) {
   const cache = new Map<string, Promise<number>>();
   return (model: Model): Promise<number> => {
     const hit = cache.get(model.name);
     if (hit) return hit;
-    const scope = modelScopeFrom(runtime, model, { locals });
+    const scope = combinedScopeFrom(runtime, model, { locals });
     const pending = (async () => {
       try {
-        return await runtime.adapter.data.countRecords(model, scope);
+        // `combinedScopeFrom` peut renvoyer un `where` Prisma imbriqué resté
+        // opaque (un `listWhere` non trivial) : `countRecords` a la même
+        // tolérance que `buildWhere` deux appels plus bas dans ce fichier,
+        // même cast que celui-là.
+        return await runtime.adapter.data.countRecords(model, scope as Filter | undefined);
       } catch {
         // modèle absent de la base
         return 0;
@@ -298,10 +303,11 @@ export async function loadDashboard(
 
     if (widget.type === 'count') {
       const model = runtime.models.find((m) => m.name === widget.modelName)!;
-      // `modelScopeFrom` reste HORS du `try/catch` : il lève volontairement
-      // sur un scope qui échouerait ouvert (`{}`), et cette erreur-là ne doit
-      // jamais être confondue avec « la table n'existe pas encore ».
-      const scope = modelScopeFrom(runtime, model, { locals: event.locals });
+      // `combinedScopeFrom` reste HORS du `try/catch` : il lève volontairement
+      // sur un scope (`scope` ou `listWhere`) qui échouerait ouvert (`{}`), et
+      // cette erreur-là ne doit jamais être confondue avec « la table n'existe
+      // pas encore ».
+      const scope = combinedScopeFrom(runtime, model, { locals: event.locals });
       // `caseInsensitiveSearch` est faux ici comme dans la branche liste :
       // c'est le compilateur de l'adapter qui décide de la casse.
       const filter = buildWhere(widget.query, scope, false, model) as Filter | undefined;
