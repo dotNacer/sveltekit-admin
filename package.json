@@ -1,6 +1,6 @@
 {
   "name": "sveltekit-admin",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "description": "Django-like admin panel for SvelteKit + Prisma",
   "type": "module",
   "packageManager": "pnpm@10.25.0",
