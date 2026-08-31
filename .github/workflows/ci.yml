@@ -46,6 +46,33 @@ jobs:
       - run: pnpm run test:coverage
       - run: pnpm run package
 
+  # Éprouve le PAQUET, pas les sources : `example/` consomme la bibliothèque via
+  # le workspace, donc rien ici ne vérifiait que le tarball publié — son
+  # contenu, sa carte `exports`, ses peerDependencies — fonctionne dans une
+  # application tierce. Le script empaquette, installe dans une copie de
+  # `example/` posée hors du workspace, construit avec Vite, démarre le serveur
+  # et l'interroge en HTTP.
+  #
+  # Node 22 seulement : ce job valide la forme du paquet, pas la compatibilité
+  # entre versions de Node, que la matrice `test` couvre déjà.
+  #
+  # L'installation du consommateur se fait sans lockfile, volontairement : la
+  # question posée est « une installation neuve, aujourd'hui, fonctionne-t-elle
+  # avec ce paquet ». Un lockfile figé y répondrait pour hier.
+  packaged-consumer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run smoke:packaged
+
   changeset-check:
     # Only meaningful on PRs: a push to main is often the merge of a
     # "Version Packages" PR, which legitimately consumes changesets rather
