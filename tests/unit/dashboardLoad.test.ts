@@ -252,4 +252,17 @@ describe('loadDashboard', () => {
     );
     await expect(loadDashboard(runtime, { locals: {} })).rejects.toThrow(OPAQUE_FILTER_ERROR);
   });
+
+  // TEMPORAIRE (tâche 10) : le chargement du widget `recent` est la tâche 11.
+  // En attendant, `loadDashboard` lève fort plutôt que de tomber
+  // silencieusement dans la branche `models` ou de l'ignorer. La tâche 11
+  // SUPPRIME ce test en implémentant le vrai chargement.
+  it('lève : le chargement du widget recent n’est pas encore implémenté (tâche 11)', async () => {
+    const { runtime } = runtimeWith({
+      dashboard: { widgets: [{ type: 'recent', model: 'User' }] }
+    });
+    await expect(loadDashboard(runtime, { locals: {} })).rejects.toThrow(
+      /recent widget loading is not implemented yet/
+    );
+  });
 });

@@ -166,6 +166,44 @@ describe('createAdminRuntime', () => {
     expect(widget.query.searchFields).toEqual(['email']);
   });
 
+  it('résout un widget recent via le runtime, avec le libellé et le tri réels', () => {
+    const rt = runtimeFor(FULL_SCHEMA_PATH, {
+      dashboard: { widgets: [{ type: 'recent', model: 'User', sort: 'email', dir: 'desc' }] }
+    });
+    expect(rt.dashboard.widgets[0]).toEqual({
+      type: 'recent',
+      modelName: 'User',
+      title: 'Latest User',
+      limit: 5,
+      orderBy: { email: 'desc' },
+      href: '/admin/user'
+    });
+  });
+
+  it('un widget recent trié respecte models[].hidden/listFields configurés pour ce modèle', () => {
+    const rt = runtimeFor(FULL_SCHEMA_PATH, {
+      models: { User: { hidden: ['bio'] } },
+      dashboard: { widgets: [{ type: 'recent', model: 'User', sort: 'email' }] }
+    });
+    expect(rt.dashboard.widgets[0]).toMatchObject({ orderBy: { email: 'asc' } });
+  });
+
+  it('un widget recent respecte le defaultSort configuré pour ce modèle', () => {
+    const rt = runtimeFor(FULL_SCHEMA_PATH, {
+      models: { User: { defaultSort: { field: 'email', dir: 'asc' } } },
+      dashboard: { widgets: [{ type: 'recent', model: 'User' }] }
+    });
+    expect(rt.dashboard.widgets[0]).toMatchObject({ orderBy: { email: 'asc' } });
+  });
+
+  it('un widget recent refuse un tri sur une colonne que la liste n’affiche pas', () => {
+    expect(() =>
+      runtimeFor(FULL_SCHEMA_PATH, {
+        dashboard: { widgets: [{ type: 'recent', model: 'User', sort: 'password' }] }
+      })
+    ).toThrow(/does not display/);
+  });
+
   it('schéma illisible → models vide + warn', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const adapter = {

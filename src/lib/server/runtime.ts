@@ -328,7 +328,14 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
     basePath,
     searchFieldsOf: (m) =>
       resolveSearchFields(m, modelsConfig[m.name]?.searchFields, labelFieldCandidates, hiddenFieldsOf(m)),
-    filterableFieldsOf: resolveFilterableFields
+    filterableFieldsOf: resolveFilterableFields,
+    sortableColumnsOf: (m) =>
+      resolveListColumns(m.fields, {
+        hidden: modelsConfig[m.name]?.hidden,
+        listFields: modelsConfig[m.name]?.listFields
+      }).map((f) => f.name),
+    defaultSortOf: (m) => defaultSorts.get(m.name),
+    labelOf
   });
 
   /**
