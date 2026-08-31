@@ -58,10 +58,13 @@
 </head>
 <!-- eslint-disable-next-line svelte/no-raw-special-elements -- server-only full-document template, never mounted client-side -->
 <body>
+  <!-- Premier élément focusable de la page : sans lui, atteindre le contenu au
+       clavier demande de retraverser toute la nav latérale à chaque page. -->
+  <a href="#ska-content" class="ska-skip">Skip to content</a>
   <div class="ska-layout">
     <aside class="ska-sidebar">
       <a href={basePath} class="ska-logo">{title}</a>
-      <nav>
+      <nav aria-label="Main">
         <ul class="ska-nav">
           <li class="ska-nav__item">
             <a href={basePath} class="ska-nav__link" class:ska-nav__link--active={!currentModel}>
@@ -92,7 +95,7 @@
         </form>
       {/if}
     </aside>
-    <main class="ska-main">
+    <main class="ska-main" id="ska-content" tabindex="-1">
       <!-- eslint-disable-next-line svelte/no-at-html-tags -- content is pre-rendered HTML from sibling view components / the handler's own escaped error string -->
       {@html content}
     </main>

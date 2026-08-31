@@ -245,13 +245,13 @@
 {/if}
 
 {#if deletedCount !== null}
-  <div class="ska-alert ska-alert--success">
+  <div class="ska-alert ska-alert--success" role="status">
     <p>{deletedCount} {deletedCount === 1 ? 'record' : 'records'} deleted</p>
   </div>
 {/if}
 
 {#if ignoredMessages.length > 0 || sort?.ignored}
-  <div class="ska-alert ska-alert--error">
+  <div class="ska-alert ska-alert--error" role="alert">
     {#each ignoredMessages as m (m.key)}
       <p>{m.text}</p>
     {/each}
@@ -280,13 +280,13 @@
       <thead>
         <tr>
           {#if sortable}
-            <th class="ska-table__select">
+            <th class="ska-table__select" scope="col">
               <!-- eslint-disable-next-line svelte/no-at-html-tags -- chaîne littérale ; le « tout cocher » est le seul endroit de l'admin qui demande du script, et le reste fonctionne sans lui -->
               {@html `<input type="checkbox" class="ska-checkbox" aria-label="Select all on this page" onclick="for (const box of this.closest('table').querySelectorAll('input[name=ids]')) box.checked = this.checked">`}
             </th>
           {/if}
-          {#each displayFields as f (f.name)}{#if sortable}<th aria-sort={ariaSortFor(f.name)}><a href={sortHref(f.name)} class="ska-th-sort">{toLabel(f.name)}<span aria-hidden="true">{sortMarkFor(f.name)}</span></a></th>{:else}<th>{toLabel(f.name)}</th>{/if}{/each}
-          <th>Actions</th>
+          {#each displayFields as f (f.name)}{#if sortable}<th scope="col" aria-sort={ariaSortFor(f.name)}><a href={sortHref(f.name)} class="ska-th-sort">{toLabel(f.name)}<span aria-hidden="true">{sortMarkFor(f.name)}</span></a></th>{:else}<th scope="col">{toLabel(f.name)}</th>{/if}{/each}
+          <th scope="col">Actions</th>
         </tr>
       </thead>
       <tbody>
