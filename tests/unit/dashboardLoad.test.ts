@@ -3,6 +3,7 @@ import { loadDashboard } from '../../src/lib/server/dashboard.js';
 import { createAdminRuntime } from '../../src/lib/server/runtime.js';
 import { createPrismaAdapter } from '../../src/lib/server/adapters/prisma/index.js';
 import { createPrismaMock, callsTo, FULL_SCHEMA_PATH } from '../fixtures/prismaMock.js';
+import { OPAQUE_FILTER_ERROR } from '../../src/lib/server/adapters/filter.js';
 
 const DATA = {
   user: [
@@ -217,5 +218,38 @@ describe('loadDashboard', () => {
     expect(callsTo(prisma, 'user', 'count')[0].args).toEqual({
       where: { AND: [{ id: 1 }, { isActive: true }] }
     });
+  });
+
+  it('laisse remonter une erreur de filtre opaque (Drizzle) plutôt que de la rendre 0', async () => {
+    // Distinct de « affiche 0 quand la table n'existe pas encore » : seule une
+    // table absente est tolérée par ce catch, pas un `listWhere` opaque
+    // refusé par l'adaptateur Drizzle — sinon une erreur de configuration se
+    // rendrait silencieusement 0 sur chaque carte modèle.
+    const prisma = createPrismaMock(DATA, {
+      user: {
+        count: () => {
+          throw new Error(OPAQUE_FILTER_ERROR);
+        }
+      }
+    });
+    const { runtime } = runtimeWith({}, prisma);
+    await expect(loadDashboard(runtime, { locals: {} })).rejects.toThrow(OPAQUE_FILTER_ERROR);
+  });
+
+  it('laisse remonter une erreur de filtre opaque (Drizzle) sur un widget count plutôt que de la rendre 0', async () => {
+    // Même distinction que ci-dessus, pour la branche `count` : voir
+    // « affiche 0 quand le comptage filtré échoue » pour le cas toléré.
+    const prisma = createPrismaMock(DATA, {
+      user: {
+        count: () => {
+          throw new Error(OPAQUE_FILTER_ERROR);
+        }
+      }
+    });
+    const { runtime } = runtimeWith(
+      { dashboard: { widgets: [{ type: 'count', model: 'User', label: 'Actifs' }] } },
+      prisma
+    );
+    await expect(loadDashboard(runtime, { locals: {} })).rejects.toThrow(OPAQUE_FILTER_ERROR);
   });
 });
