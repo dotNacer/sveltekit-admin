@@ -121,6 +121,17 @@ describe('createAdminRuntime', () => {
     ).toThrow(/no field "nope"/);
   });
 
+  it('résout le dashboard au démarrage', () => {
+    const rt = runtimeFor(FULL_SCHEMA_PATH);
+    expect(rt.dashboard.widgets[0]).toEqual({ type: 'stats' });
+  });
+
+  it('refuse une config de dashboard invalide au démarrage, pas au rendu', () => {
+    expect(() =>
+      runtimeFor(FULL_SCHEMA_PATH, { dashboard: { widgets: [{ type: 'models', models: ['Nope'] }] } })
+    ).toThrow(/unknown or excluded/);
+  });
+
   it('schéma illisible → models vide + warn', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const adapter = {

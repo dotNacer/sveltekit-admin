@@ -12,6 +12,7 @@ import type { ViewModel } from './views/types.js';
 import type { DataAdapter, SchemaIntrospector, Filter } from './adapters/types.js';
 import type { AdminHandlerConfig } from './handler.js';
 import { AdminConfigError } from './errors.js';
+import { resolveDashboard, type ResolvedDashboard } from './dashboard.js';
 
 export function scopeFrom(
   relConfig: { where?: (ctx: any) => any } | undefined,
@@ -102,6 +103,8 @@ export interface AdminRuntime {
   perPage: number;
   /** Tailles sélectionnables, vide quand le mécanisme est désactivé. */
   pageSizes: number[];
+  /** Widgets validés au démarrage (jamais re-validés par requête). */
+  dashboard: ResolvedDashboard;
   /** `models[].defaultSort` validé au démarrage, par nom de modèle. */
   defaultSortOf(model: Model): ActiveSort | undefined;
   selectThreshold: number;
@@ -182,6 +185,11 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
     // a été parsé, et le graphe est construit dans la même branche de boot.
     if (entries) validateListFilterConfig(m.name, entries, m, relationGraph!, hiddenFieldsOf(m));
   }
+
+  // Même politique que `listFilter` et les plugins : une config de dashboard
+  // invalide arrête le démarrage plutôt que de produire un bloc mort à chaque
+  // rendu.
+  const dashboard = resolveDashboard({ config: config.dashboard, models });
 
   /**
    * `defaultSort` validé ici pour la même raison que `listFilter` : une colonne
@@ -323,6 +331,7 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
     basePath,
     perPage,
     pageSizes,
+    dashboard,
     defaultSortOf: (m: Model) => defaultSorts.get(m.name),
     selectThreshold,
     filterLinkThreshold,
