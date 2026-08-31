@@ -44,6 +44,38 @@ Plugins may register additional path patterns (for example
 `/admin/user/1/graph`). Those pages still render inside the same layout;
 see [Plugins](/docs/plugins).
 
+## When a write is refused
+
+A successful create, update, or delete answers with a `303` redirect back to
+the list. A refused one answers with **`422`** and re-renders the same form,
+carrying the values that were just submitted — a create form is not emptied,
+and an edit form is not reset to the row as it still stands in the database.
+
+The values shown are the raw ones the browser sent, not the coerced payload:
+`abc` typed into an `Int` field is shown back as `abc`, so the mistake stays
+visible instead of being silently replaced by an empty field. An unchecked
+checkbox stays unchecked, and many-to-many boxes keep exactly the selection
+that was submitted.
+
+Two kinds of field are deliberately **not** repopulated:
+
+- anything listed in `models[].hidden`, and anything whose name looks
+  sensitive (`password`, `hash`, `secret`, `token`) — the same rule that keeps
+  those fields out of list views, search, filters and the audit payload. A
+  password therefore has to be retyped after a refused submit.
+- read-only fields (the primary key, `@default(now())` / `@updatedAt`
+  timestamps, anything in `models[].readonly`) — these keep their stored
+  value, since they were never editable.
+
+When the refusal names a field, its message is rendered next to that field and
+wired to it with `aria-invalid` and `aria-describedby`. When it doesn't — a
+unique-constraint conflict, whose column is not guessed from driver
+metadata — the message appears in the page-level alert instead. Either way the
+message is one the library wrote — a database driver's own error text is never
+rendered. See [Model Configuration](/docs/model-configuration) for `hidden` and
+`readonly`, and the [Configuration Reference](/docs/configuration-reference)
+for `scope`.
+
 ## Why a single hook instead of generated route files
 
 Generating actual SvelteKit route files (or injecting them into

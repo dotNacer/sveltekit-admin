@@ -1,8 +1,12 @@
 /**
  * POST create/update/delete handling — split out of `handler.ts`, pure
- * orchestration over `AdminRuntime`. Reads `formData` unconditionally: the
- * handler only calls this on `event.request.method === 'POST'`, so the
- * request body is never consumed on GET.
+ * orchestration over `AdminRuntime`.
+ *
+ * Le corps est lu par l'appelant et reçu en paramètre, pas consommé ici : le
+ * handler doit garder ce qui a été soumis pour le re-rendre si cette fonction
+ * lève (`readSubmittedForm`), et un corps de requête ne se lit qu'une fois.
+ * L'appelant n'invoque cette fonction que sur `POST`, donc aucun GET ne lit de
+ * corps.
  */
 
 import { primaryKeyOf, coerceId, formDataToPrisma } from './data.js';
@@ -19,12 +23,12 @@ import type { TargetGuard } from './adapters/types.js';
 export async function handleMutation(
   runtime: AdminRuntime,
   event: any,
-  route: ParsedRoute
+  route: ParsedRoute,
+  formData: FormData
 ): Promise<Response | null> {
   const modelsConfig = runtime.config.models ?? {};
   const audit = runtime.config.audit;
 
-  const formData = await event.request.formData();
   const action = formData.get('_action');
 
   if (!route.model) return null;
@@ -62,10 +66,10 @@ export async function handleMutation(
         modelScopeFrom(runtime, model, { locals: event.locals })
       );
     } catch (e) {
-      // Classé ici et non dans `handler.ts` : seul ce site connaît l'action réelle
-      // (`handleMutation` a déjà consommé le corps de la requête, donc le handler
-      // ne peut plus lire `_action`). Un code non reconnu est relayé tel quel, et
-      // c'est le handler qui le masquera.
+      // Classé ici et non dans `handler.ts` : seul ce site connaît l'action
+      // réellement en cours, et `reference` / `restrict` partagent le même code
+      // SQLSTATE — c'est l'action qui les sépare. Un code non reconnu est relayé
+      // tel quel, et c'est le handler qui le masquera.
       throw classifyWriteError(e, 'delete') ?? e;
     }
     if (audit) {
@@ -279,10 +283,10 @@ export async function handleMutation(
           targetGuards
         });
       } catch (e) {
-        // Classé ici et non dans `handler.ts` : seul ce site connaît l'action réelle
-        // (`handleMutation` a déjà consommé le corps de la requête, donc le handler
-        // ne peut plus lire `_action`). Un code non reconnu est relayé tel quel, et
-        // c'est le handler qui le masquera.
+        // Classé ici et non dans `handler.ts` : seul ce site connaît l'action
+        // réellement en cours, et `reference` / `restrict` partagent le même code
+        // SQLSTATE — c'est l'action qui les sépare. Un code non reconnu est relayé
+        // tel quel, et c'est le handler qui le masquera.
         throw classifyWriteError(e, 'create') ?? e;
       }
       if (audit) {
@@ -315,10 +319,10 @@ export async function handleMutation(
           modelScopeFrom(runtime, model, { locals: event.locals })
         );
       } catch (e) {
-        // Classé ici et non dans `handler.ts` : seul ce site connaît l'action réelle
-        // (`handleMutation` a déjà consommé le corps de la requête, donc le handler
-        // ne peut plus lire `_action`). Un code non reconnu est relayé tel quel, et
-        // c'est le handler qui le masquera.
+        // Classé ici et non dans `handler.ts` : seul ce site connaît l'action
+        // réellement en cours, et `reference` / `restrict` partagent le même code
+        // SQLSTATE — c'est l'action qui les sépare. Un code non reconnu est relayé
+        // tel quel, et c'est le handler qui le masquera.
         throw classifyWriteError(e, 'update') ?? e;
       }
       if (audit) {

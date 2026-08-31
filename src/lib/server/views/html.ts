@@ -47,3 +47,33 @@ export function formatValue(value: any, type: string): string {
   
   return escapeHtml(str);
 }
+
+/**
+ * Markup du message d'erreur d'un champ, et les attributs qui l'y rattachent.
+ *
+ * Rendu comme une chaîne passée à `{@html}` plutôt qu'en `{#if}` : la SSR de
+ * Svelte 5 pose de toute façon un commentaire de frontière autour des deux, et
+ * les deux coûtent la même chose sur un formulaire sans erreur (mesuré : 18
+ * octets par champ pour `{@html}`, 19 pour `{#if}`). Le `{@html}` est retenu
+ * pour la cohérence avec `recordActionsHtml` dans `Form.svelte`, qui documente
+ * déjà ce compromis, et parce qu'il garde l'échappement explicite ici plutôt
+ * que réparti dans quatre branches de gabarit.
+ *
+ * `inputId` doit être l'`id` du champ décrit : c'est lui qui fabrique la cible
+ * d'`aria-describedby`.
+ */
+export function fieldErrorAttrs(
+  inputId: string,
+  message: string | undefined
+): { ariaInvalid: 'true' | undefined; describedBy: string | undefined; html: string } {
+  if (message === undefined) {
+    return { ariaInvalid: undefined, describedBy: undefined, html: '' };
+  }
+  const errorId = `${inputId}-error`;
+  return {
+    ariaInvalid: 'true',
+    describedBy: errorId,
+    html: `<p class="ska-field__error" id="${escapeHtml(errorId)}">${escapeHtml(message)}</p>`
+  };
+}
+

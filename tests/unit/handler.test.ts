@@ -236,7 +236,8 @@ describe('actions POST', () => {
       body: { _action: 'create', email: 'attacker@example.test', password: 'p' }
     });
     const res = await handler({ event, resolve } as any);
-    expect(res.status).toBe(200);
+    // 422 et non 200 : la requête était bien formée, son contenu a été rejeté.
+    expect(res.status).toBe(422);
     expect(await res.text()).toMatch(/outside the authorization scope/);
     expect(callsTo(prisma, 'user', 'create')).toHaveLength(0);
   });

@@ -12,6 +12,9 @@ export interface FakeEvent {
 /**
  * Construit un faux RequestEvent SvelteKit et un espion `resolve`.
  * `body` déclenche une requête POST en application/x-www-form-urlencoded.
+ * Une valeur tableau produit la clé répétée qu'un groupe de checkboxes envoie
+ * (`__rel__tags=1&__rel__tags=2`) — `URLSearchParams` joindrait sinon par une
+ * virgule, ce qui n'est pas la même requête.
  *
  * `origin` reproduit l'en-tête `Origin` : par défaut celui de l'URL (un POST
  * same-origin de navigateur), `null` pour l'omettre, une autre origine pour
@@ -20,7 +23,7 @@ export interface FakeEvent {
 export function createEvent(opts: {
   url: string;
   method?: string;
-  body?: Record<string, string>;
+  body?: Record<string, string | string[]>;
   locals?: Record<string, unknown>;
   origin?: string | null;
 }): { event: FakeEvent; resolve: ResolveSpy } {
@@ -33,7 +36,11 @@ export function createEvent(opts: {
 
   const init: RequestInit = { method, headers };
   if (opts.body) {
-    init.body = new URLSearchParams(opts.body);
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(opts.body)) {
+      for (const one of Array.isArray(value) ? value : [value]) params.append(key, one);
+    }
+    init.body = params;
     headers.set('Content-Type', 'application/x-www-form-urlencoded');
   }
 
