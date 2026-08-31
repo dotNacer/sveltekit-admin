@@ -56,4 +56,10 @@ describe('Dashboard.svelte', () => {
     // commence aussi par la lettre « a »).
     expect(html).not.toMatch(/<a\s[^>]*class="ska-model-card"/);
   });
+
+  it('structure la page en en-tête et en sections', () => {
+    const html = renderDashboard(models, { total: 3, models: 2 });
+    expect(html).toContain('ska-dashboard__header');
+    expect(html).toContain('<section class="ska-dashboard__section"');
+  });
 });

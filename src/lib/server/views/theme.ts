@@ -334,6 +334,19 @@ export function styles(primaryColor: string): string {
       border-top: 1px solid #e2e8f0;
     }
 
+    /* Dashboard */
+    .ska-dashboard__header {
+      margin-bottom: 1.5rem;
+    }
+
+    .ska-dashboard__header .ska-subtitle {
+      margin-bottom: 0;
+    }
+
+    .ska-dashboard__section + .ska-dashboard__section {
+      margin-top: 2rem;
+    }
+
     /* Stats grid */
     .ska-stats {
       display: grid;
