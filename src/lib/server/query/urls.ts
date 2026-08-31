@@ -9,6 +9,13 @@
  */
 
 /**
+ * Paramètres qui ne sont pas un état de liste : un compte rendu d'action posé
+ * une fois par une redirection après écriture. Retiré de tout lien construit
+ * ensuite, sinon « 3 supprimés » réapparaît à chaque clic de filtre ou de page.
+ */
+const ONE_SHOT_PARAMS = ['deleted'];
+
+/**
  * Build a list-view URL from the current one, applying a patch of query
  * params. `null` in the patch removes that key. `page` is ALWAYS dropped
  * unless the patch explicitly sets it (pagination is the one caller that
@@ -27,6 +34,7 @@ export function buildListUrl(
   if (!('page' in patch)) {
     params.delete('page');
   }
+  for (const key of ONE_SHOT_PARAMS) params.delete(key);
   for (const [key, value] of Object.entries(patch)) {
     if (value === null) params.delete(key);
     else params.set(key, value);
@@ -55,7 +63,7 @@ export function hiddenParams(
   currentUrl: URL,
   exclude: string[]
 ): { name: string; value: string }[] {
-  const excluded = new Set([...exclude, 'page']);
+  const excluded = new Set([...exclude, 'page', ...ONE_SHOT_PARAMS]);
   const out: { name: string; value: string }[] = [];
   for (const [key, value] of currentUrl.searchParams) {
     if (excluded.has(key)) continue;

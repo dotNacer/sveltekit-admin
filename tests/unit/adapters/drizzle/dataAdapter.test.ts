@@ -138,6 +138,68 @@ describe("createDrizzleDataAdapter", () => {
     expect(result.rows.map((row) => row.id)).toEqual([1, 2, 3]);
   });
 
+  it("deletes several rows at once and returns the count", async () => {
+    seedUsers();
+
+    expect(await adapter.deleteMany(users, [1, 3])).toBe(2);
+
+    const remaining = await adapter.listRecords(users, { skip: 0, take: 10 });
+    expect(remaining.rows.map((row) => row.id)).toEqual([2]);
+  });
+
+  it("only deletes rows the authorization filter matches", async () => {
+    // L'id hors portée ne matche pas : rien n'est supprimé pour lui, et rien
+    // n'est levé — donc rien ne dit s'il existe ailleurs.
+    seedUsers();
+
+    const deleted = await adapter.deleteMany(users, [1, 2, 3], {
+      op: "eq",
+      field: "tenantId",
+      value: 1,
+    });
+
+    expect(deleted).toBe(2);
+    const remaining = await adapter.listRecords(users, { skip: 0, take: 10 });
+    expect(remaining.rows.map((row) => row.id)).toEqual([2]);
+  });
+
+  it("deletes nothing when no id matches", async () => {
+    seedUsers();
+
+    expect(await adapter.deleteMany(users, [99])).toBe(0);
+  });
+
+  it("clears m2m pivot rows for the rows it deletes, and only those", async () => {
+    seedPostRelations();
+    sqlite.prepare("INSERT INTO posts (title, author_id) VALUES (?, ?)").run("Gone", 1);
+    sqlite.prepare("INSERT INTO posts (title, author_id) VALUES (?, ?)").run("Kept", 1);
+    sqlite.prepare("INSERT INTO posts_to_tags (post_id, tag_id) VALUES (?, ?)").run(1, 1);
+    sqlite.prepare("INSERT INTO posts_to_tags (post_id, tag_id) VALUES (?, ?)").run(2, 2);
+
+    expect(await adapter.deleteMany(posts, [1])).toBe(1);
+
+    expect(sqlite.prepare("SELECT post_id FROM posts_to_tags").all()).toEqual([
+      { post_id: 2 },
+    ]);
+  });
+
+  it("leaves the pivot rows of an out-of-scope row untouched", async () => {
+    // Le piège : composer la portée dans le DELETE des pivots effacerait les
+    // liaisons d'une ligne que le DELETE du parent ne touche pas — une ligne
+    // d'un autre tenant amputée de ses relations, sans trace.
+    seedUsers();
+    sqlite.prepare("INSERT INTO posts (title, author_id) VALUES (?, ?)").run("Theirs", 2);
+    sqlite.prepare("INSERT INTO posts_to_tags (post_id, tag_id) VALUES (?, ?)").run(1, 1);
+
+    expect(
+      await adapter.deleteMany(posts, [1], { op: "eq", field: "authorId", value: 1 }),
+    ).toBe(0);
+
+    expect(sqlite.prepare("SELECT post_id FROM posts_to_tags").all()).toEqual([
+      { post_id: 1 },
+    ]);
+  });
+
   it("rejects a column the table does not have", async () => {
     seedUsers();
 
@@ -466,6 +528,31 @@ describe("createDrizzleDataAdapter", () => {
     const fakeDb: any = { select: () => ({ from: () => ({ where: () => query }) }), delete: () => ({ where: async () => ({ affectedRows: 1 }) }), transaction: (callback: (tx: any) => Promise<unknown>) => callback(fakeDb) };
     const mysql = createDrizzleDataAdapter(fakeDb, { tables: inspected.tables, m2m: inspected.m2m, dialect: "mysql", caseInsensitiveSearch: false });
     await mysql.deleteRecord(posts, 7);
+  });
+
+  it("supprime en masse sur un dialecte async, pivots compris", async () => {
+    const deleted: unknown[] = [];
+    const fakeDb: any = {
+      select: () => ({ from: () => ({ where: async () => [{ id: 7 }, { id: 8 }] }) }),
+      delete: (table: unknown) => ({ where: async () => { deleted.push(table); } }),
+      transaction: (callback: (tx: any) => Promise<unknown>) => callback(fakeDb)
+    };
+    const pg = createDrizzleDataAdapter(fakeDb, { tables: inspected.tables, m2m: inspected.m2m, dialect: "postgresql", caseInsensitiveSearch: false });
+
+    expect(await pg.deleteMany(posts, [7, 8])).toBe(2);
+    // Un DELETE pour le pivot, un pour le parent.
+    expect(deleted).toHaveLength(2);
+  });
+
+  it("ne supprime rien sur un dialecte async quand aucun id ne matche", async () => {
+    const fakeDb: any = {
+      select: () => ({ from: () => ({ where: async () => [] }) }),
+      delete: () => ({ where: async () => { throw new Error("ne doit pas être appelé"); } }),
+      transaction: (callback: (tx: any) => Promise<unknown>) => callback(fakeDb)
+    };
+    const pg = createDrizzleDataAdapter(fakeDb, { tables: inspected.tables, m2m: inspected.m2m, dialect: "postgresql", caseInsensitiveSearch: false });
+
+    expect(await pg.deleteMany(posts, [99])).toBe(0);
   });
 
   it("fails closed on missing MySQL and async-dialect updates", async () => {

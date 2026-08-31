@@ -60,6 +60,18 @@
    * Même convention que la pagination.
    */
   const sortable = $derived(Boolean(currentUrl));
+
+  /**
+   * Compte rendu d'une suppression en masse, posé par la redirection après
+   * écriture. Validé comme n'importe quelle entrée d'URL : seul un entier
+   * positif est rendu, tout le reste est ignoré plutôt qu'affiché.
+   */
+  const deletedCount = $derived.by(() => {
+    const raw = currentUrl?.searchParams.get('deleted');
+    if (raw === null || raw === undefined) return null;
+    const parsed = Number(raw);
+    return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+  });
   const activeSort = $derived(sort?.active ?? null);
 
   /**
@@ -232,6 +244,12 @@
   </form>
 {/if}
 
+{#if deletedCount !== null}
+  <div class="ska-alert ska-alert--success">
+    <p>{deletedCount} {deletedCount === 1 ? 'record' : 'records'} deleted</p>
+  </div>
+{/if}
+
 {#if ignoredMessages.length > 0 || sort?.ignored}
   <div class="ska-alert ska-alert--error">
     {#each ignoredMessages as m (m.key)}
@@ -251,11 +269,22 @@
   </p>
 {/if}
 
+{#if sortable}
+  <!-- eslint-disable-next-line svelte/no-at-html-tags -- chaîne littérale, sans donnée interpolée ; Svelte 5 refuse un onsubmit littéral comme attribut d'événement -->
+  {@html `<form id="ska-bulk" method="POST" action="${listPath}" class="ska-bulk" onsubmit="return confirm('Delete the selected records?')"><input type="hidden" name="_action" value="bulk-delete"><button type="submit" class="ska-btn ska-btn--danger ska-btn--sm">Delete selected</button></form>`}
+{/if}
+
 <div class="ska-card">
   <div class="ska-table-wrap">
     <table class="ska-table">
       <thead>
         <tr>
+          {#if sortable}
+            <th class="ska-table__select">
+              <!-- eslint-disable-next-line svelte/no-at-html-tags -- chaîne littérale ; le « tout cocher » est le seul endroit de l'admin qui demande du script, et le reste fonctionne sans lui -->
+              {@html `<input type="checkbox" class="ska-checkbox" aria-label="Select all on this page" onclick="for (const box of this.closest('table').querySelectorAll('input[name=ids]')) box.checked = this.checked">`}
+            </th>
+          {/if}
           {#each displayFields as f (f.name)}{#if sortable}<th aria-sort={ariaSortFor(f.name)}><a href={sortHref(f.name)} class="ska-th-sort">{toLabel(f.name)}<span aria-hidden="true">{sortMarkFor(f.name)}</span></a></th>{:else}<th>{toLabel(f.name)}</th>{/if}{/each}
           <th>Actions</th>
         </tr>
@@ -263,13 +292,25 @@
       <tbody>
         {#if items.length === 0}
           <tr>
-            <td colspan={displayFields.length + 1} style="text-align: center; color: #64748b; padding: 2rem;">
+            <td colspan={displayFields.length + (sortable ? 2 : 1)} style="text-align: center; color: #64748b; padding: 2rem;">
               {hasActiveCriteria ? 'No results for these criteria' : 'No records found'}
             </td>
           </tr>
         {:else}
           {#each items as item (item[model.primaryKey])}
             <tr>
+              {#if sortable}
+                <td class="ska-table__select">
+                  <input
+                    type="checkbox"
+                    class="ska-checkbox"
+                    name="ids"
+                    value={item[model.primaryKey]}
+                    form="ska-bulk"
+                    aria-label="Select record {item[model.primaryKey]}"
+                  />
+                </td>
+              {/if}
               <!-- eslint-disable-next-line svelte/no-at-html-tags -- formatValue already escapes string values itself and returns a literal <span> only for null/undefined -->
               {#each displayFields as f (f.name)}<td>{@html formatValue(item[f.name], f.type)}</td>{/each}
               <td class="ska-table__actions">

@@ -180,6 +180,35 @@ page.
 Changing the size returns you to page one, since they are no longer the same
 rows.
 
+## Bulk delete
+
+Each row in the list carries a checkbox, plus a "select all on this page"
+control in the header. **Delete selected** posts them to the list URL and
+removes them in a single operation.
+
+It is deliberately one operation rather than a loop. A loop that fails on the
+seventh row because of a foreign-key constraint leaves six rows gone and no way
+back; here there are only two possible outcomes — everything selected is
+deleted, or nothing is and the list explains that one of the rows is still
+referenced.
+
+Three things it will not do:
+
+- **Reach outside `models[].scope`.** The scope is composed with the selected
+  ids inside the query, not checked separately, so an out-of-scope id simply
+  matches nothing. No error is raised for it — nothing distinguishes "does not
+  exist" from "belongs to another tenant". The confirmation reports how many
+  rows were actually deleted.
+- **Accept an unbounded selection.** More than 200 ids in one request is
+  refused: the UI can only tick what it displays, and a very large `IN (…)` is
+  a load vector on its own.
+- **Skip the audit log.** When `audit` is configured, one `delete` entry is
+  emitted per row, with its `before` snapshot read using the same scope — so
+  the log records exactly the rows that went, and no others.
+
+The selection itself works without JavaScript; only the "select all on this
+page" checkbox needs it.
+
 ## Case sensitivity
 
 `contains` search is only made explicitly case-insensitive (`mode: 'insensitive'`) on providers that support it in Prisma — PostgreSQL, CockroachDB, and MongoDB. The provider is auto-detected from your Prisma schema's `datasource` block; override with:

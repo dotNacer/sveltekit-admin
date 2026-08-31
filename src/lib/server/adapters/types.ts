@@ -110,6 +110,24 @@ export interface DataAdapter {
 
   deleteRecord(model: Model, id: string | number, authorizationFilter?: Filter): Promise<void>;
 
+  /**
+   * Suppression en masse, en UNE opération et non une boucle de
+   * `deleteRecord` : une boucle qui casse au septième id sur une contrainte de
+   * clé étrangère laisse six lignes supprimées et rien pour revenir en
+   * arrière. Ici les deux seules réponses possibles sont « tout est supprimé »
+   * et « rien ne l'est, parce que telle ligne est encore référencée ».
+   *
+   * `authorizationFilter` est composé avec les ids DANS le `where` plutôt que
+   * vérifié à part : un id hors portée ne matche simplement pas, sans erreur,
+   * donc rien ne distingue « n'existe pas » de « appartient à un autre
+   * tenant ». Le compte renvoyé est celui des lignes réellement supprimées.
+   */
+  deleteMany(
+    model: Model,
+    ids: Array<string | number>,
+    authorizationFilter?: Filter
+  ): Promise<number>;
+
   /** `targetModel` est fourni par l'appelant : chaque site d'appel actuel l'a déjà résolu. */
   getM2mSelectedIds(
     model: Model,

@@ -492,3 +492,60 @@ describe('List.svelte — pagination', () => {
     expect(html).toContain('page=3&amp;q=bob');
   });
 });
+
+describe('List.svelte — suppression en masse', () => {
+  const url = new URL('https://x.test/admin/user');
+  const page = { page: 1, perPage: 20, total: 2 };
+  const render = (currentUrl = url) =>
+    renderList(viewModel, items, page, '/admin', empty, noQuery, currentUrl);
+
+  it('rend une case par ligne, portant la clé primaire', () => {
+    const html = render();
+    expect(html).toContain('name="ids" value="1"');
+    expect(html).toContain('name="ids" value="2"');
+  });
+
+  it('poste vers la liste avec l’action de masse', () => {
+    const html = render();
+    expect(html).toContain('value="bulk-delete"');
+    expect(html).toContain('action="/admin/user"');
+  });
+
+  it('demande confirmation avant de poster', () => {
+    expect(render()).toContain('confirm(');
+  });
+
+  it('nomme chaque case pour les lecteurs d’écran', () => {
+    // Une case sans nom accessible n'est qu'un carré : le lecteur d'écran
+    // annoncerait « case à cocher, non cochée » sans dire de quelle ligne.
+    expect(render()).toMatch(/aria-label="Select record 1"/);
+  });
+
+  it('propose de tout sélectionner sur la page', () => {
+    expect(render()).toContain('Select all on this page');
+  });
+
+  it('rend le compte rendu de suppression', () => {
+    const deleted = new URL('https://x.test/admin/user?deleted=3');
+    expect(render(deleted)).toContain('3 records deleted');
+  });
+
+  it('accorde le singulier', () => {
+    const deleted = new URL('https://x.test/admin/user?deleted=1');
+    expect(render(deleted)).toContain('1 record deleted');
+  });
+
+  it('ignore un compte rendu non numérique', () => {
+    // Le paramètre vient de l'URL : il est rendu, donc il est échappé et
+    // validé comme n'importe quelle autre entrée.
+    const forged = new URL('https://x.test/admin/user?deleted=<script>');
+    const html = render(forged);
+    expect(html).not.toContain('<script>');
+    expect(html).not.toContain('records deleted');
+  });
+
+  it('ne rend aucune case sans URL courante', () => {
+    const html = renderList(viewModel, items, page, '/admin', empty);
+    expect(html).not.toContain('name="ids"');
+  });
+});
