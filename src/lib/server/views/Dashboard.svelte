@@ -19,7 +19,7 @@
   {#if row.kind === 'cards'}
     <div class="ska-stats">
       {#each row.cards as card, cardIndex (cardIndex)}
-        <StatCard value={card.value} label={card.label} icon={card.icon} />
+        <StatCard value={card.value} label={card.label} icon={card.icon} href={card.href} />
       {/each}
     </div>
   {:else}

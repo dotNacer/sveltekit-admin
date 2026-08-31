@@ -11,7 +11,8 @@
 import { AdminConfigError } from './errors.js';
 import { modelScopeFrom, type AdminRuntime } from './runtime.js';
 import type { Model } from './types/schema.js';
-import { parseListQuery, type ListQuery } from './query/listQuery.js';
+import { buildWhere, parseListQuery, type ListQuery } from './query/listQuery.js';
+import type { Filter } from './adapters/types.js';
 
 export interface DashboardConfig {
   /** Titre de la page. Défaut : « Dashboard ». */
@@ -184,7 +185,7 @@ function listHref(basePath: string, modelName: string, params: URLSearchParams):
 export interface DashboardCard {
   value: number;
   label: string;
-  icon: 'models' | 'records';
+  icon: 'models' | 'records' | 'filter';
   href?: string;
 }
 
@@ -198,7 +199,8 @@ export interface ModelCardData {
 
 export type LoadedWidget =
   | { type: 'stats'; models: number; total: number }
-  | { type: 'models'; title?: string; cards: ModelCardData[] };
+  | { type: 'models'; title?: string; cards: ModelCardData[] }
+  | { type: 'count'; label: string; value: number; href: string };
 
 export type DashboardRow =
   | { kind: 'cards'; cards: DashboardCard[] }
@@ -230,10 +232,13 @@ export function groupWidgetRows(loaded: LoadedWidget[]): DashboardRow[] {
 }
 
 // `Exclude<..., { type: 'models' }>` : seul le widget « models » n'est pas
-// carte. Quand les tâches suivantes ajouteront les variantes 'count' et
-// 'recent' (elles aussi en cartes), ce type et ce switch grandiront avec
-// elles — pas de branche pour un widget qui n'existe pas encore.
+// carte. Quand une future tâche ajoutera d'autres variantes en cartes, ce
+// type et ce switch grandiront avec elles — pas de branche pour un widget
+// qui n'existe pas encore.
 function cardsOf(widget: Exclude<LoadedWidget, { type: 'models' }>): DashboardCard[] {
+  if (widget.type === 'count') {
+    return [{ value: widget.value, label: widget.label, icon: 'filter', href: widget.href }];
+  }
   return [
     { value: widget.models, label: 'Models', icon: 'models' },
     { value: widget.total, label: 'Total Records', icon: 'records' }
@@ -292,14 +297,23 @@ export async function loadDashboard(
     }
 
     if (widget.type === 'count') {
-      // `resolveDashboard` valide déjà cette config au démarrage (Task 7),
-      // mais l'exécution — requête scopée + rendu de la carte — arrive dans
-      // la tâche suivante (Task 8). Un widget `count` ne devrait jamais
-      // atteindre `loadDashboard` avant que cette tâche-là soit livrée.
-      throw new Error(
-        `[sveltekit-admin] dashboard widget "${widget.label}" (type "count") cannot be ` +
-          'loaded yet — loadDashboard does not implement it.'
-      );
+      const model = runtime.models.find((m) => m.name === widget.modelName)!;
+      // `modelScopeFrom` reste HORS du `try/catch` : il lève volontairement
+      // sur un scope qui échouerait ouvert (`{}`), et cette erreur-là ne doit
+      // jamais être confondue avec « la table n'existe pas encore ».
+      const scope = modelScopeFrom(runtime, model, { locals: event.locals });
+      // `caseInsensitiveSearch` est faux ici comme dans la branche liste :
+      // c'est le compilateur de l'adapter qui décide de la casse.
+      const filter = buildWhere(widget.query, scope, false, model) as Filter | undefined;
+      let value: number;
+      try {
+        value = await runtime.adapter.data.countRecords(model, filter);
+      } catch {
+        // modèle absent de la base, ou requête filtrée invalide côté driver
+        value = 0;
+      }
+      loaded.push({ type: 'count', label: widget.label, value, href: widget.href });
+      continue;
     }
 
     const cards = await Promise.all(
