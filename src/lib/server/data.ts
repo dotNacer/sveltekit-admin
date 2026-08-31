@@ -28,9 +28,26 @@ export function coerceId(id: string, model: PrismaModel): string | number {
   return pkField?.type === 'Int' ? parseInt(id) : id;
 }
 
-/** Convertit un FormData en payload Prisma, en ignorant les champs auto-gérés. */
-export function formDataToPrisma(formData: FormData, model: PrismaModel): Record<string, unknown> {
+/**
+ * Convertit un FormData en payload Prisma, en ignorant les champs auto-gérés.
+ *
+ * Renvoie aussi la liste des champs dont la valeur soumise ne se convertit pas
+ * vers le type de la colonne : un JSON illisible, un nombre qui n'en est pas
+ * un. Leur clé est laissée HORS du payload, et c'est `mutations.ts` — le seul
+ * producteur de refus côté bibliothèque, cf. `errors.ts` — qui décide quoi en
+ * faire. Cette fonction ne lève pas : elle convertit et rapporte.
+ *
+ * Ces valeurs étaient auparavant écrites en `null` sans un mot. Sur une colonne
+ * nullable, la saisie et la valeur déjà stockée disparaissaient ensemble
+ * derrière un `303` d'apparence réussie ; sur une colonne obligatoire, le
+ * pilote répondait par un message générique ne nommant aucun champ.
+ */
+export function formDataToPrisma(
+  formData: FormData,
+  model: PrismaModel
+): { data: Record<string, unknown>; invalid: string[] } {
   const data: Record<string, unknown> = {};
+  const invalid: string[] = [];
 
   for (const field of model.fields) {
     if (field.isId || field.isUpdatedAt || field.isCreatedAt || field.relation) continue;
@@ -43,13 +60,19 @@ export function formDataToPrisma(formData: FormData, model: PrismaModel): Record
 
     switch (field.type) {
       case 'Int':
-      case 'BigInt':
-        data[field.name] = value ? parseInt(value.toString()) : null;
+      case 'BigInt': {
+        const parsed = value ? parseInt(value.toString()) : null;
+        if (Number.isNaN(parsed)) invalid.push(field.name);
+        else data[field.name] = parsed;
         break;
+      }
       case 'Float':
-      case 'Decimal':
-        data[field.name] = value ? parseFloat(value.toString()) : null;
+      case 'Decimal': {
+        const parsed = value ? parseFloat(value.toString()) : null;
+        if (Number.isNaN(parsed)) invalid.push(field.name);
+        else data[field.name] = parsed;
         break;
+      }
       case 'Boolean':
         data[field.name] = value === 'on' || value === 'true' || value === '1';
         break;
@@ -60,7 +83,7 @@ export function formDataToPrisma(formData: FormData, model: PrismaModel): Record
         try {
           data[field.name] = value ? JSON.parse(value.toString()) : null;
         } catch {
-          data[field.name] = null;
+          invalid.push(field.name);
         }
         break;
       default:
@@ -75,7 +98,7 @@ export function formDataToPrisma(formData: FormData, model: PrismaModel): Record
     }
   }
 
-  return data;
+  return { data, invalid };
 }
 
 /**

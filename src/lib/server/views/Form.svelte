@@ -55,11 +55,23 @@
   const readonly = $derived(modelConfig.readonly || []);
   const listPath = $derived(`${basePath}/${model.name.toLowerCase()}`);
 
+  /**
+   * `Bytes` n'a pas de widget : rendue dans la branche texte générique, la
+   * colonne renvoyait au pilote une chaîne là où il attend un `Uint8Array`,
+   * donc aucune écriture n'a jamais pu aboutir. L'exclure rend un modèle à
+   * colonne `Bytes` obligatoire incréable depuis l'admin — c'est déjà le cas
+   * en pratique, à ceci près que l'échec arrive maintenant avant le formulaire
+   * plutôt qu'après le POST. La liste l'écarte déjà pareillement
+   * (`List.svelte`), c'est la même décision au même endroit du schéma.
+   */
+  const isEditableType = (f: { type: string }) => f.type !== 'Bytes';
+
   const formFields = $derived(
     mode === 'create'
       ? model.fields.filter(
           (f) =>
             !hidden.includes(f.name) &&
+            isEditableType(f) &&
             !f.isId &&
             !f.isCreatedAt &&
             !f.isUpdatedAt &&
@@ -71,6 +83,7 @@
       : model.fields.filter(
           (f) =>
             !hidden.includes(f.name) &&
+            isEditableType(f) &&
             !f.relation &&
             // Exclu à l'édition seulement : il existe ici une valeur stockée,
             // donc quelque chose à exposer dans le HTML et à écraser au

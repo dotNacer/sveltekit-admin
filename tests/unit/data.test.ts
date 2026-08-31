@@ -10,6 +10,9 @@ const User = schema.models.find((m) => m.name === 'User')!;
 const Post = schema.models.find((m) => m.name === 'Post')!;
 const Category = schema.models.find((m) => m.name === 'Category')!;
 
+/** Payload seul : la plupart des tests ne regardent pas les champs signalés. */
+const payload = (fd: FormData, model: any) => formDataToPrisma(fd, model).data;
+
 function form(entries: Record<string, string>): FormData {
   const fd = new FormData();
   for (const [k, v] of Object.entries(entries)) fd.set(k, v);
@@ -63,80 +66,76 @@ describe('coerceId — type de la clé primaire', () => {
 
 describe('formDataToPrisma', () => {
   it('convertit les entiers', () => {
-    expect(formDataToPrisma(form({ authorId: '7' }), Post).authorId).toBe(7);
+    expect(payload(form({ authorId: '7' }), Post).authorId).toBe(7);
   });
 
   it('met un entier vide à null', () => {
-    expect(formDataToPrisma(form({ authorId: '' }), Post).authorId).toBeNull();
+    expect(payload(form({ authorId: '' }), Post).authorId).toBeNull();
   });
 
   it('convertit un BigInt', () => {
-    expect(formDataToPrisma(form({ visits: '5' }), User).visits).toBe(5);
+    expect(payload(form({ visits: '5' }), User).visits).toBe(5);
   });
 
   it('convertit les flottants et décimaux', () => {
-    const data = formDataToPrisma(form({ rating: '4.5', balance: '10.25' }), User);
+    const data = payload(form({ rating: '4.5', balance: '10.25' }), User);
     expect(data.rating).toBe(4.5);
     expect(data.balance).toBe(10.25);
   });
 
   it('met un flottant vide à null', () => {
-    expect(formDataToPrisma(form({ rating: '' }), User).rating).toBeNull();
+    expect(payload(form({ rating: '' }), User).rating).toBeNull();
   });
 
   it.each(['on', 'true', '1'])('lit le booléen coché "%s"', (value) => {
-    expect(formDataToPrisma(form({ isActive: value }), User).isActive).toBe(true);
+    expect(payload(form({ isActive: value }), User).isActive).toBe(true);
   });
 
   it('lit une autre valeur comme faux', () => {
-    expect(formDataToPrisma(form({ isActive: 'off' }), User).isActive).toBe(false);
+    expect(payload(form({ isActive: 'off' }), User).isActive).toBe(false);
   });
 
   it('met un booléen absent à faux', () => {
-    expect(formDataToPrisma(form({}), User).isActive).toBe(false);
+    expect(payload(form({}), User).isActive).toBe(false);
   });
 
   it('convertit les dates', () => {
-    const data = formDataToPrisma(form({ publishedAt: '2026-03-01T12:00' }), Post);
+    const data = payload(form({ publishedAt: '2026-03-01T12:00' }), Post);
     expect(data.publishedAt).toBeInstanceOf(Date);
   });
 
   it('met une date vide à null', () => {
-    expect(formDataToPrisma(form({ publishedAt: '' }), Post).publishedAt).toBeNull();
+    expect(payload(form({ publishedAt: '' }), Post).publishedAt).toBeNull();
   });
 
   it('parse le Json valide', () => {
-    expect(formDataToPrisma(form({ metadata: '{"a":1}' }), User).metadata).toEqual({ a: 1 });
-  });
-
-  it('met le Json invalide à null', () => {
-    expect(formDataToPrisma(form({ metadata: '{oops' }), User).metadata).toBeNull();
+    expect(payload(form({ metadata: '{"a":1}' }), User).metadata).toEqual({ a: 1 });
   });
 
   it('met le Json vide à null', () => {
-    expect(formDataToPrisma(form({ metadata: '' }), User).metadata).toBeNull();
+    expect(payload(form({ metadata: '' }), User).metadata).toBeNull();
   });
 
   it('passe les chaînes telles quelles', () => {
-    expect(formDataToPrisma(form({ email: 'a@b.c' }), User).email).toBe('a@b.c');
+    expect(payload(form({ email: 'a@b.c' }), User).email).toBe('a@b.c');
   });
 
   it.each(['id', 'createdAt', 'updatedAt'])('ignore le champ auto-géré %s', (name) => {
-    expect(formDataToPrisma(form({ [name]: 'x' }), User)).not.toHaveProperty(name);
+    expect(payload(form({ [name]: 'x' }), User)).not.toHaveProperty(name);
   });
 
   it('ignore les relations', () => {
-    const data = formDataToPrisma(form({ author: '1', authorId: '1' }), Post);
+    const data = payload(form({ author: '1', authorId: '1' }), Post);
     expect(data).not.toHaveProperty('author');
     expect(data.authorId).toBe(1);
   });
 
   it('ignore les champs liste', () => {
-    expect(formDataToPrisma(form({ posts: 'x' }), User)).not.toHaveProperty('posts');
+    expect(payload(form({ posts: 'x' }), User)).not.toHaveProperty('posts');
   });
 
   it('ignore un champ absent du schéma', () => {
-    expect(formDataToPrisma(form({ notAField: 'x' }), User)).not.toHaveProperty('notAField');
+    expect(payload(form({ notAField: 'x' }), User)).not.toHaveProperty('notAField');
   });
 });
 
@@ -169,20 +168,54 @@ describe('formDataToPrisma — vide explicite', () => {
   it('écrit null pour un String présent mais vide', () => {
     // Écrivait `''`, indistinguable d'une chaîne vide voulue, et fatal sur une
     // colonne `String? @unique` dès la deuxième ligne vide.
-    expect(formDataToPrisma(form({ name: '' }), User).name).toBeNull();
+    expect(payload(form({ name: '' }), User).name).toBeNull();
   });
 
   it('écrit null pour un enum présent mais vide', () => {
-    expect(formDataToPrisma(form({ role: '' }), User).role).toBeNull();
+    expect(payload(form({ role: '' }), User).role).toBeNull();
   });
 
   it("n'écrit rien pour un champ absent du formulaire", () => {
     // C'est la distinction qui porte tout le comportement : absent veut dire
     // « non soumis » (readonly, masqué, colonne à défaut), pas « vidé ».
-    expect('name' in formDataToPrisma(form({ email: 'a@b.c' }), User)).toBe(false);
+    expect('name' in payload(form({ email: 'a@b.c' }), User)).toBe(false);
   });
 
   it('laisse intacte une valeur non vide', () => {
-    expect(formDataToPrisma(form({ name: 'N' }), User).name).toBe('N');
+    expect(payload(form({ name: 'N' }), User).name).toBe('N');
+  });
+});
+
+describe('formDataToPrisma — valeurs inconvertibles', () => {
+  it('signale un JSON illisible au lieu de l’écrire null', () => {
+    // Écrire `null` en silence perdait la saisie ET la valeur déjà stockée,
+    // avec un 303 d'apparence réussie.
+    const { data, invalid } = formDataToPrisma(form({ metadata: '{oops' }), User);
+    expect(invalid).toContain('metadata');
+    expect('metadata' in data).toBe(false);
+  });
+
+  it('signale un nombre illisible', () => {
+    const { invalid } = formDataToPrisma(form({ visits: 'douze' }), User);
+    expect(invalid).toContain('visits');
+  });
+
+  it('signale un flottant illisible', () => {
+    const { invalid } = formDataToPrisma(form({ rating: 'beaucoup' }), User);
+    expect(invalid).toContain('rating');
+  });
+
+  it('ne signale rien sur un formulaire valide', () => {
+    const { data, invalid } = formDataToPrisma(form({ metadata: '{"a":1}', visits: '3' }), User);
+    expect(invalid).toEqual([]);
+    expect(data.metadata).toEqual({ a: 1 });
+    expect(data.visits).toBe(3);
+  });
+
+  it('ne signale pas un champ vide', () => {
+    // Le vide a son propre sens depuis #46 : `null`, ou refus si la colonne
+    // n'accepte pas NULL. Ce n'est pas une valeur illisible.
+    const { invalid } = formDataToPrisma(form({ metadata: '', visits: '' }), User);
+    expect(invalid).toEqual([]);
   });
 });

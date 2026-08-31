@@ -1,38 +1,98 @@
 ---
 title: Field Types
 name: Field Types
-description: How Prisma field types map to form inputs, and how sensitive fields are auto-hidden from list views.
+description: How each Prisma field type is rendered in admin forms, what an empty value writes, and which types the admin does not edit.
 ---
 
 sveltekit-admin inspects each field's Prisma type to decide how to render it
-in create/edit forms.
+in create/edit forms, and how to convert what was submitted back into a value
+for the column.
 
 ## Supported field types
 
-| Prisma Type                     | Form Input                                    |
-| --------------------------------- | ----------------------------------------------- |
-| `String`                          | text input (textarea for `description`/`content`/`body`) |
-| `Int`, `Float`, `Decimal`, `BigInt` | number input                                  |
-| `Boolean`                          | checkbox                                        |
-| `DateTime`                         | datetime-local input                            |
-| `Json`                             | textarea with JSON                              |
+| Prisma type                     | Form input                                               |
+| ------------------------------- | -------------------------------------------------------- |
+| `String`                        | text input (textarea when the name contains `description`, `content`, `body` or `bio`) |
+| `Int`, `BigInt`                 | number input                                              |
+| `Float`, `Decimal`              | number input                                              |
+| `Boolean`                       | checkbox                                                  |
+| `DateTime`                      | `datetime-local` input                                    |
+| `Json`                          | textarea holding the JSON                                 |
+| `enum`                          | `<select>` listing the values declared in the schema      |
 
-Relations are handled separately — see [Relations](/docs/relations).
+Relations are not in this table — a foreign key is rendered from the relation
+graph, not from its scalar's type. See [Relations](/docs/relations).
+
+## What an empty field writes
+
+A field that is **present in the submitted form but left empty** writes `null`,
+whatever its type. A field that is **absent from the submission** writes
+nothing at all, and the column keeps its current value.
+
+That distinction is what separates "the user cleared this" from "this was never
+submitted". A readonly field, a field hidden through `models[].hidden`, and a
+column with a `@default` (which the create form does not render) all fall in the
+second case.
+
+If the column is declared non-nullable, an empty value is refused with a `422`
+and `<field> is required` shown on the field itself — the form comes back with
+everything you typed still in place. Two exceptions, both deliberate:
+
+- a column filled in by `models[].scope` is imposed by the server rather than
+  refused, so a model whose tenant column is required and visible stays
+  creatable from the admin;
+- an empty required **relation** is reported on the relation (`author is
+  required`), not on its scalar (`authorId`).
+
+## Values that cannot be converted
+
+A value that cannot be turned into the column's type — unparseable JSON, a
+number field carrying something that is not a number — is refused the same way,
+with `<field>: invalid value` on the field. Nothing is written.
+
+Unparseable JSON used to be written as `null` without a word, which lost both
+what you typed and what the row already held, behind a redirect that looked
+successful.
+
+## Types the admin does not edit
+
+**`Bytes` is not rendered in forms.** There is no meaningful HTML input for
+binary data, and the text input it used to fall back to could never work: the
+driver expects a `Uint8Array` and receives a string. A model with a required
+`Bytes` column cannot be created from the admin — manage that column from your
+own application code.
+
+Two precision limits worth knowing, since neither raises an error:
+
+- **`BigInt` goes through `parseInt`**, so a value above `2^53 - 1`
+  (9007199254740991) loses precision on its way to the column. Values within
+  that range are exact.
+- **`Decimal` goes through `parseFloat`**, so it is subject to the usual
+  binary floating-point rounding. If you are storing money and need exact
+  decimal semantics, do not edit that column from the admin.
 
 ## Automatic hiding of sensitive fields
 
-The admin auto-hides common sensitive fields from **list views**: any field
-whose name contains `password`, `hash`, `secret`, or `token`
-(case-insensitive). This covers fields like `hashedPassword`,
-`passwordHash`, and `refreshToken` without any configuration.
+Any field whose name contains `password`, `hash`, `secret` or `token`
+(case-insensitive) is treated as sensitive. This covers `hashedPassword`,
+`passwordHash` and `refreshToken` with no configuration.
 
-Two things worth knowing about this heuristic:
+- **Sensitive `String` columns are never shown in list views, never searchable
+  or filterable, never included in the audit payload, and are not rendered in
+  the edit form at all.** An update never writes them, even if a value arrives
+  in the POST. The create form still offers the field, since nothing is stored
+  yet to leak and removing it would make a model with a required sensitive
+  column impossible to create.
+- **Only `String` columns are affected.** The match is on substrings, so
+  without that restriction an `Int` named `tokenCount` or `hashtagCount` would
+  have become uneditable. Those stay visible and editable.
+- If the heuristic gets a `String` field wrong, list it explicitly in that
+  model's `listFields` (see
+  [Model Configuration](/docs/model-configuration)) to bring the column back in
+  list views. Use `models[].hidden` to remove a field from the admin entirely,
+  everywhere.
 
-- **It matches on substrings.** It also catches names you might not expect,
-  like `hashtag`, `tokenCount`, or `secretariat`. If the heuristic gets a
-  field wrong, list it explicitly in that model's `listFields`
-  (see [Model Configuration](/docs/model-configuration)) — that's the
-  override, and the only way to show a column the heuristic hides.
-- **It only applies to list views.** Edit forms still render these fields
-  normally, so you can set or update a value. Use `models[].hidden` if you
-  want a field removed from the admin entirely, everywhere.
+The admin writes what is typed straight to the column, with **no hashing**.
+Setting a password from the create form stores it in plaintext, which will not
+match an application using bcrypt or better-auth. Put the field in
+`models[].hidden` and manage credentials in your own app.

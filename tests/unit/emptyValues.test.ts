@@ -122,3 +122,29 @@ describe('interaction avec les autres boucles d’écriture', () => {
     expect((callsTo(prisma, 'user', 'create')[0].args as any).data.role).toBe('ADMIN');
   });
 });
+
+describe('valeur qui ne se convertit pas vers le type de la colonne', () => {
+  it('refuse un JSON illisible en nommant le champ', async () => {
+    const { result } = await update({ email: 'a@b.c', metadata: '{oops' });
+
+    await expect(result).rejects.toMatchObject({
+      constructor: AdminMutationError,
+      kind: 'validation',
+      field: 'metadata',
+      message: 'metadata: invalid value'
+    });
+  });
+
+  it('refuse un nombre illisible en nommant le champ', async () => {
+    const { result } = await update({ email: 'a@b.c', visits: 'douze' });
+
+    await expect(result).rejects.toMatchObject({ kind: 'validation', field: 'visits' });
+  });
+
+  it("n'écrit rien quand la valeur est refusée", async () => {
+    const { prisma, result } = await update({ email: 'a@b.c', metadata: '{oops' });
+    await result.catch(() => {});
+
+    expect(callsTo(prisma, 'user', 'update')).toHaveLength(0);
+  });
+});
