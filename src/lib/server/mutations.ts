@@ -90,7 +90,29 @@ export async function handleMutation(
   }
 
   if (action === 'create' || action === 'update') {
-    const data = formDataToPrisma(formData, model);
+    const { data, invalid } = formDataToPrisma(formData, model);
+    // Refusé d'entrée : la valeur ne se convertit pas vers le type de la
+    // colonne (JSON illisible, nombre qui n'en est pas un), donc il n'y a même
+    // pas de payload à valider plus loin. Un seul champ est rapporté, comme
+    // partout ailleurs sur ce chemin — le formulaire re-rendu porte une erreur,
+    // pas une liste.
+    //
+    // Aucun conflit avec l'imposition du scope plus bas : le formulaire de
+    // création rend la colonne de tenant VIDE, et un vide n'est pas une valeur
+    // illisible (voir `formDataToPrisma`), donc rien ne devient incréable ici.
+    //
+    // Les scalaires de relation en sont exclus : la boucle FK plus bas fait sa
+    // propre coercion en relisant le FormData, et rattache son refus à l'arête
+    // (`author: invalid id`) plutôt qu'au scalaire (`authorId`). Contrairement
+    // au contrôle du vide, ce garde-ci n'est pas redondant avec l'ordre des
+    // boucles : `parseInt('abc')` produit un NaN que celle-ci verrait en
+    // premier, et le message perdrait le nom de la relation.
+    const firstInvalid = invalid.find(
+      (name) => !runtime.relationGraph?.scalarToRelation.has(name)
+    );
+    if (firstInvalid !== undefined) {
+      throw new AdminMutationError('validation', `${firstInvalid}: invalid value`, firstInvalid);
+    }
     // Appelé tôt pour échouer vite sur un scope non injectable (`or`, opérateur
     // autre que `eq`, tenant absent), avant tout travail de validation.
     // Volontairement PAS appliqué ici : `data` doit conserver ce que le client

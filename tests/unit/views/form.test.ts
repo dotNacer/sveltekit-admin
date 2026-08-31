@@ -277,6 +277,27 @@ describe('Form.svelte — recordActions', () => {
   });
 });
 
+describe('Form.svelte — types non éditables', () => {
+  const item = { id: 1, email: 'a@b.c', avatar: null };
+
+  it("n'affiche pas une colonne Bytes à l'édition", () => {
+    // Rendue en input texte, elle n'a jamais pu marcher : une chaîne envoyée
+    // vers une colonne Bytes est refusée par le pilote.
+    const html = renderForm('edit', viewModel, '/admin', { prisma: {} } as any, item);
+    expect(html).not.toContain('name="avatar"');
+  });
+
+  it("n'affiche pas une colonne Bytes à la création", () => {
+    const html = renderForm('create', viewModel, '/admin', { prisma: {} } as any);
+    expect(html).not.toContain('name="avatar"');
+  });
+
+  it('continue d’afficher les autres colonnes', () => {
+    const html = renderForm('edit', viewModel, '/admin', { prisma: {} } as any, item);
+    expect(html).toContain('name="email"');
+  });
+});
+
 describe('FieldInput.svelte — enum', () => {
   const renderEnum = (field: any, value: any, isReadonly = false, map: any = schema.enums) =>
     render(FieldInput, { props: { field, value, isReadonly, enums: map } }).body;
