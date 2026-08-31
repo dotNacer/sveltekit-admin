@@ -22,7 +22,7 @@ function seedUsersWithAlice() {
   const sqlite = createSqlite();
   sqlite.exec("PRAGMA case_sensitive_like = ON;");
   sqlite.exec(
-    "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, name TEXT, tenant_id INTEGER NOT NULL, created_at INTEGER);",
+    "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, name TEXT, password_hash TEXT, tenant_id INTEGER NOT NULL, created_at INTEGER);",
   );
   sqlite.exec(
     "INSERT INTO users (email, name, tenant_id) VALUES ('a@x.y', 'Alice', 1);",
@@ -56,7 +56,7 @@ describe("createDrizzleAdapter", () => {
   it("compose introspector synchrone + data.listRecords", async () => {
     const sqlite = createSqlite();
     sqlite.exec(
-      "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, name TEXT, tenant_id INTEGER NOT NULL, created_at INTEGER);",
+      "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, name TEXT, password_hash TEXT, tenant_id INTEGER NOT NULL, created_at INTEGER);",
     );
     sqlite.exec(
       "INSERT INTO users (email, name, tenant_id) VALUES ('a@x.y', 'A', 1);",

@@ -243,6 +243,24 @@ export function isSensitiveFieldName(name: string): boolean {
 }
 
 /**
+ * Restreint `isSensitiveFieldName` aux colonnes de texte, pour le chemin
+ * formulaire/écriture.
+ *
+ * Le prédicat de nom matche par sous-chaîne : sans le filtre de type, un
+ * `tokenCount` ou un `hashtagCount` (`Int`) serait traité comme un secret et
+ * deviendrait impossible à éditer dans l'admin. Un mot de passe, un secret,
+ * un token sont du texte ; un compteur ne l'est pas.
+ *
+ * Volontairement plus étroit que `isSensitiveFieldName` seul, qui reste le
+ * prédicat utilisé pour l'affichage, la recherche, les filtres et l'audit :
+ * là, ne pas montrer un `tokenCount` est sans conséquence, alors qu'ici ça
+ * retirerait une capacité.
+ */
+export function isSensitiveStringField(field: Pick<PrismaField, 'name' | 'type'>): boolean {
+  return field.type === 'String' && isSensitiveFieldName(field.name);
+}
+
+/**
  * Get display fields for a model (fields suitable for list view)
  */
 export function getDisplayFields(model: Pick<PrismaModel, 'fields'>): PrismaField[] {

@@ -10,6 +10,7 @@
  */
 
 import { primaryKeyOf, coerceId, formDataToPrisma } from './data.js';
+import { isSensitiveStringField } from './introspection/parser.js';
 import { AdminMutationError, classifyWriteError } from './errors.js';
 import {
   buildAuditEvent,
@@ -99,6 +100,35 @@ export async function handleMutation(
     const scopeValues = modelScopeValues(runtime, model, { locals: event.locals });
     const m2mInput: Record<string, { targetPkField: string; ids: Array<string | number> }> = {};
     const targetGuards: TargetGuard[] = [];
+
+    // Colonnes de texte sensibles (`password`, `passwordHash`, `apiToken`…).
+    // Le formulaire d'édition ne les rend pas — cf. `Form.svelte` — donc rien
+    // de légitime n'arrive par là ; une valeur présente vient d'un POST forgé
+    // ou d'un client qui invente un champ, et l'écrire remplacerait un
+    // credential par ce que l'appelant a choisi. La clé sort du payload, sans
+    // lever : ce n'est pas une donnée refusée, c'est une donnée non demandée.
+    //
+    // À la création, à l'inverse, le champ est offert. Un vide y était écrit
+    // comme `''`, ce qui produisait un compte au credential inutilisable avec
+    // un `303` d'apparence réussie. On refuse plutôt, et seulement quand la
+    // colonne est réellement obligatoire — une colonne optionnelle garde le
+    // droit d'être vide.
+    for (const field of model.fields) {
+      if (!isSensitiveStringField(field)) continue;
+
+      if (action === 'update') {
+        delete data[field.name];
+        continue;
+      }
+      const submitted = data[field.name];
+      const isEmpty = submitted === undefined || submitted === null || submitted === '';
+      if (isEmpty && field.isRequired && !field.hasDefault) {
+        throw new AdminMutationError('validation', `${field.name} is required`, field.name);
+      }
+      // Optionnelle et vide : ne rien écrire plutôt qu'une chaîne vide, qui
+      // serait indistinguable d'un secret réellement égal à ''.
+      if (isEmpty) delete data[field.name];
+    }
 
     // Validation des FK owning : coercion + existence + self-ref.
     // Rejoue le `where` de scoping : un ID hors du where est rejeté,

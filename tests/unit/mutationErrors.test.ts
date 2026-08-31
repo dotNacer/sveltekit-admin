@@ -82,7 +82,10 @@ describe('rendu des erreurs de mutation', () => {
     const handler = createAdminHandler({ prisma, prismaSchemaPath: FULL_SCHEMA_PATH } as any);
     const ev = createEvent({
       url: '/admin/user/new',
-      body: { _action: 'create', email: 'a@b.c' }
+      // `password` fourni : la colonne est obligatoire, et un vide est
+      // désormais refusé avant d'atteindre le pilote — ce test-ci porte sur la
+      // classification de l'erreur pilote, pas sur cette validation.
+      body: { _action: 'create', email: 'a@b.c', password: 'p' }
     });
 
     const html = await (await handler(ev as any)).text();
@@ -99,7 +102,10 @@ describe('rendu des erreurs de mutation', () => {
       throw Object.assign(new Error('connection terminated unexpectedly'), { code: 'ECONNRESET' });
     };
     const handler = createAdminHandler({ prisma, prismaSchemaPath: FULL_SCHEMA_PATH } as any);
-    const ev = createEvent({ url: '/admin/user/new', body: { _action: 'create', email: 'x@y.z' } });
+    const ev = createEvent({
+      url: '/admin/user/new',
+      body: { _action: 'create', email: 'x@y.z', password: 'p' }
+    });
 
     const html = await (await handler(ev as any)).text();
 
@@ -220,7 +226,10 @@ describe('rendu des erreurs de mutation', () => {
       throw new Error(dump);
     };
     const handler = createAdminHandler({ prisma, prismaSchemaPath: FULL_SCHEMA_PATH } as any);
-    const ev = createEvent({ url: '/admin/user/new', body: { _action: 'create', email: 'a@b.c' } });
+    const ev = createEvent({
+      url: '/admin/user/new',
+      body: { _action: 'create', email: 'a@b.c', password: 'p' }
+    });
 
     const html = await (await handler(ev as any)).text();
 

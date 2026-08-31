@@ -25,6 +25,7 @@ describe("createDrizzleDataAdapter", () => {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         email TEXT NOT NULL,
         name TEXT,
+        password_hash TEXT,
         tenant_id INTEGER NOT NULL,
         created_at INTEGER
       );
@@ -87,6 +88,11 @@ describe("createDrizzleDataAdapter", () => {
           id: 2,
           email: "two@example.com",
           name: "Alice",
+          // La colonne sensible du schéma de fixture : ce test porte sur la
+          // forme brute de la ligne sélectionnée, donc elle y figure. Les
+          // règles de formulaire/écriture qui la concernent vivent plus haut
+          // (`Form.svelte`, `mutations.ts`), pas dans l'adaptateur.
+          passwordHash: null,
           tenantId: 2,
           createdAt: null,
         },

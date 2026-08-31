@@ -2,6 +2,7 @@
   import type { AdminHandlerConfig } from '../handler.js';
   import type { RecordAction, ViewModel } from './types.js';
   import type { SubmittedForm } from '../submitted.js';
+  import { isSensitiveStringField } from '../introspection/parser.js';
   import FieldInput from './FieldInput.svelte';
   import RelationSelect from './RelationSelect.svelte';
   import RelationCheckboxes from './RelationCheckboxes.svelte';
@@ -71,6 +72,13 @@
           (f) =>
             !hidden.includes(f.name) &&
             !f.relation &&
+            // Exclu à l'édition seulement : il existe ici une valeur stockée,
+            // donc quelque chose à exposer dans le HTML et à écraser au
+            // prochain enregistrement. Le formulaire de création le garde — il
+            // n'y a rien à fuiter avant que la ligne existe, et le retirer
+            // rendrait un modèle à colonne obligatoire incréable depuis
+            // l'admin. `mutations.ts` refuse le vide de ce côté-là.
+            !isSensitiveStringField(f) &&
             !model.relationGraph?.scalarToRelation.has(f.name)
         )
   );
