@@ -83,4 +83,23 @@ describe('Dashboard.svelte', () => {
     // commence aussi par la lettre « a »).
     expect(html).not.toMatch(/<a\s[^>]*class="ska-model-card"/);
   });
+
+  it('rend un compteur comme carte cliquable', () => {
+    const html = renderDashboard([
+      {
+        kind: 'cards',
+        cards: [{ value: 7, label: 'Pending', icon: 'filter', href: '/admin/order?f.status=PENDING' }]
+      }
+    ]);
+    expect(html).toContain('href="/admin/order?f.status=PENDING"');
+    expect(html).toContain('ska-stat--link');
+    expect(html).toContain('>7</div>');
+  });
+
+  it('rend une carte statistique sans lien comme un bloc non cliquable', () => {
+    const html = renderDashboard([
+      { kind: 'cards', cards: [{ value: 2, label: 'Models', icon: 'models' }] }
+    ]);
+    expect(html).not.toContain('ska-stat--link');
+  });
 });

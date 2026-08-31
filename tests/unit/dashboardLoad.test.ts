@@ -99,12 +99,77 @@ describe('loadDashboard', () => {
     );
   });
 
-  it('refuse encore de charger un widget count — livré par la tâche suivante', async () => {
+  it('compte selon la query du widget et lie vers la liste filtrée', async () => {
     const { runtime } = runtimeWith({
+      dashboard: {
+        widgets: [{ type: 'count', model: 'User', label: 'Actifs', query: 'f.isActive=true' }]
+      }
+    });
+    const { rows } = await loadDashboard(runtime, { locals: {} });
+    expect(rows).toEqual([
+      {
+        kind: 'cards',
+        cards: [
+          { value: 1, label: 'Actifs', icon: 'filter', href: '/admin/user?f.isActive=true' }
+        ]
+      }
+    ]);
+  });
+
+  it('aligne des compteurs consécutifs dans une seule rangée', async () => {
+    const { runtime } = runtimeWith({
+      dashboard: {
+        widgets: [
+          { type: 'stats' },
+          { type: 'count', model: 'User', label: 'Actifs', query: 'f.isActive=true' },
+          { type: 'count', model: 'Post', label: 'Posts' }
+        ]
+      }
+    });
+    const { rows } = await loadDashboard(runtime, { locals: {} });
+    expect(rows).toHaveLength(1);
+    expect((rows[0] as any).cards).toHaveLength(4);
+  });
+
+  it('compose le scope du modèle avec la query du compteur', async () => {
+    const { runtime, prisma } = runtimeWith({
+      models: { User: { scope: () => ({ id: 2 }) } },
+      dashboard: {
+        widgets: [{ type: 'count', model: 'User', label: 'Actifs', query: 'f.isActive=true' }]
+      }
+    });
+    const { rows } = await loadDashboard(runtime, { locals: {} });
+    // L'utilisateur 2 est inactif : le scope et le filtre sont bien tous les
+    // deux appliqués, pas l'un à la place de l'autre.
+    expect((rows[0] as any).cards[0].value).toBe(0);
+    expect(callsTo(prisma, 'user', 'count')[0].args).toEqual({
+      where: { AND: [{ id: 2 }, { isActive: true }] }
+    });
+  });
+
+  it('affiche 0 quand le comptage filtré échoue', async () => {
+    const prisma = createPrismaMock(DATA, {
+      user: {
+        count: () => {
+          throw new Error('no such table: User');
+        }
+      }
+    });
+    const { runtime } = runtimeWith(
+      { dashboard: { widgets: [{ type: 'count', model: 'User', label: 'Actifs' }] } },
+      prisma
+    );
+    const { rows } = await loadDashboard(runtime, { locals: {} });
+    expect((rows[0] as any).cards[0].value).toBe(0);
+  });
+
+  it('laisse remonter un scope de compteur qui échouerait ouvert', async () => {
+    const { runtime } = runtimeWith({
+      models: { User: { scope: () => ({}) } },
       dashboard: { widgets: [{ type: 'count', model: 'User', label: 'Actifs' }] }
     });
     await expect(loadDashboard(runtime, { locals: {} })).rejects.toThrow(
-      /widget "Actifs" \(type "count"\) cannot be loaded yet/
+      /must return a non-empty condition/
     );
   });
 });

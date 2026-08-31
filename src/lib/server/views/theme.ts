@@ -365,6 +365,17 @@ export function styles(primaryColor: string): string {
       gap: 1rem;
     }
 
+    .ska-stat--link {
+      text-decoration: none;
+      color: inherit;
+      transition: all 0.15s;
+    }
+
+    .ska-stat--link:hover {
+      border-color: var(--ska-primary);
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+
     .ska-stat__icon {
       width: 3rem;
       height: 3rem;
