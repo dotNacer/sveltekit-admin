@@ -44,7 +44,7 @@ CI (`.github/workflows/ci.yml`) also runs a `changeset-check` job on PRs (`pnpm 
 
 ## Versioning & releases
 
-Semantic Versioning, enforced via [Changesets](https://github.com/changesets/changesets) — see `CONTRIBUTING.md` for the exact MAJOR/MINOR/PATCH rules. Any PR that changes published behavior needs `pnpm exec changeset` (or the `writing-changesets` skill) before merge; pure test/CI/tooling PRs don't. Releases are fully automated: merging to `main` runs `.github/workflows/release.yml`, which opens/updates a "Version Packages" PR via `changesets/action`; merging *that* PR bumps `package.json`, regenerates `CHANGELOG.md`, tags, and publishes to npm. Nothing is versioned or published by hand.
+Semantic Versioning, enforced via [Changesets](https://github.com/changesets/changesets) — see `CONTRIBUTING.md` for the exact MAJOR/MINOR/PATCH rules. Any PR that changes published behavior needs `pnpm exec changeset` (or the `writing-changesets` skill) before merge. A pure test/CI/docs/tooling PR needs no *bump*, but still needs a file: an **empty** changeset (`pnpm exec changeset add --empty`), because the `changeset-check` job's `changeset status --since=origin/main` counts any modified file as a package change and fails a PR with no `.changeset/*.md` at all. Releases are fully automated: merging to `main` runs `.github/workflows/release.yml`, which opens/updates a "Version Packages" PR via `changesets/action`; merging *that* PR bumps `package.json`, regenerates `CHANGELOG.md`, tags, and publishes to npm. Nothing is versioned or published by hand.
 
 ## Request flow (the core mental model)
 

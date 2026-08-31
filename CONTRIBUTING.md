@@ -27,8 +27,25 @@ This prompts for the bump type (patch/minor/major) and a description — that de
 the CHANGELOG entry verbatim, so write it the way you'd want to read it in the changelog. Commit
 the generated `.changeset/*.md` file with your PR.
 
-PRs that only touch tests, CI, or internal dev tooling (nothing published in the package) don't
-need one.
+PRs that only touch tests, CI, docs, or internal dev tooling still need a `.changeset/*.md` file —
+just an **empty** one, which satisfies the CI gate without producing a version bump. Add it with:
+
+```bash
+pnpm exec changeset add --empty
+```
+
+Then write a one-line body saying why nothing is published, following the existing convention:
+
+```md
+---
+---
+
+Docs only — nothing published changes. <what this PR does>
+```
+
+The reason is mechanical: the `changeset-check` job runs `changeset status --since=origin/main`, and
+that command reports the package as changed for *any* modified file, not only published ones. A
+test-only PR with no changeset file fails it exactly like a source PR would.
 
 ### Releasing
 
