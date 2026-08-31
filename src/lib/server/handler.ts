@@ -16,6 +16,7 @@ import type { DataAdapter, SchemaIntrospector } from './adapters/types.js';
 import { resolveListFilters } from './query/filterDetection.js';
 import { resolveListColumns } from './query/listColumns.js';
 import { parseSortQuery } from './query/sortQuery.js';
+import { parsePageSize } from './query/pageSize.js';
 import { escapeHtml, toLabel } from './views/html.js';
 import type { AuditEvent } from './audit.js';
 import type { FkFilterMeta } from './views/types.js';
@@ -189,6 +190,23 @@ export interface AdminHandlerConfig {
      */
     defaultSort?: { field: string; dir?: 'asc' | 'desc' };
   }>;
+  /**
+   * Lignes par page de la vue liste (défaut : 20). Entier de 1 à 200 : au-delà
+   * ce n'est plus une page, c'est un export — et une requête qui tient la
+   * connexion sur une table volumineuse. Validé au démarrage.
+   */
+  perPage?: number;
+  /**
+   * Tailles de page qu'un visiteur peut choisir (défaut : `[10, 20, 50, 100]`).
+   * `perPage` y est ajouté d'office s'il n'y figure pas, sinon la taille active
+   * n'apparaîtrait pas dans le sélecteur.
+   *
+   * Un `?perPage=` n'est honoré que s'il appartient à cette liste : sans cette
+   * règle, `?perPage=100000` est un `take` non borné, donc un déni de service à
+   * un paramètre près. `[]` désactive entièrement le mécanisme — aucun
+   * sélecteur rendu, `?perPage=` sans effet.
+   */
+  pageSizeOptions?: number[];
   /** Models to exclude from admin */
   exclude?: string[];
   /** Hide pivot/junction tables automatically (default: true) */
@@ -464,7 +482,8 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           }).body;
         } else if (route.view === 'list') {
           const modelsConfig = runtime.config.models ?? {};
-          const { page } = paginate(event.url.searchParams.get('page'), runtime.perPage);
+          const perPage = parsePageSize(event.url.searchParams, runtime.perPage, runtime.pageSizes);
+          const { page } = paginate(event.url.searchParams.get('page'), perPage);
           const modelSearchConfig = modelsConfig[model.name]?.searchFields;
           const searchFields = resolveSearchFields(model, modelSearchConfig, runtime.labelFieldCandidates, runtime.hiddenFieldsOf(model));
           const filterableFields = runtime.resolveFilterableFields(model);
@@ -496,8 +515,8 @@ export function createAdminHandler(config: AdminHandlerConfig) {
           );
           const { rows: items, total } = await runtime.adapter.data.listRecords(model, {
             filter,
-            skip: (page - 1) * runtime.perPage,
-            take: runtime.perPage,
+            skip: (page - 1) * perPage,
+            take: perPage,
             orderBy: sort.active ?? undefined
           });
           const listFilters = resolveListFilters(
@@ -534,7 +553,8 @@ export function createAdminHandler(config: AdminHandlerConfig) {
             props: {
               model: runtime.viewModel(model),
               items,
-              pagination: { page, perPage: runtime.perPage, total },
+              pagination: { page, perPage, total },
+              pageSizes: runtime.pageSizes,
               basePath: runtime.basePath,
               config: runtime.config,
               query: listQuery,

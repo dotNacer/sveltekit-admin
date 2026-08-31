@@ -153,6 +153,33 @@ There is deliberately no automatic "sort by `name` if the model has one".
 Guessing would silently reorder every existing list, and the guess would drift
 from what the view actually shows.
 
+## Page size: `?perPage=`
+
+A list shows 20 rows per page. `perPage` changes that, and `pageSizeOptions`
+controls what a visitor can pick from:
+
+```ts
+createAdminHandler({
+  adapter,
+  perPage: 25,                       // 1..200, checked at boot
+  pageSizeOptions: [25, 50, 100]     // rendered as links under the pagination
+})
+```
+
+The configured `perPage` is added to the options if it is missing, so the
+active size always appears in the selector. `pageSizeOptions: []` turns the
+whole thing off — no selector, and `?perPage=` has no effect.
+
+**`?perPage=` is honoured only when the value is one of the offered sizes.**
+Anything else falls back to the configured size. Without that rule
+`?perPage=100000` is an unbounded `take` — a denial of service one query
+parameter away, and on a large table a request that holds the connection open.
+The same reason caps `perPage` itself at 200: past that it is an export, not a
+page.
+
+Changing the size returns you to page one, since they are no longer the same
+rows.
+
 ## Case sensitivity
 
 `contains` search is only made explicitly case-insensitive (`mode: 'insensitive'`) on providers that support it in Prisma — PostgreSQL, CockroachDB, and MongoDB. The provider is auto-detected from your Prisma schema's `datasource` block; override with:

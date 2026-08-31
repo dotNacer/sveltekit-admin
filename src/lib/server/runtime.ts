@@ -1,6 +1,7 @@
 import { isSensitiveFieldName } from './introspection/parser.js';
 import type { Schema, Model } from './types/schema.js';
 import { resolveListColumns } from './query/listColumns.js';
+import { resolvePageSizes } from './query/pageSize.js';
 import type { ActiveSort } from './query/sortQuery.js';
 import { buildRelationGraph, type RelationGraph } from './introspection/relations.js';
 import { primaryKeyOf } from './data.js';
@@ -99,6 +100,8 @@ export interface AdminRuntime {
   config: AdminHandlerConfig;
   basePath: string;
   perPage: number;
+  /** Tailles sélectionnables, vide quand le mécanisme est désactivé. */
+  pageSizes: number[];
   /** `models[].defaultSort` validé au démarrage, par nom de modèle. */
   defaultSortOf(model: Model): ActiveSort | undefined;
   selectThreshold: number;
@@ -229,6 +232,30 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
     relationGraph: relationGraph!
   });
 
+  /**
+   * Plafond dur. Au-delà ce n'est plus une page mais un export, et sur une
+   * table volumineuse une requête qui tient la connexion. Vaut pour la valeur
+   * configurée comme pour chaque option proposée.
+   */
+  const MAX_PAGE_SIZE = 200;
+  const validPageSize = (n: unknown): n is number =>
+    typeof n === 'number' && Number.isSafeInteger(n) && n >= 1 && n <= MAX_PAGE_SIZE;
+
+  if (config.perPage !== undefined && !validPageSize(config.perPage)) {
+    throw new AdminConfigError(
+      `[sveltekit-admin] perPage must be an integer between 1 and ${MAX_PAGE_SIZE}.`
+    );
+  }
+  const perPage = config.perPage ?? 20;
+
+  const configuredSizes = config.pageSizeOptions ?? [10, 20, 50, 100];
+  if (!Array.isArray(configuredSizes) || !configuredSizes.every(validPageSize)) {
+    throw new AdminConfigError(
+      `[sveltekit-admin] pageSizeOptions must be integers between 1 and ${MAX_PAGE_SIZE}.`
+    );
+  }
+  const pageSizes = resolvePageSizes(perPage, configuredSizes);
+
   const selectThreshold = config.relationDefaults?.selectThreshold ?? 200;
   const filterLinkThreshold = config.listFilterDefaults?.linkThreshold ?? 20;
   const labelFieldCandidates = config.relationDefaults?.labelFields ?? [
@@ -294,7 +321,8 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
     modelList,
     config,
     basePath,
-    perPage: 20,
+    perPage,
+    pageSizes,
     defaultSortOf: (m: Model) => defaultSorts.get(m.name),
     selectThreshold,
     filterLinkThreshold,

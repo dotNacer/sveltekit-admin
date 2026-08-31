@@ -22,6 +22,7 @@
     listFilters,
     fkFilterMeta,
     sort,
+    pageSizes = [],
     recordActions = []
   }: {
     model: ViewModel;
@@ -39,6 +40,8 @@
     fkFilterMeta?: Map<string, FkFilterMeta>;
     /** Tri actif + drapeau « colonne refusée ». Absent = en-têtes non cliquables. */
     sort?: SortState;
+    /** Tailles de page proposées. Vide/absent = pas de sélecteur. */
+    pageSizes?: number[];
     recordActions?: ListRecordAction[];
   } = $props();
 
@@ -93,6 +96,13 @@
     return (n: number) => buildListUrl(currentUrl, { page: String(n) });
   });
   const pageWindow = $derived(paginationWindow(pagination.page, totalPages));
+  // Rendu en liens plutôt qu'en `<select>` : la page n'est jamais hydratée, un
+  // select aurait donc besoin soit d'un bouton « appliquer », soit d'un
+  // `onchange` inline. Quatre liens font le même travail sans script.
+  // `buildListUrl` retire `page` : changer de taille ne garde aucun sens sur la
+  // page 3, ce ne sont plus les mêmes lignes.
+  const sizeHref = (size: number) => buildListUrl(currentUrl!, { perPage: String(size) });
+  const showSizes = $derived(pageSizes.length > 0 && Boolean(currentUrl));
   const clearHref = $derived(currentUrl ? currentUrl.pathname : listPath);
   const searchHiddenParams = $derived(currentUrl ? hiddenParams(currentUrl, ['q']) : []);
 
@@ -302,6 +312,18 @@
           <a href={pageHref(totalPages)} class="ska-btn ska-btn--secondary ska-btn--sm" aria-label="Last page">»</a>
         {/if}
       </nav>
+      {#if showSizes}
+        <div class="ska-pagination__sizes">
+          <span class="ska-pagination__info">Rows</span>
+          {#each pageSizes as size (size)}
+            {#if size === pagination.perPage}
+              <span class="ska-btn ska-btn--sm ska-pagination__current" aria-current="true">{size}</span>
+            {:else}
+              <a href={sizeHref(size)} class="ska-btn ska-btn--secondary ska-btn--sm">{size}</a>
+            {/if}
+          {/each}
+        </div>
+      {/if}
     </div>
   {/if}
 </div>

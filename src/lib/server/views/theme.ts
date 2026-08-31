@@ -190,6 +190,12 @@ export function styles(primaryColor: string): string {
       flex-wrap: wrap;
     }
     .ska-pagination__gap { padding: 0 0.25rem; color: #64748b; }
+    .ska-pagination__sizes {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      flex-wrap: wrap;
+    }
     .ska-pagination__current {
       background: var(--ska-primary);
       color: #fff;
