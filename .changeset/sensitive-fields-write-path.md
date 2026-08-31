@@ -12,6 +12,6 @@ A `String` field whose name matches `isSensitiveFieldName` (`password`, `passwor
 
 The type filter matters: the rule applies to `String` columns only. `isSensitiveFieldName` matches by substring, so without it an `Int` named `tokenCount` or `hashtagCount` would have become uneditable in the admin. It stays visible and editable.
 
-This also closes a hole opened in `0.9.0`: a refused update re-rendered the sensitive field empty (correctly), and the next save then wrote `""` over the hash. Preserving the value across a refused submit had only ever worked by accident, through the round-trip of the value that should not have been rendered in the first place.
+This also closes a hole opened by the submitted-value work shipping in this same release: a refused update re-rendered the sensitive field empty (correctly), and the next save then wrote `""` over the hash. Preserving the value across a refused submit had only ever worked by accident, through the round-trip of the value that should not have been rendered in the first place.
 
 Note for anyone who used the admin to set passwords: the value is written to the column verbatim, with no hashing — it always was. There is no transform hook yet, so a create form that sets a password stores plaintext. Put the field in `models[].hidden` and manage credentials in your own app until a write-transform hook exists.
