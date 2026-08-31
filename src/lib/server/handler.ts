@@ -11,7 +11,6 @@ import {
   buildWhere,
   resolveSearchFields
 } from './query/listQuery.js';
-import { normalizeScope } from './adapters/filter.js';
 import type { DataAdapter, SchemaIntrospector } from './adapters/types.js';
 import { resolveListFilters } from './query/filterDetection.js';
 import { resolveListColumns } from './query/listColumns.js';
@@ -25,7 +24,7 @@ import Layout from './views/Layout.svelte';
 import Dashboard from './views/Dashboard.svelte';
 import Form from './views/Form.svelte';
 import List from './views/List.svelte';
-import { createAdminRuntime, listScopeFrom, modelScopeFrom } from './runtime.js';
+import { createAdminRuntime, combinedScopeFrom, modelScopeFrom } from './runtime.js';
 import { loadRelationOptions, resolveFkFilterOptions, loadRelatedCounts } from './relationLoaders.js';
 import { handleSearch } from './search.js';
 import { handleMutation } from './mutations.js';
@@ -481,11 +480,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
             searchFields,
             filterableFields
           );
-          const listScope = listScopeFrom(runtime, model, { locals: event.locals });
-          const modelScope = modelScopeFrom(runtime, model, { locals: event.locals });
-          const scope = modelScope && listScope
-            ? { op: 'and' as const, clauses: [modelScope, normalizeScope(listScope)!] }
-            : modelScope ?? listScope;
+          const scope = combinedScopeFrom(runtime, model, { locals: event.locals });
           // Adapter compiles case-sensitivity; this arg is unused by buildWhere.
           const filter = buildWhere(listQuery, scope, false, model) as any;
           // Whitelist de tri = colonnes RÉELLEMENT rendues, résolues par la même

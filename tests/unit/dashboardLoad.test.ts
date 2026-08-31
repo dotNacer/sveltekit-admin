@@ -172,4 +172,50 @@ describe('loadDashboard', () => {
       /must return a non-empty condition/
     );
   });
+
+  it('applique aussi listWhere aux comptages du dashboard', async () => {
+    const { runtime } = runtimeWith({
+      models: { User: { listWhere: () => ({ isActive: true }) } }
+    });
+    const { rows } = await loadDashboard(runtime, { locals: {} });
+    const userCard = (rows[1] as any).cards.find((c: any) => c.name === 'User');
+    // Sans cette composition, la carte annoncerait 2 alors que la liste vers
+    // laquelle elle pointe n'en montre qu'un.
+    expect(userCard.count).toBe(1);
+  });
+
+  it('laisse remonter un listWhere qui échouerait ouvert', async () => {
+    const { runtime } = runtimeWith({ models: { User: { listWhere: () => ({}) } } });
+    await expect(loadDashboard(runtime, { locals: {} })).rejects.toThrow(
+      /returned an empty object/
+    );
+  });
+
+  it('applique aussi listWhere au comptage d’un widget count', async () => {
+    const { runtime, prisma } = runtimeWith({
+      models: { User: { listWhere: () => ({ isActive: true }) } },
+      dashboard: {
+        widgets: [{ type: 'count', model: 'User', label: 'Tous', query: '' }]
+      }
+    });
+    const { rows } = await loadDashboard(runtime, { locals: {} });
+    // Le widget ne filtre sur rien lui-même : sans composer listWhere, il
+    // compterait les 2 users au lieu du seul actif.
+    expect((rows[0] as any).cards[0].value).toBe(1);
+    expect(callsTo(prisma, 'user', 'count')[0].args).toEqual({ where: { isActive: true } });
+  });
+
+  it('compose scope ET listWhere ensemble pour un comptage', async () => {
+    const { runtime, prisma } = runtimeWith({
+      models: {
+        User: { scope: () => ({ id: 1 }), listWhere: () => ({ isActive: true }) }
+      }
+    });
+    const { rows } = await loadDashboard(runtime, { locals: {} });
+    const userCard = (rows[1] as any).cards.find((c: any) => c.name === 'User');
+    expect(userCard.count).toBe(1);
+    expect(callsTo(prisma, 'user', 'count')[0].args).toEqual({
+      where: { AND: [{ id: 1 }, { isActive: true }] }
+    });
+  });
 });

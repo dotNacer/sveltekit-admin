@@ -33,6 +33,18 @@ createAdminHandler({
 
 `widgets: []` renders an empty page, which is a valid choice.
 
+### Filtered counters
+
+```typescript
+{ type: 'count', model: 'Order', label: 'Pending', query: 'f.status=PENDING&f.total__gte=100' }
+```
+
+`query` is the list view's own query string (`q=`, `f.<field>[__<op>]=`), so a
+counter can only express what the list can show, it inherits the operator
+whitelist and the sensitive-field exclusion, and the card links to a list whose
+total equals the number displayed. Anything else — `page`, `sort`, an unknown
+field — is refused at boot.
+
 ## Validation
 
 The configuration is validated when the handler is created, not when the page
@@ -42,6 +54,6 @@ instead of silently rendering an empty block.
 
 ## Scope
 
-Every count on the dashboard composes the model's `scope`, exactly like every
-other read the admin serves. A model in `exclude` cannot be surfaced by a
-widget.
+Every read on the dashboard composes the model's `scope`, exactly like every
+other read the admin serves, **and** its `listWhere`. A model in `exclude`
+cannot be surfaced by a widget.

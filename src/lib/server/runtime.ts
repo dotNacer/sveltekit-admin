@@ -72,6 +72,30 @@ export function modelScopeFrom(
   return normalized;
 }
 
+/**
+ * `scope` (toutes les lectures) ET `listWhere` (historiquement la seule vue
+ * liste), composés en AND. Le dashboard l'utilise aussi : une carte qui
+ * annonce 40 quand la liste vers laquelle elle pointe en montre 12 est un
+ * chiffre faux, et un widget de comptage rend cet écart visible.
+ */
+export function combinedScopeFrom(
+  runtime: AdminRuntime,
+  model: Model,
+  ctx: { locals?: any } // aligné sur listScopeFrom/modelScopeFrom, pas `unknown`
+): Filter | Record<string, unknown> | undefined {
+  // Le type de retour suit `normalizeScope` (pas juste `Filter`) : un
+  // `listWhere` qui renvoie un `where` Prisma imbriqué reste opaque par
+  // conception (voir le commentaire de `normalizeScope`), donc le composé
+  // peut légitimement ne pas être un `Filter` strict. Forcer `Filter` ici
+  // demanderait un cast qui mentirait sur ce cas réel.
+  const modelScope = modelScopeFrom(runtime, model, ctx);
+  const listScope = normalizeScope(listScopeFrom(runtime, model, ctx));
+  if (modelScope && listScope) {
+    return { op: 'and', clauses: [modelScope, listScope] };
+  }
+  return modelScope ?? listScope;
+}
+
 /** Extract equality predicates so create can force tenant-owned columns. */
 export function modelScopeValues(runtime: AdminRuntime, model: Model, ctx: { locals?: any }): Record<string, unknown> {
   const normalized = modelScopeFrom(runtime, model, ctx);
