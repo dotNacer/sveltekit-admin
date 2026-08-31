@@ -8,7 +8,8 @@
     value,
     isReadonly,
     submitted,
-    errorMessage
+    errorMessage,
+    enums = new Map<string, string[]>()
   }: {
     field: PrismaField;
     value: any;
@@ -17,6 +18,8 @@
     submitted?: SubmittedForm;
     /** Défini seulement si c'est ce champ que l'erreur désigne. */
     errorMessage?: string;
+    /** Valeurs de chaque enum du schéma, indexées par nom de type. */
+    enums?: Map<string, string[]>;
   } = $props();
 
   const err = $derived(fieldErrorAttrs(field.name, errorMessage));
@@ -70,6 +73,13 @@
     return value ?? '';
   });
 
+  /**
+   * Valeur retenue par le `<select>` d'un enum : même arbitrage que
+   * `inputValue` (ce qui vient d'être soumis prime sur la ligne en base),
+   * ramené à une chaîne pour se comparer aux valeurs déclarées de l'enum.
+   */
+  const enumValue = $derived(String(inputValue));
+
   const jsonValue = $derived.by(() => {
     if (hasSubmission) return submittedValue ?? '';
     return value ? JSON.stringify(value, null, 2) : '';
@@ -110,6 +120,42 @@
   <div class="ska-field">
     <label class="ska-label" for={field.name}>{label}{required ? ' *' : ''}</label>
     <textarea id={field.name} name={field.name} class="ska-input" rows="4" readonly={isReadonly} required={required} aria-invalid={err.ariaInvalid} aria-describedby={err.describedBy}>{inputValue}</textarea>
+    <!-- eslint-disable-next-line svelte/no-at-html-tags -- fieldErrorAttrs échappe l'id et le message -->
+    {@html err.html}
+  </div>
+{:else if field.isEnum && enums.has(field.type)}
+  <!--
+    Calqué sur `RelationSelect.svelte` (même structure, même « — aucun — »), à
+    deux écarts près, tous deux volontaires :
+
+    1. Un placeholder désactivé quand la colonne est non nullable et n'a pas
+       encore de valeur. Sans lui le navigateur présélectionne la première
+       valeur de l'enum, et une création écrit un choix que l'utilisateur n'a
+       jamais fait. `RelationSelect` a le même défaut pour une FK obligatoire —
+       il n'est pas corrigé ici, ce serait un autre comportement dans une autre
+       PR.
+    2. `disabled` et non `readonly` : un `<select>` n'a pas de `readonly`. Le
+       champ sort donc du POST, `formDataToPrisma` ignore la clé absente et la
+       colonne n'est pas réécrite — exactement ce que « lecture seule » veut
+       dire, et plus sûr que les branches texte qui, elles, réémettent la valeur.
+
+    L'option vide se décide sur `field.isRequired` (la colonne accepte-t-elle
+    NULL) et non sur `required` (l'attribut du widget, faux dès qu'il y a un
+    `@default`) : une colonne non nullable à défaut n'accepte toujours pas
+    « aucun ».
+  -->
+  <div class="ska-field">
+    <label class="ska-label" for={field.name}>{label}{required ? ' *' : ''}</label>
+    <select id={field.name} name={field.name} class="ska-input" disabled={isReadonly} required={required} aria-invalid={err.ariaInvalid} aria-describedby={err.describedBy}>
+      {#if !field.isRequired}
+        <option value="">— aucun —</option>
+      {:else if !enumValue}
+        <option value="" disabled selected>Select…</option>
+      {/if}
+      {#each enums.get(field.type)! as v (v)}
+        <option value={v} selected={v === enumValue}>{v}</option>
+      {/each}
+    </select>
     <!-- eslint-disable-next-line svelte/no-at-html-tags -- fieldErrorAttrs échappe l'id et le message -->
     {@html err.html}
   </div>

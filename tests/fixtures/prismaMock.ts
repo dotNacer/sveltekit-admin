@@ -5,6 +5,7 @@ export const MALFORMED_SCHEMA_PATH = resolve('tests/fixtures/schemas/malformed.p
 export const PIVOT_SCHEMA_PATH = resolve('tests/fixtures/schemas/pivot.prisma');
 export const RELATIONS_SCHEMA_PATH = resolve('tests/fixtures/schemas/relations.prisma');
 export const SEARCH_SCHEMA_PATH = resolve('tests/fixtures/schemas/search.prisma');
+export const ENUMS_SCHEMA_PATH = resolve('tests/fixtures/schemas/enums.prisma');
 
 export interface PrismaCall {
   model: string;

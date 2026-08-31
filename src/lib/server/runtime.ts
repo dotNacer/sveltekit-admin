@@ -145,6 +145,14 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
     console.warn('[sveltekit-admin] Could not introspect schema:', e);
   }
 
+  /**
+   * Résolu une fois ici plutôt que dans `viewModel` : un `schema?.enums ?? …`
+   * par appel serait une branche que rien ne peut exercer (un schéma nul donne
+   * `models` vide, donc aucune vue à construire), alors qu'à ce niveau les deux
+   * cas sont ceux du démarrage — schéma lu, ou introspection en échec.
+   */
+  const schemaEnums = schema?.enums ?? new Map<string, string[]>();
+
   const models = schema?.models.filter((m) => {
     // Exclude explicitly excluded models
     if (exclude.includes(m.name)) return false;
@@ -182,6 +190,7 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
     label: labelOf(m),
     fields: m.fields,
     primaryKey: primaryKeyOf(m),
+    enums: schemaEnums,
     // Non-null par construction : `m` vient toujours de `models`,
     // dérivé du schéma qu'on vient de parser avec succès.
     relationGraph: relationGraph!

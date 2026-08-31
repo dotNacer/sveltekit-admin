@@ -19,6 +19,13 @@ export interface ViewModel {
   label: string;
   fields: PrismaField[];
   primaryKey: string;
+  /**
+   * Valeurs déclarées de chaque enum du schéma, indexées par nom de type.
+   * Portées par le ViewModel plutôt que passées à part comme le fait
+   * `filterDetection` : le formulaire résout un enum champ par champ, et un
+   * second chemin d'acheminement vers les mêmes valeurs finirait par diverger.
+   */
+  enums?: Map<string, string[]>;
   relationGraph?: RelationGraph;
   /** Options résolues pour chaque arête to-one-owning, indexées par "Model.field" */
   relationOptions?: Map<string, RelationMeta>;
