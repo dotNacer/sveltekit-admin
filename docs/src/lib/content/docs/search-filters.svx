@@ -93,6 +93,36 @@ An invalid `listFilter` entry (unknown field, sensitive field, relation, unsuppo
 
 Renders using the same relation-label resolution as [Relations](/docs/relations) — options and the currently-active filter's label are both resolved through the target model's scoping `where`, so a filter can never leak a record from outside that scope. Below a configurable link threshold (`listFilterDefaults.linkThreshold`, default 20) options render as sidebar links; up to the FK select threshold (`relationDefaults.selectThreshold`, default 200, shared with relation selects) they render as a `<select>` in a small form; beyond that, no automatic filter UI is offered for that field.
 
+## Sorting: `?sort=` and `?dir=`
+
+Every column heading in the list view is a link. Clicking one sorts on that
+column ascending; clicking the same heading again flips to descending. The
+state lives in the URL, so a sorted list is bookmarkable and shareable.
+
+```
+/admin/user?sort=email          ascending
+/admin/user?sort=email&dir=desc descending
+```
+
+**Only the columns the list actually renders can be sorted.** The name in
+`?sort=` is looked up in that set and nothing else — it never reaches the query
+as a raw key. A column removed by `models[].hidden`, dropped by the
+sensitive-name heuristic, or simply beyond the six-column cap is not in the set,
+so `?sort=` on it is refused and the list says so. Sorting therefore only ever
+orders values that are already readable on screen.
+
+Sorting always composes with the rest of the URL state: the active search,
+every filter, and the page size are preserved. The page number is not — changing
+the sort resets you to page one, since they are no longer the same rows.
+
+Results are always broken ties by primary key, descending. Without that, two
+rows sharing a value could swap places between two requests, and a `skip`/`take`
+window laid over an unstable order shows one row twice and another never.
+Sorting *by* the primary key does not add a redundant second key.
+
+An unrecognised `?dir=` is read as ascending rather than refused: unlike a
+column name, a direction designates nothing and cannot reveal anything.
+
 ## Case sensitivity
 
 `contains` search is only made explicitly case-insensitive (`mode: 'insensitive'`) on providers that support it in Prisma — PostgreSQL, CockroachDB, and MongoDB. The provider is auto-detected from your Prisma schema's `datasource` block; override with:

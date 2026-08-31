@@ -29,6 +29,22 @@ function primaryKeyColumn(table: Table, model: Model): Column {
 }
 
 /**
+ * Résolution d'une colonne par nom, partagée par les deux chemins de tri
+ * (`listRecords` pour `?sort=`, `findMany` pour un `orderBy` de config). Un
+ * nom inconnu lève : côté `?sort=` il ne peut pas arriver — `sortQuery.ts` ne
+ * laisse sortir que des colonnes rendues — donc s'il arrive, c'est la table
+ * Drizzle qui ne correspond pas au schéma introspecté, et échouer fort vaut
+ * mieux qu'un tri silencieusement absent.
+ */
+function columnFor(table: Table, field: string): Column {
+  const column = (getTableColumns(table) as Record<string, Column>)[field];
+  if (!column) {
+    throw new Error(`[sveltekit-admin] unknown field '${field}' on Drizzle table`);
+  }
+  return column;
+}
+
+/**
  * Ordre de verrouillage déterministe. Les guards m2m sont empilés dans l'ordre
  * des ids soumis par le formulaire, donc sous contrôle du client : deux
  * requêtes concurrentes envoyant [1,2] et [2,1] verrouilleraient les mêmes
@@ -212,12 +228,23 @@ export function createDrizzleDataAdapter(
       const table = tableFor(ctx, model);
       const where = compileHere(table, opts.filter);
       const primaryKey = primaryKeyColumn(table, model);
+      const requested = opts.orderBy;
+      // Départage systématique par la clé primaire, sauf quand c'est elle qu'on
+      // trie : deux lignes de même valeur doivent garder le même rang d'une
+      // requête à l'autre, sinon la fenêtre skip/take fait sauter des lignes.
+      const orderBy = !requested
+        ? [desc(primaryKey)]
+        : (() => {
+            const column = columnFor(table, requested.field);
+            const primary = column === primaryKey ? [] : [desc(primaryKey)];
+            return [requested.dir === "asc" ? asc(column) : desc(column), ...primary];
+          })();
       const [rows, totals] = await Promise.all([
         db
           .select()
           .from(table)
           .where(where)
-          .orderBy(desc(primaryKey))
+          .orderBy(...orderBy)
           .limit(opts.take)
           .offset(opts.skip),
         db.select({ n: count() }).from(table).where(where),
@@ -227,15 +254,9 @@ export function createDrizzleDataAdapter(
 
     async findMany(model, opts) {
       const table = tableFor(ctx, model);
-      const columns = getTableColumns(table) as Record<string, Column>;
       const orderBy = Object.entries(opts.orderBy ?? {}).map(
         ([field, direction]) => {
-          const column = columns[field];
-          if (!column) {
-            throw new Error(
-              `[sveltekit-admin] unknown field '${field}' on Drizzle table`,
-            );
-          }
+          const column = columnFor(table, field);
           return direction === "asc" ? asc(column) : desc(column);
         },
       );

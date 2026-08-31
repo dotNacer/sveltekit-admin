@@ -183,6 +183,19 @@ export function styles(primaryColor: string): string {
       letter-spacing: 0.05em;
     }
 
+    .ska-table th a.ska-th-sort {
+      color: inherit;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+    .ska-table th a.ska-th-sort:hover { text-decoration: underline; }
+    .ska-table th a.ska-th-sort:focus-visible {
+      outline: 2px solid var(--ska-primary);
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
     .ska-table td {
       padding: 0.75rem 1rem;
       border-bottom: 1px solid #e2e8f0;

@@ -77,6 +77,75 @@ describe("createDrizzleDataAdapter", () => {
     sqlite.prepare("INSERT INTO tags (name) VALUES (?)").run("second");
   };
 
+  it("sorts on the requested column, ascending", async () => {
+    seedUsers();
+
+    const result = await adapter.listRecords(users, {
+      skip: 0,
+      take: 10,
+      orderBy: { field: "name", dir: "asc" },
+    });
+
+    expect(result.rows.map((row) => row.name)).toEqual(["Alice", "Bob", "Charlie"]);
+  });
+
+  it("sorts on the requested column, descending", async () => {
+    seedUsers();
+
+    const result = await adapter.listRecords(users, {
+      skip: 0,
+      take: 10,
+      orderBy: { field: "name", dir: "desc" },
+    });
+
+    expect(result.rows.map((row) => row.name)).toEqual(["Charlie", "Bob", "Alice"]);
+  });
+
+  it("breaks ties on the primary key so pagination stays stable", async () => {
+    // Trois lignes de même `name` : sans départage, l'ordre entre elles est à
+    // la main du moteur, et deux fenêtres skip/take successives peuvent voir
+    // la même ligne deux fois.
+    sqlite
+      .prepare("INSERT INTO users (email, name, tenant_id) VALUES (?, ?, ?)")
+      .run("a@example.com", "Same", 1);
+    sqlite
+      .prepare("INSERT INTO users (email, name, tenant_id) VALUES (?, ?, ?)")
+      .run("b@example.com", "Same", 1);
+    sqlite
+      .prepare("INSERT INTO users (email, name, tenant_id) VALUES (?, ?, ?)")
+      .run("c@example.com", "Same", 1);
+
+    const result = await adapter.listRecords(users, {
+      skip: 0,
+      take: 10,
+      orderBy: { field: "name", dir: "asc" },
+    });
+
+    expect(result.rows.map((row) => row.id)).toEqual([3, 2, 1]);
+  });
+
+  it("sorts on the primary key without adding a second key", async () => {
+    // Le départage est la clé primaire elle-même : l'ajouter deux fois n'aurait
+    // pas de sens. Seul l'ordre demandé s'applique.
+    seedUsers();
+
+    const result = await adapter.listRecords(users, {
+      skip: 0,
+      take: 10,
+      orderBy: { field: "id", dir: "asc" },
+    });
+
+    expect(result.rows.map((row) => row.id)).toEqual([1, 2, 3]);
+  });
+
+  it("rejects a column the table does not have", async () => {
+    seedUsers();
+
+    await expect(
+      adapter.listRecords(users, { skip: 0, take: 10, orderBy: { field: "nope", dir: "asc" } }),
+    ).rejects.toThrow(/unknown field/);
+  });
+
   it("lists matching rows by descending PK with pagination and total count", async () => {
     seedUsers();
 

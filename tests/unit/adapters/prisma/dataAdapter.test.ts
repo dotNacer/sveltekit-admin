@@ -35,6 +35,45 @@ describe('createPrismaDataAdapter — listRecords', () => {
   });
 });
 
+describe('createPrismaDataAdapter — listRecords trié', () => {
+  const adapterFor = (records: any[]) => {
+    const prisma = createPrismaMock({ user: records });
+    return { prisma, adapter: createPrismaDataAdapter(prisma) };
+  };
+
+  it('trie sur la colonne demandée, puis départage par la clé primaire', async () => {
+    // Sans le départage, deux lignes de même `email` peuvent changer de page
+    // entre deux requêtes : la fenêtre skip/take n'a alors plus de sens.
+    const { prisma, adapter } = adapterFor([{ id: 1, email: 'a@x.y' }]);
+    await adapter.listRecords(User, { skip: 0, take: 20, orderBy: { field: 'email', dir: 'asc' } });
+
+    expect(callsTo(prisma, 'user', 'findMany')[0].args).toMatchObject({
+      orderBy: [{ email: 'asc' }, { id: 'desc' }]
+    });
+  });
+
+  it('accepte la direction descendante', async () => {
+    const { prisma, adapter } = adapterFor([{ id: 1, email: 'a@x.y' }]);
+    await adapter.listRecords(User, { skip: 0, take: 20, orderBy: { field: 'email', dir: 'desc' } });
+
+    expect((callsTo(prisma, 'user', 'findMany')[0].args as any).orderBy[0]).toEqual({ email: 'desc' });
+  });
+
+  it('ne redouble pas la clé primaire quand c’est elle qu’on trie', async () => {
+    const { prisma, adapter } = adapterFor([{ id: 1, email: 'a@x.y' }]);
+    await adapter.listRecords(User, { skip: 0, take: 20, orderBy: { field: 'id', dir: 'asc' } });
+
+    expect((callsTo(prisma, 'user', 'findMany')[0].args as any).orderBy).toEqual([{ id: 'asc' }]);
+  });
+
+  it('garde le tri PK desc quand rien n’est demandé', async () => {
+    const { prisma, adapter } = adapterFor([{ id: 1, email: 'a@x.y' }]);
+    await adapter.listRecords(User, { skip: 0, take: 20 });
+
+    expect((callsTo(prisma, 'user', 'findMany')[0].args as any).orderBy).toEqual({ id: 'desc' });
+  });
+});
+
 describe('createPrismaDataAdapter — findMany', () => {
   it('sans skip/take : renvoie tout ce qui matche, orderBy transmis tel quel', async () => {
     const records = [{ id: 2, name: 'B' }, { id: 1, name: 'A' }];
