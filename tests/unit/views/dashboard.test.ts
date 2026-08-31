@@ -53,7 +53,9 @@ describe('Dashboard.svelte', () => {
     expect(html).toContain('&lt;b>U');
     expect(html).toContain('&lt;i>T');
     expect(html).toContain('&lt;script>x');
+    expect(html).toContain('&lt;em>s');
     expect(html).not.toContain('<b>U');
+    expect(html).not.toContain('<em>s');
   });
 
   it('omet le titre de section quand il n’est pas configuré', () => {
