@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveDashboard } from '../../src/lib/server/dashboard.js';
+import { resolveDashboard, groupWidgetRows } from '../../src/lib/server/dashboard.js';
 import { parsePrismaSchema } from '../../src/lib/server/introspection/parser.js';
 import { FULL_SCHEMA_PATH } from '../fixtures/prismaMock.js';
 
@@ -58,5 +58,67 @@ describe('resolveDashboard', () => {
       models
     });
     expect(resolved.widgets[0]).toEqual({ type: 'models', modelNames: ['User'] });
+  });
+});
+
+const modelCard = (name: string) => ({
+  name,
+  label: name,
+  count: 1,
+  href: `/admin/${name.toLowerCase()}`,
+  newHref: `/admin/${name.toLowerCase()}/new`
+});
+
+describe('groupWidgetRows', () => {
+  it('développe un widget stats en deux cartes', () => {
+    const rows = groupWidgetRows([{ type: 'stats', models: 3, total: 42 }]);
+    expect(rows).toEqual([
+      {
+        kind: 'cards',
+        cards: [
+          { value: 3, label: 'Models', icon: 'models' },
+          { value: 42, label: 'Total Records', icon: 'records' }
+        ]
+      }
+    ]);
+  });
+
+  it('rend un widget models dans sa propre rangée', () => {
+    const rows = groupWidgetRows([
+      { type: 'models', title: 'Contenu', cards: [modelCard('Post')] }
+    ]);
+    expect(rows).toEqual([
+      { kind: 'models', title: 'Contenu', cards: [modelCard('Post')] }
+    ]);
+  });
+
+  it('n’ouvre pas de rangée de cartes après un widget models', () => {
+    const rows = groupWidgetRows([
+      { type: 'models', cards: [modelCard('Post')] },
+      { type: 'stats', models: 1, total: 1 }
+    ]);
+    expect(rows.map((r) => r.kind)).toEqual(['models', 'cards']);
+  });
+
+  it('replie deux widgets-cartes adjacents dans la même rangée', () => {
+    const rows = groupWidgetRows([
+      { type: 'stats', models: 1, total: 1 },
+      { type: 'stats', models: 2, total: 2 }
+    ]);
+    expect(rows).toEqual([
+      {
+        kind: 'cards',
+        cards: [
+          { value: 1, label: 'Models', icon: 'models' },
+          { value: 1, label: 'Total Records', icon: 'records' },
+          { value: 2, label: 'Models', icon: 'models' },
+          { value: 2, label: 'Total Records', icon: 'records' }
+        ]
+      }
+    ]);
+  });
+
+  it('rend une liste vide pour un dashboard vide', () => {
+    expect(groupWidgetRows([])).toEqual([]);
   });
 });

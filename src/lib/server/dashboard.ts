@@ -90,3 +90,62 @@ function resolveWidget(
       `"${(widget as { type: string }).type}".`
   );
 }
+
+export interface DashboardCard {
+  value: number;
+  label: string;
+  icon: 'models' | 'records';
+  href?: string;
+}
+
+export interface ModelCardData {
+  name: string;
+  label: string;
+  count: number;
+  href: string;
+  newHref: string;
+}
+
+export type LoadedWidget =
+  | { type: 'stats'; models: number; total: number }
+  | { type: 'models'; title?: string; cards: ModelCardData[] };
+
+export type DashboardRow =
+  | { kind: 'cards'; cards: DashboardCard[] }
+  | { kind: 'models'; title?: string; cards: ModelCardData[] };
+
+/**
+ * Replie les widgets-cartes ADJACENTS dans une même rangée. Sans ce repli,
+ * deux compteurs consécutifs tomberaient dans deux blocs distincts et
+ * s'empileraient verticalement au lieu de s'aligner. Pure et testée en
+ * table : la mise en page ne vit pas dans le template.
+ */
+export function groupWidgetRows(loaded: LoadedWidget[]): DashboardRow[] {
+  const rows: DashboardRow[] = [];
+  for (const widget of loaded) {
+    if (widget.type === 'models') {
+      rows.push(
+        widget.title === undefined
+          ? { kind: 'models', cards: widget.cards }
+          : { kind: 'models', title: widget.title, cards: widget.cards }
+      );
+      continue;
+    }
+    const cards = cardsOf(widget);
+    const last = rows[rows.length - 1];
+    if (last && last.kind === 'cards') last.cards.push(...cards);
+    else rows.push({ kind: 'cards', cards });
+  }
+  return rows;
+}
+
+// `Exclude<..., { type: 'models' }>` : seul le widget « models » n'est pas
+// carte. Quand les tâches suivantes ajouteront les variantes 'count' et
+// 'recent' (elles aussi en cartes), ce type et ce switch grandiront avec
+// elles — pas de branche pour un widget qui n'existe pas encore.
+function cardsOf(widget: Exclude<LoadedWidget, { type: 'models' }>): DashboardCard[] {
+  return [
+    { value: widget.models, label: 'Models', icon: 'models' },
+    { value: widget.total, label: 'Total Records', icon: 'records' }
+  ];
+}
