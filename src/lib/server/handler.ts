@@ -173,6 +173,21 @@ export interface AdminHandlerConfig {
      * doit échouer fort plutôt que produire un filtre silencieusement mort.
      */
     listFilter?: import('./query/filterDetection.js').ListFilterConfigEntry[];
+    /**
+     * Ordre d'arrivée sur la liste, avant tout `?sort=` dans l'URL. `dir` vaut
+     * `'asc'` par défaut.
+     *
+     * Volontairement explicite plutôt qu'auto-détecté : deviner « trie par
+     * `name` s'il y en a un » changerait l'ordre de toutes les listes
+     * existantes sans que personne l'ait demandé, et l'heuristique dériverait
+     * de ce que la vue affiche réellement.
+     *
+     * `field` doit être une colonne que la liste AFFICHE — sinon aucun en-tête
+     * ne peut annoncer le tri ni permettre d'en sortir. Validé au démarrage :
+     * une colonne inexistante ou non affichée lève, plutôt que de produire un
+     * tri mort à chaque rendu.
+     */
+    defaultSort?: { field: string; dir?: 'asc' | 'desc' };
   }>;
   /** Models to exclude from admin */
   exclude?: string[];
@@ -474,7 +489,11 @@ export function createAdminHandler(config: AdminHandlerConfig) {
             hidden: modelsConfig[model.name]?.hidden,
             listFields: modelsConfig[model.name]?.listFields
           }).map((f) => f.name);
-          const sort = parseSortQuery(event.url.searchParams, sortableColumns);
+          const sort = parseSortQuery(
+            event.url.searchParams,
+            sortableColumns,
+            runtime.defaultSortOf(model)
+          );
           const { rows: items, total } = await runtime.adapter.data.listRecords(model, {
             filter,
             skip: (page - 1) * runtime.perPage,
