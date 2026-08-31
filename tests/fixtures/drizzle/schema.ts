@@ -5,6 +5,11 @@ export const users = sqliteTable('users', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   email: text('email').notNull(),
   name: text('name'),
+  // Colonne sensible, pour la parité du chemin d'écriture avec Prisma :
+  // `isSensitiveStringField` doit l'attraper via le mapping
+  // `dataType: 'string'` -> `'String'` de l'introspecteur Drizzle. Nullable
+  // exprès, pour ne pas contraindre les insertions des autres tests.
+  passwordHash: text('password_hash'),
   tenantId: integer('tenant_id').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' })
 });

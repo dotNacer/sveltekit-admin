@@ -38,6 +38,7 @@ beforeAll(() => {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email TEXT NOT NULL,
       name TEXT,
+      password_hash TEXT,
       tenant_id INTEGER NOT NULL,
       created_at INTEGER
     );
@@ -440,3 +441,41 @@ describe('admin handler with a real Drizzle SQLite database', () => {
     expect(html).not.toContain('Tenant two post');
   });
 });
+
+describe('parité du chemin d’écriture sensible avec Prisma', () => {
+  it('n’affiche pas la colonne sensible dans le formulaire d’édition', async () => {
+    sqlite
+      .prepare('INSERT INTO users (email, name, password_hash, tenant_id) VALUES (?, ?, ?, ?)')
+      .run('p@x.y', 'P', '$2b$10$hash-drizzle', 1);
+    const id = (sqlite.prepare('SELECT id FROM users WHERE email = ?').get('p@x.y') as any).id;
+
+    const html = await (await call(`/admin/users/${id}`)).text();
+
+    expect(html).not.toContain('$2b$10$hash-drizzle');
+    expect(html).not.toContain('name="passwordHash"');
+  });
+
+  it('laisse la colonne sensible intacte sur un update', async () => {
+    sqlite
+      .prepare('INSERT INTO users (email, name, password_hash, tenant_id) VALUES (?, ?, ?, ?)')
+      .run('q@x.y', 'Q', '$2b$10$intact', 1);
+    const id = (sqlite.prepare('SELECT id FROM users WHERE email = ?').get('q@x.y') as any).id;
+
+    // Le POST forge la colonne : elle n'est plus dans le formulaire, donc rien
+    // de légitime ne l'envoie — et elle ne doit pas être écrite.
+    const res = await call(`/admin/users/${id}`, {
+      _action: 'update',
+      email: 'q2@x.y',
+      name: 'Q2',
+      passwordHash: 'ecrase-moi',
+      tenantId: '1'
+    });
+    expect(res.status).toBe(303);
+
+    const row = sqlite
+      .prepare('SELECT email, password_hash AS h FROM users WHERE id = ?')
+      .get(id) as any;
+    expect(row).toMatchObject({ email: 'q2@x.y', h: '$2b$10$intact' });
+  });
+});
+
