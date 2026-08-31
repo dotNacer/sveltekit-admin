@@ -3,8 +3,9 @@
   import type { ViewModel, ListRecordAction, FkFilterMeta } from './types.js';
   import type { ListQuery } from '../query/listQuery.js';
   import type { ResolvedFilterField } from '../query/filterDetection.js';
+  import type { SortState } from '../query/sortQuery.js';
   import { DATETIME_PRESETS } from '../query/filterDetection.js';
-  import { getDisplayFields } from '../introspection/parser.js';
+  import { resolveListColumns } from '../query/listColumns.js';
   import { buildListUrl, hiddenParams } from '../query/urls.js';
   import { escapeHtml, toLabel, formatValue } from './html.js';
   import ListFilters from './ListFilters.svelte';
@@ -19,6 +20,7 @@
     currentUrl,
     listFilters,
     fkFilterMeta,
+    sort,
     recordActions = []
   }: {
     model: ViewModel;
@@ -34,6 +36,8 @@
     listFilters?: ResolvedFilterField[];
     /** Métadonnées async (options scopées + label actif) pour les filtres FK configurés. */
     fkFilterMeta?: Map<string, FkFilterMeta>;
+    /** Tri actif + drapeau « colonne refusée ». Absent = en-têtes non cliquables. */
+    sort?: SortState;
     recordActions?: ListRecordAction[];
   } = $props();
 
@@ -41,24 +45,36 @@
   const hidden = $derived(modelConfig.hidden || []);
   const listFields = $derived(modelConfig.listFields);
 
-  const displayFields = $derived.by(() => {
-    const explicit = new Set(listFields ?? []);
-    const safeNames = new Set(getDisplayFields(model).map((f) => f.name));
+  // Résolu par `resolveListColumns` et non ici : le handler applique la MÊME
+  // fonction pour décider quels champs un `?sort=` a le droit de désigner.
+  const displayFields = $derived(resolveListColumns(model.fields, { hidden, listFields }));
 
-    let fields = model.fields.filter(
-      (f) =>
-        (explicit.has(f.name) || safeNames.has(f.name)) &&
-        !hidden.includes(f.name) &&
-        !f.relation &&
-        !['Json', 'Bytes'].includes(f.type)
-    );
+  /**
+   * En-têtes cliquables seulement quand l'URL courante est connue : sans elle
+   * on ne sait pas construire un lien qui préserve recherche et filtres, et un
+   * en-tête qui les effacerait silencieusement serait pire que pas de tri.
+   * Même convention que la pagination.
+   */
+  const sortable = $derived(Boolean(currentUrl));
+  const activeSort = $derived(sort?.active ?? null);
 
-    if (listFields?.length) {
-      fields = fields.filter((f) => listFields.includes(f.name));
-    }
+  /**
+   * Cliquer une colonne déjà triée inverse la direction ; cliquer une autre
+   * colonne repart en ascendant. `buildListUrl` retire `page` de lui-même :
+   * changer de tri ne garde aucun sens sur la page 3, ce ne sont plus les
+   * mêmes lignes.
+   */
+  const sortHref = (field: string) => {
+    const dir = activeSort?.field === field && activeSort.dir === 'asc' ? 'desc' : null;
+    return buildListUrl(currentUrl!, { sort: field, dir });
+  };
 
-    return fields.slice(0, 6);
-  });
+  const ariaSortFor = (field: string) =>
+    activeSort?.field !== field ? 'none' : activeSort.dir === 'asc' ? 'ascending' : 'descending';
+
+  /** Indicateur visuel, doublé par `aria-sort` côté lecteur d'écran. */
+  const sortMarkFor = (field: string) =>
+    activeSort?.field !== field ? '' : activeSort.dir === 'asc' ? ' ↑' : ' ↓';
 
   const listPath = $derived(`${basePath}/${model.name.toLowerCase()}`);
   const totalPages = $derived(Math.ceil(pagination.total / pagination.perPage));
@@ -204,11 +220,16 @@
   </form>
 {/if}
 
-{#if ignoredMessages.length > 0}
+{#if ignoredMessages.length > 0 || sort?.ignored}
   <div class="ska-alert ska-alert--error">
     {#each ignoredMessages as m (m.key)}
       <p>{m.text}</p>
     {/each}
+    {#if sort?.ignored}
+      <!-- Même neutralité que pour un filtre refusé : ne jamais dire si la
+           colonne existe, seulement qu'on ne trie pas dessus. -->
+      <p>Ignored sort: this column cannot be sorted</p>
+    {/if}
   </div>
 {/if}
 
@@ -223,7 +244,7 @@
     <table class="ska-table">
       <thead>
         <tr>
-          {#each displayFields as f (f.name)}<th>{toLabel(f.name)}</th>{/each}
+          {#each displayFields as f (f.name)}{#if sortable}<th aria-sort={ariaSortFor(f.name)}><a href={sortHref(f.name)} class="ska-th-sort">{toLabel(f.name)}<span aria-hidden="true">{sortMarkFor(f.name)}</span></a></th>{:else}<th>{toLabel(f.name)}</th>{/if}{/each}
           <th>Actions</th>
         </tr>
       </thead>

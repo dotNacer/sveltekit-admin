@@ -59,8 +59,17 @@ export function createPrismaDataAdapter(
       const key = toPrismaModel(model.name);
       const primaryKey = primaryKeyOf(model);
       const where = compileHere(listOpts.filter);
+      const requested = listOpts.orderBy;
+      // Objet (et non tableau à un élément) quand rien n'est demandé : c'est la
+      // forme historique, et la garder évite de faire bouger des attentes de
+      // tests qui ne parlent pas de tri.
+      const orderBy = !requested
+        ? { [primaryKey]: 'desc' }
+        : requested.field === primaryKey
+          ? [{ [primaryKey]: requested.dir }]
+          : [{ [requested.field]: requested.dir }, { [primaryKey]: 'desc' }];
       const [rows, total] = await Promise.all([
-        prisma[key].findMany({ where, skip: listOpts.skip, take: listOpts.take, orderBy: { [primaryKey]: 'desc' } }),
+        prisma[key].findMany({ where, skip: listOpts.skip, take: listOpts.take, orderBy }),
         prisma[key].count({ where })
       ]);
       return { rows, total };

@@ -32,16 +32,35 @@ export interface TargetGuard {
   filter?: Filter;
 }
 
+/** Tri demandé par `?sort=`, déjà validé contre les colonnes que la vue rend. */
+export interface ListOrder {
+  field: string;
+  dir: 'asc' | 'desc';
+}
+
 /**
  * Per-request CRUD + relation-read surface `handler.ts` talks to instead of
  * a raw ORM client. See docs/superpowers/specs/2026-08-13-db-adapter-abstraction-design.md
  * for the rationale behind each method's shape.
  */
 export interface DataAdapter {
-  /** Vue liste paginée : toujours tri PK desc, toujours count + fetch ensemble. */
+  /**
+   * Vue liste paginée : toujours count + fetch ensemble.
+   *
+   * `orderBy` absent = clé primaire décroissante, l'ordre historique. Présent,
+   * il est TOUJOURS départagé par la clé primaire décroissante, sauf quand
+   * c'est elle qu'on trie : sans ce départage, deux lignes de même valeur
+   * peuvent changer de page d'une requête à l'autre, et une fenêtre
+   * `skip`/`take` posée par-dessus perd son sens (une ligne vue deux fois, une
+   * autre jamais). C'est à l'adapter de le composer — lui seul sait nommer la
+   * clé primaire dans le langage de son moteur.
+   *
+   * `field` n'est jamais une chaîne libre : `sortQuery.ts` ne le laisse sortir
+   * que s'il appartient aux colonnes réellement rendues par la liste.
+   */
   listRecords(
     model: Model,
-    opts: { filter?: Filter; skip: number; take: number }
+    opts: { filter?: Filter; skip: number; take: number; orderBy?: ListOrder }
   ): Promise<{ rows: Record<string, unknown>[]; total: number }>;
 
   /**

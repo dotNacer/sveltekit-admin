@@ -14,6 +14,8 @@ import {
 import { normalizeScope } from './adapters/filter.js';
 import type { DataAdapter, SchemaIntrospector } from './adapters/types.js';
 import { resolveListFilters } from './query/filterDetection.js';
+import { resolveListColumns } from './query/listColumns.js';
+import { parseSortQuery } from './query/sortQuery.js';
 import { escapeHtml, toLabel } from './views/html.js';
 import type { AuditEvent } from './audit.js';
 import type { FkFilterMeta } from './views/types.js';
@@ -465,7 +467,20 @@ export function createAdminHandler(config: AdminHandlerConfig) {
             : modelScope ?? listScope;
           // Adapter compiles case-sensitivity; this arg is unused by buildWhere.
           const filter = buildWhere(listQuery, scope, false, model) as any;
-          const { rows: items, total } = await runtime.adapter.data.listRecords(model, { filter, skip: (page - 1) * runtime.perPage, take: runtime.perPage });
+          // Whitelist de tri = colonnes RÉELLEMENT rendues, résolues par la même
+          // fonction que la vue et à partir de la même config. Un `?sort=` ne
+          // peut donc ordonner que des valeurs déjà lisibles à l'écran.
+          const sortableColumns = resolveListColumns(model.fields, {
+            hidden: modelsConfig[model.name]?.hidden,
+            listFields: modelsConfig[model.name]?.listFields
+          }).map((f) => f.name);
+          const sort = parseSortQuery(event.url.searchParams, sortableColumns);
+          const { rows: items, total } = await runtime.adapter.data.listRecords(model, {
+            filter,
+            skip: (page - 1) * runtime.perPage,
+            take: runtime.perPage,
+            orderBy: sort.active ?? undefined
+          });
           const listFilters = resolveListFilters(
             model,
             runtime.schema!.enums,
@@ -507,6 +522,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
               currentUrl: event.url,
               listFilters,
               fkFilterMeta,
+              sort,
               recordActions: actionsForModel(registry, model.name).map((action) => ({
                 label: action.label,
                 hrefFor: (id: string | number) =>

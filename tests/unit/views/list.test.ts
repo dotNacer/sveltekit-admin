@@ -19,11 +19,19 @@ const renderList = (
   config: any,
   query?: ListQuery,
   currentUrl?: URL,
-  listFilters?: any[]
-) => render(List, { props: { model, items, pagination, basePath, config, query, currentUrl, listFilters } }).body;
+  listFilters?: any[],
+  sort?: any
+) => render(List, { props: { model, items, pagination, basePath, config, query, currentUrl, listFilters, sort } }).body;
 
+/**
+ * Le libellé d'un en-tête est soit du texte nu (rendu sans `currentUrl`, donc
+ * sans lien de tri possible), soit le contenu d'un `<a>`. Les deux formes sont
+ * acceptées ici pour que ce helper reste sur le libellé, pas sur le balisage.
+ */
 const columns = (html: string) =>
-  [...html.matchAll(/<th>([^<]*)<\/th>/g)].map((m) => m[1]);
+  [...html.matchAll(/<th[^>]*>(?:<a[^>]*>)?([^<]*)/g)]
+    .map((m) => m[1])
+    .filter((label) => label !== '');
 
 const noQuery: ListQuery = { q: null, searchFields: [], filters: [], ignored: [] };
 
@@ -373,5 +381,74 @@ describe('List.svelte — recordActions', () => {
   it('ne change pas le colspan de la row vide', () => {
     const html = renderList(viewModel, [], { page: 1, perPage: 20, total: 0 }, '/admin', empty);
     expect(html).toMatch(/colspan="7"/);
+  });
+});
+
+describe('List.svelte — tri de colonnes', () => {
+  const url = new URL('https://x.test/admin/user');
+  const sorted = (field: string, dir: 'asc' | 'desc') => ({
+    active: { field, dir },
+    ignored: false
+  });
+  const unsorted = { active: null, ignored: false };
+  const page = { page: 1, perPage: 20, total: 2 };
+
+  it('rend chaque en-tête comme un lien de tri', () => {
+    const html = renderList(viewModel, items, page, '/admin', empty, noQuery, url, undefined, unsorted);
+    expect(html).toMatch(/<th[^>]*><a href="\/admin\/user\?sort=email"/);
+  });
+
+  it('inverse la direction sur la colonne déjà triée', () => {
+    const active = new URL('https://x.test/admin/user?dir=asc&sort=email');
+    const html = renderList(viewModel, items, page, '/admin', empty, noQuery, active, undefined, sorted('email', 'asc'));
+    expect(html).toContain('href="/admin/user?dir=desc&amp;sort=email"');
+  });
+
+  it('repart en ascendant sur une colonne non triée', () => {
+    const active = new URL('https://x.test/admin/user?dir=desc&sort=email');
+    const html = renderList(viewModel, items, page, '/admin', empty, noQuery, active, undefined, sorted('email', 'desc'));
+    expect(html).toContain('href="/admin/user?sort=name"');
+  });
+
+  it('annonce la colonne triée avec aria-sort', () => {
+    const html = renderList(viewModel, items, page, '/admin', empty, noQuery, url, undefined, sorted('email', 'asc'));
+    expect(html).toMatch(/<th aria-sort="ascending"><a[^>]*>email/);
+  });
+
+  it('annonce la direction descendante', () => {
+    const html = renderList(viewModel, items, page, '/admin', empty, noQuery, url, undefined, sorted('email', 'desc'));
+    expect(html).toContain('aria-sort="descending"');
+  });
+
+  it('marque les autres colonnes comme non triées', () => {
+    const html = renderList(viewModel, items, page, '/admin', empty, noQuery, url, undefined, sorted('email', 'asc'));
+    expect(html).toContain('aria-sort="none"');
+  });
+
+  it('retombe sur la première page en changeant de tri', () => {
+    // Trier sur 25 lignes depuis la page 3 n'a aucune raison de rester page 3 :
+    // ce ne sont plus les mêmes lignes.
+    const paged = new URL('https://x.test/admin/user?page=3');
+    const html = renderList(viewModel, items, page, '/admin', empty, noQuery, paged, undefined, unsorted);
+    expect(html).not.toContain('page=3&amp;sort=email');
+  });
+
+  it('conserve la recherche active en changeant de tri', () => {
+    const searched = new URL('https://x.test/admin/user?q=bob');
+    const html = renderList(viewModel, items, page, '/admin', empty, noQuery, searched, undefined, unsorted);
+    expect(html).toContain('href="/admin/user?q=bob&amp;sort=email"');
+  });
+
+  it('explique un tri refusé sans nommer de raison', () => {
+    const html = renderList(viewModel, items, page, '/admin', empty, noQuery, url, undefined, {
+      active: null,
+      ignored: true
+    });
+    expect(html).toContain('Ignored sort');
+  });
+
+  it('ne rend aucun lien de tri sans URL courante', () => {
+    const html = renderList(viewModel, items, page, '/admin', empty);
+    expect(html).toContain('<th>email</th>');
   });
 });
