@@ -164,3 +164,25 @@ describe('paginate — entrées invalides', () => {
   );
 });
 
+
+describe('formDataToPrisma — vide explicite', () => {
+  it('écrit null pour un String présent mais vide', () => {
+    // Écrivait `''`, indistinguable d'une chaîne vide voulue, et fatal sur une
+    // colonne `String? @unique` dès la deuxième ligne vide.
+    expect(formDataToPrisma(form({ name: '' }), User).name).toBeNull();
+  });
+
+  it('écrit null pour un enum présent mais vide', () => {
+    expect(formDataToPrisma(form({ role: '' }), User).role).toBeNull();
+  });
+
+  it("n'écrit rien pour un champ absent du formulaire", () => {
+    // C'est la distinction qui porte tout le comportement : absent veut dire
+    // « non soumis » (readonly, masqué, colonne à défaut), pas « vidé ».
+    expect('name' in formDataToPrisma(form({ email: 'a@b.c' }), User)).toBe(false);
+  });
+
+  it('laisse intacte une valeur non vide', () => {
+    expect(formDataToPrisma(form({ name: 'N' }), User).name).toBe('N');
+  });
+});
