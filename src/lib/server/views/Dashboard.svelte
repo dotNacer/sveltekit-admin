@@ -24,6 +24,11 @@
 <h2>Models</h2>
 <div class="ska-models">
   {#each models as m (m.name)}
-    <ModelCard href="{basePath}/{m.name.toLowerCase()}" label={m.label} count={m.count} />
+    <ModelCard
+      href="{basePath}/{m.name.toLowerCase()}"
+      newHref="{basePath}/{m.name.toLowerCase()}/new"
+      label={m.label}
+      count={m.count}
+    />
   {/each}
 </div>

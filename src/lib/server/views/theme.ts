@@ -381,19 +381,21 @@ export function styles(primaryColor: string): string {
     }
 
     .ska-model-card {
+      position: relative;
       background: white;
       border: 1px solid #e2e8f0;
       border-radius: 0.5rem;
       padding: 1.25rem;
-      text-decoration: none;
       transition: all 0.15s;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
+      gap: 1rem;
       min-height: 100px;
     }
 
-    .ska-model-card:hover {
+    .ska-model-card:hover,
+    .ska-model-card:focus-within {
       border-color: var(--ska-primary);
       box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
@@ -410,9 +412,37 @@ export function styles(primaryColor: string): string {
     }
 
     .ska-model-card__footer {
-      color: var(--ska-primary);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
       font-size: 0.875rem;
       font-weight: 500;
+    }
+
+    .ska-model-card__link {
+      color: var(--ska-primary);
+      text-decoration: none;
+    }
+
+    /* Stretched link : toute la carte est cliquable vers la liste… */
+    .ska-model-card__link::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 0.5rem;
+    }
+
+    /* …sauf l'action de création, qui repasse au-dessus de l'overlay. */
+    .ska-model-card__new {
+      position: relative;
+      z-index: 1;
+      color: #475569;
+      text-decoration: none;
+    }
+
+    .ska-model-card__new:hover {
+      color: var(--ska-primary);
     }
 
     /* Header with actions */
