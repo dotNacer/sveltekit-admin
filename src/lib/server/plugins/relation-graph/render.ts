@@ -1,0 +1,182 @@
+import type { PluginPageContext } from '../../plugin.js';
+import { NODE_R } from './layout.js';
+import type { LaidOutGraph, LaidOutNode } from './layout.js';
+import type { GraphEdge } from './walk.js';
+
+export type PanZoomViewport = {
+  addEventListener: (type: string, listener: (e: PanZoomPointerEvent) => void, opts?: unknown) => void;
+  setPointerCapture: (id: number) => void;
+};
+
+export type PanZoomCanvas = {
+  setAttribute: (name: string, value: string) => void;
+  ownerSVGElement?: {
+    createSVGPoint?: () => {
+      x: number;
+      y: number;
+      matrixTransform: (m: unknown) => { x: number; y: number };
+    };
+    getScreenCTM?: () => { inverse: () => unknown } | null;
+  } | null;
+};
+
+export type PanZoomPointerEvent = {
+  target?: { closest?: (sel: string) => unknown } | null;
+  clientX?: number;
+  clientY?: number;
+  pointerId?: number;
+  deltaY?: number;
+  preventDefault?: () => void;
+};
+
+export function installRelationGraphPanZoom(
+  vp: PanZoomViewport | null,
+  g: PanZoomCanvas | null
+) {
+  if (!vp || !g) return;
+  const viewport = vp;
+  const canvas = g;
+  let s = 1;
+  let x = 0;
+  let y = 0;
+  let px = 0;
+  let py = 0;
+  let drag = false;
+  function apply() {
+    canvas.setAttribute(
+      'transform',
+      'translate(' +
+        Math.round(x * 1e6) / 1e6 +
+        ' ' +
+        Math.round(y * 1e6) / 1e6 +
+        ') scale(' +
+        Math.round(s * 1e6) / 1e6 +
+        ')'
+    );
+  }
+  function toSvg(e: PanZoomPointerEvent) {
+    const svg = canvas.ownerSVGElement;
+    if (!svg || !svg.createSVGPoint || !svg.getScreenCTM) {
+      return { x: e.clientX as number, y: e.clientY as number };
+    }
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return { x: e.clientX as number, y: e.clientY as number };
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX as number;
+    pt.y = e.clientY as number;
+    return pt.matrixTransform(ctm.inverse());
+  }
+  viewport.addEventListener('pointerdown', function (e) {
+    const t = e.target;
+    if (t && t.closest && t.closest('a')) return;
+    drag = true;
+    const p = toSvg(e);
+    px = p.x;
+    py = p.y;
+    viewport.setPointerCapture(e.pointerId as number);
+  });
+  viewport.addEventListener('pointerup', function () {
+    drag = false;
+  });
+  viewport.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    const p = toSvg(e);
+    x += p.x - px;
+    y += p.y - py;
+    px = p.x;
+    py = p.y;
+    apply();
+  });
+  viewport.addEventListener(
+    'wheel',
+    function (e) {
+      if (e.preventDefault) e.preventDefault();
+      let n = (e.deltaY as number) < 0 ? s * 1.1 : s / 1.1;
+      if (n < 0.4) n = 0.4;
+      if (n > 3) n = 3;
+      const p = toSvg(e);
+      const k = n / s;
+      x = p.x - k * (p.x - x);
+      y = p.y - k * (p.y - y);
+      s = n;
+      apply();
+    },
+    { passive: false }
+  );
+}
+
+export const PAN_ZOOM_SCRIPT =
+  '(' +
+  installRelationGraphPanZoom.toString() +
+  ')(document.querySelector(".ska-rg-viewport"),document.querySelector(".ska-rg-canvas"));';
+
+const STYLES = `.ska-rg{padding:1rem 1.5rem 2rem;display:flex;flex-direction:column;height:calc(100vh - 4rem);box-sizing:border-box}
+.ska-rg__title{font-size:1.25rem;margin-bottom:0.5rem}
+.ska-rg__hint{color:#64748b;margin-bottom:0.75rem}
+.ska-rg-viewport{overflow:auto;border:1px solid #e2e8f0;border-radius:8px;background:#fff;min-height:0;flex:1;cursor:grab}
+.ska-rg-svg{display:block;width:100%;height:auto}
+.ska-rg-node__label{font-size:12px;fill:#1e293b;max-width:160px}
+.ska-rg-node--root circle{fill:var(--ska-primary);stroke:var(--ska-primary)}
+.ska-rg-node--root .ska-rg-node__label{fill:#fff}
+.ska-rg-node circle{fill:#fff;stroke:var(--ska-primary);stroke-width:2}
+.ska-rg-node--opaque circle{stroke:#94a3b8;stroke-dasharray:4 3;fill:#f8fafc}
+.ska-rg-node--opaque .ska-rg-node__label{fill:#94a3b8}
+.ska-rg-edge{stroke:var(--ska-primary);stroke-width:1.5;fill:none}
+.ska-rg-edge--m2m{stroke-dasharray:6 4;stroke:#64748b}
+.ska-rg-edge__label{font-size:10px;fill:#64748b}
+.ska-rg-node__graph{font-size:10px;fill:var(--ska-primary)}`;
+
+function loopPath(n: LaidOutNode): string {
+  const { x, y } = n;
+  const r = NODE_R;
+  return `M ${x} ${y - r} C ${x + 40} ${y - 52}, ${x + 40} ${y + 52}, ${x} ${y + r}`;
+}
+
+function edgeSvg(
+  edge: GraphEdge,
+  byKey: Map<string, LaidOutNode>,
+  esc: (s: string) => string
+): string {
+  const from = byKey.get(edge.from)!;
+  const to = byKey.get(edge.to)!;
+  const label = esc(edge.field);
+  const isM2m = edge.kind === 'm2m';
+  const cls = isM2m ? 'ska-rg-edge ska-rg-edge--m2m' : 'ska-rg-edge';
+  const marker = isM2m ? '' : ' marker-end="url(#ska-rg-arrow)"';
+  if (from.key === to.key) {
+    const d = loopPath(from);
+    return `<path class="${cls}" d="${d}"${marker}></path><text class="ska-rg-edge__label" x="${from.x + 44}" y="${from.y}">${label}</text>`;
+  }
+  const mx = (from.x + to.x) / 2;
+  const my = (from.y + to.y) / 2;
+  return `<line class="${cls}" x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}"${marker}></line><text class="ska-rg-edge__label" x="${mx}" y="${my}">${label}</text>`;
+}
+
+function nodeSvg(n: LaidOutNode, esc: (s: string) => string): string {
+  const rootCls = n.depth === 0 ? ' ska-rg-node--root' : '';
+  const opaqueCls = n.opaque ? ' ska-rg-node--opaque' : '';
+  const title = `<title>${esc(n.label)}</title>`;
+  const circle = `<circle cx="${n.x}" cy="${n.y}" r="${NODE_R}"></circle>`;
+  const text = `<text class="ska-rg-node__label" x="${n.x}" y="${n.y + NODE_R + 14}" text-anchor="middle">${esc(n.label)}</text>`;
+  const editInner = `${title}${circle}${text}`;
+  const editLink =
+    !n.opaque && n.href ? `<a href="${esc(n.href)}">${editInner}</a>` : editInner;
+  const graphLink = n.graphHref
+    ? `<a class="ska-rg-node__graph" href="${esc(n.graphHref)}"><text class="ska-rg-node__graph" x="${n.x}" y="${n.y + NODE_R + 28}" text-anchor="middle">Graph</text></a>`
+    : '';
+  return `<g class="ska-rg-node${rootCls}${opaqueCls}">${editLink}${graphLink}</g>`;
+}
+
+export function renderGraphPage(ctx: PluginPageContext, laidOut: LaidOutGraph) {
+  const esc = ctx.escapeHtml;
+  const root = laidOut.nodes.find((n) => n.depth === 0)!;
+  const byKey = new Map(laidOut.nodes.map((n) => [n.key, n]));
+  const hint =
+    laidOut.edges.length === 0
+      ? '<p class="ska-rg__hint">No related records in scope.</p>'
+      : '';
+  const edges = laidOut.edges.map((e) => edgeSvg(e, byKey, esc)).join('');
+  const nodes = laidOut.nodes.map((n) => nodeSvg(n, esc)).join('');
+  const html = `<div class="ska-rg"><h1 class="ska-rg__title">${esc(root.model)} · ${esc(root.label)}</h1>${hint}<div class="ska-rg-viewport"><svg class="ska-rg-svg" width="100%" viewBox="${esc(laidOut.viewBox)}" preserveAspectRatio="xMinYMin meet"><defs><marker id="ska-rg-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ska-primary)"></path></marker></defs><g class="ska-rg-canvas">${edges}${nodes}</g></svg></div></div>`;
+  return { html, styles: STYLES, scripts: PAN_ZOOM_SCRIPT };
+}

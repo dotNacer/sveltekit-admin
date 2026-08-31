@@ -25,6 +25,11 @@
       "types": "./dist/server/adapters/drizzle/index.d.ts",
       "svelte": "./dist/server/adapters/drizzle/index.js",
       "default": "./dist/server/adapters/drizzle/index.js"
+    },
+    "./plugins/relation-graph": {
+      "types": "./dist/server/plugins/relation-graph/index.d.ts",
+      "svelte": "./dist/server/plugins/relation-graph/index.js",
+      "default": "./dist/server/plugins/relation-graph/index.js"
     }
   },
   "files": [
