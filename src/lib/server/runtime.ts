@@ -6,6 +6,7 @@ import type { ActiveSort } from './query/sortQuery.js';
 import { buildRelationGraph, type RelationGraph } from './introspection/relations.js';
 import { primaryKeyOf } from './data.js';
 import { validateListFilterConfig } from './query/filterDetection.js';
+import { resolveSearchFields } from './query/listQuery.js';
 import { isCompositeFilter, isLeafFilter, normalizeScope } from './adapters/filter.js';
 import { toLabel } from './views/html.js';
 import type { ViewModel } from './views/types.js';
@@ -186,11 +187,6 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
     if (entries) validateListFilterConfig(m.name, entries, m, relationGraph!, hiddenFieldsOf(m));
   }
 
-  // Même politique que `listFilter` et les plugins : une config de dashboard
-  // invalide arrête le démarrage plutôt que de produire un bloc mort à chaque
-  // rendu.
-  const dashboard = resolveDashboard({ config: config.dashboard, models });
-
   /**
    * `defaultSort` validé ici pour la même raison que `listFilter` : une colonne
    * inexistante, ou que la liste n'affiche pas, produirait un tri mort à chaque
@@ -297,6 +293,19 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
     }
     return out;
   };
+
+  // Même politique que `listFilter` et les plugins : une config de dashboard
+  // invalide arrête le démarrage plutôt que de produire un bloc mort à chaque
+  // rendu.
+  const dashboard = resolveDashboard({
+    config: config.dashboard,
+    models,
+    enums: schemaEnums,
+    basePath,
+    searchFieldsOf: (m) =>
+      resolveSearchFields(m, modelsConfig[m.name]?.searchFields, labelFieldCandidates, hiddenFieldsOf(m)),
+    filterableFieldsOf: resolveFilterableFields
+  });
 
   /**
    * Résout le label BRUT (non échappé) d'une ligne : premier champ String

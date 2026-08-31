@@ -11,6 +11,7 @@
 import { AdminConfigError } from './errors.js';
 import { modelScopeFrom, type AdminRuntime } from './runtime.js';
 import type { Model } from './types/schema.js';
+import { parseListQuery, type ListQuery } from './query/listQuery.js';
 
 export interface DashboardConfig {
   /** Titre de la page. Défaut : « Dashboard ». */
@@ -27,11 +28,26 @@ export interface DashboardConfig {
 
 export type DashboardWidget =
   | { type: 'stats' }
-  | { type: 'models'; title?: string; models?: string[] };
+  | { type: 'models'; title?: string; models?: string[] }
+  | {
+      type: 'count';
+      model: string;
+      label: string;
+      /**
+       * Filtre exprimé dans la query string que la vue liste comprend déjà
+       * (`q=`, `f.<champ>[__<op>]=`). Conséquence voulue : un widget ne peut
+       * rien exprimer que la liste ne sache montrer, la whitelist
+       * d'opérateurs et l'exclusion des champs sensibles s'appliquent sans
+       * seconde implémentation, et le lien « voir » pointe sur une liste dont
+       * le total égale le compteur.
+       */
+      query?: string;
+    };
 
 export type ResolvedWidget =
   | { type: 'stats' }
-  | { type: 'models'; title?: string; modelNames: string[] };
+  | { type: 'models'; title?: string; modelNames: string[] }
+  | { type: 'count'; modelName: string; label: string; query: ListQuery; href: string };
 
 export interface ResolvedDashboard {
   title: string;
@@ -44,18 +60,22 @@ const DEFAULT_WIDGETS: DashboardWidget[] = [
   { type: 'models', title: 'Models' }
 ];
 
-export function resolveDashboard(deps: {
+export interface ResolveDashboardDeps {
   config?: DashboardConfig;
   models: Model[];
-}): ResolvedDashboard {
-  const { config, models } = deps;
-  const known = new Set(models.map((m) => m.name));
-  const widgets = (config?.widgets ?? DEFAULT_WIDGETS).map((widget, index) =>
-    resolveWidget(widget, index, known, models)
+  enums: Map<string, string[]>;
+  basePath: string;
+  searchFieldsOf: (model: Model) => string[];
+  filterableFieldsOf: (model: Model) => Set<string>;
+}
+
+export function resolveDashboard(deps: ResolveDashboardDeps): ResolvedDashboard {
+  const widgets = (deps.config?.widgets ?? DEFAULT_WIDGETS).map((widget, index) =>
+    resolveWidget(widget, index, deps)
   );
   return {
-    title: config?.title ?? 'Dashboard',
-    subtitle: config?.subtitle ?? 'Welcome to your admin panel',
+    title: deps.config?.title ?? 'Dashboard',
+    subtitle: deps.config?.subtitle ?? 'Welcome to your admin panel',
     widgets
   };
 }
@@ -63,13 +83,13 @@ export function resolveDashboard(deps: {
 function resolveWidget(
   widget: DashboardWidget,
   index: number,
-  known: Set<string>,
-  models: Model[]
+  deps: ResolveDashboardDeps
 ): ResolvedWidget {
   if (widget.type === 'stats') return { type: 'stats' };
 
   if (widget.type === 'models') {
-    const modelNames = widget.models ?? models.map((m) => m.name);
+    const known = new Set(deps.models.map((m) => m.name));
+    const modelNames = widget.models ?? deps.models.map((m) => m.name);
     for (const name of modelNames) {
       // Un modèle listé dans `exclude` n'est pas dans `models` : le refuser
       // ici est ce qui empêche un widget de le rendre visible par la porte
@@ -86,10 +106,79 @@ function resolveWidget(
       : { type: 'models', title: widget.title, modelNames };
   }
 
+  if (widget.type === 'count') {
+    const model = requireModel(widget.model, index, deps);
+    if (!widget.label?.trim()) {
+      throw new AdminConfigError(
+        `[sveltekit-admin] dashboard.widgets[${index}] requires a non-empty \`label\`.`
+      );
+    }
+    const params = new URLSearchParams(widget.query ?? '');
+    for (const key of params.keys()) {
+      // `page`, `perPage`, `sort`, `dir` n'ont aucun effet sur un comptage :
+      // les accepter laisserait croire le contraire.
+      if (key !== 'q' && !key.startsWith('f.')) {
+        throw new AdminConfigError(
+          `[sveltekit-admin] dashboard.widgets[${index}] query: only "q" and "f.*" ` +
+            `are supported, got "${key}".`
+        );
+      }
+    }
+    const query = parseListQuery(
+      params,
+      model,
+      deps.enums,
+      deps.searchFieldsOf(model),
+      deps.filterableFieldsOf(model)
+    );
+    // `ignored` porte exactement ce que la liste aurait silencieusement
+    // écarté : champ inconnu, non filtrable, sensible, valeur incoercible.
+    // Sur une config statique c'est une faute de frappe, pas une URL
+    // hostile — elle doit arrêter le démarrage.
+    if (query.ignored.length > 0) {
+      const keys = query.ignored.map((i) => `"${i.param}"`).join(', ');
+      throw new AdminConfigError(
+        `[sveltekit-admin] dashboard.widgets[${index}] query rejects ${keys}: ` +
+          `unknown, non-filterable, sensitive, or uncoercible for model ` +
+          `"${model.name}".`
+      );
+    }
+    return {
+      type: 'count',
+      modelName: model.name,
+      label: widget.label,
+      query,
+      href: listHref(deps.basePath, model.name, params)
+    };
+  }
+
   throw new AdminConfigError(
     `[sveltekit-admin] dashboard.widgets[${index}] has unknown type ` +
       `"${(widget as { type: string }).type}".`
   );
+}
+
+function requireModel(name: string, index: number, deps: ResolveDashboardDeps): Model {
+  const model = deps.models.find((m) => m.name === name);
+  if (!model) {
+    throw new AdminConfigError(
+      `[sveltekit-admin] dashboard.widgets[${index}] references model "${name}", ` +
+        `which is unknown or excluded. Known models: ` +
+        `[${deps.models.map((m) => m.name).join(', ')}].`
+    );
+  }
+  return model;
+}
+
+/** Clés triées, comme `buildListUrl` : le lien reste déterministe. */
+function listHref(basePath: string, modelName: string, params: URLSearchParams): string {
+  const sorted = new URLSearchParams();
+  for (const key of [...params.keys()].sort()) {
+    for (const value of params.getAll(key)) sorted.append(key, value);
+  }
+  const qs = sorted.toString();
+  const path = `${basePath}/${modelName.toLowerCase()}`;
+  return qs ? `${path}?${qs}` : path;
 }
 
 export interface DashboardCard {
@@ -200,6 +289,17 @@ export async function loadDashboard(
         total: counts.reduce((sum, n) => sum + n, 0)
       });
       continue;
+    }
+
+    if (widget.type === 'count') {
+      // `resolveDashboard` valide déjà cette config au démarrage (Task 7),
+      // mais l'exécution — requête scopée + rendu de la carte — arrive dans
+      // la tâche suivante (Task 8). Un widget `count` ne devrait jamais
+      // atteindre `loadDashboard` avant que cette tâche-là soit livrée.
+      throw new Error(
+        `[sveltekit-admin] dashboard widget "${widget.label}" (type "count") cannot be ` +
+          'loaded yet — loadDashboard does not implement it.'
+      );
     }
 
     const cards = await Promise.all(

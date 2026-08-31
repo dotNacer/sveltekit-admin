@@ -141,6 +141,31 @@ describe('createAdminRuntime', () => {
     ).toThrow(/references model "Post", which is unknown or excluded/);
   });
 
+  it('résout un widget count via le runtime, avec les search/filterable fields réels', () => {
+    const rt = runtimeFor(FULL_SCHEMA_PATH, {
+      dashboard: {
+        widgets: [{ type: 'count', model: 'User', label: 'Actifs', query: 'f.isActive=true' }]
+      }
+    });
+    expect(rt.dashboard.widgets[0]).toMatchObject({
+      type: 'count',
+      modelName: 'User',
+      label: 'Actifs',
+      href: '/admin/user?f.isActive=true'
+    });
+  });
+
+  it('un widget count respecte models[].searchFields configuré pour ce modèle', () => {
+    const rt = runtimeFor(FULL_SCHEMA_PATH, {
+      models: { User: { searchFields: ['email'] } },
+      dashboard: {
+        widgets: [{ type: 'count', model: 'User', label: 'Recherche', query: 'q=bob' }]
+      }
+    });
+    const widget = rt.dashboard.widgets[0] as any;
+    expect(widget.query.searchFields).toEqual(['email']);
+  });
+
   it('schéma illisible → models vide + warn', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const adapter = {
