@@ -150,6 +150,16 @@ export function createPrismaDataAdapter(
       await prisma[toPrismaModel(model.name)].delete({ where });
     },
 
+    async deleteMany(model: Model, ids, authorizationFilter?: Filter) {
+      const primaryKey = primaryKeyOf(model);
+      const coerced = ids.map((id) => coerceId(String(id), model));
+      const where = authorizationFilter
+        ? { [primaryKey]: { in: coerced }, AND: [compileHere(authorizationFilter)] }
+        : { [primaryKey]: { in: coerced } };
+      const { count } = await prisma[toPrismaModel(model.name)].deleteMany({ where });
+      return count;
+    },
+
     async getM2mSelectedIds(model: Model, edge: RelationEdge, targetModel: Model, recordId) {
       try {
         const primaryKey = primaryKeyOf(model);

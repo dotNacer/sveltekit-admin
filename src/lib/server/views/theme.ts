@@ -190,6 +190,13 @@ export function styles(primaryColor: string): string {
       flex-wrap: wrap;
     }
     .ska-pagination__gap { padding: 0 0.25rem; color: #64748b; }
+    .ska-bulk { margin-bottom: 0.75rem; }
+    .ska-table__select { width: 2.5rem; text-align: center; }
+    .ska-alert--success {
+      background: #f0fdf4;
+      border-color: #bbf7d0;
+      color: #166534;
+    }
     .ska-pagination__sizes {
       display: flex;
       align-items: center;

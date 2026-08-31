@@ -21,6 +21,9 @@ import type { ParsedRoute } from './router.js';
 import { scopeFrom, modelScopeFrom, modelScopeValues, type AdminRuntime } from './runtime.js';
 import type { TargetGuard } from './adapters/types.js';
 
+/** Plafond de sélection : la page la plus large de l'admin fait 200 lignes. */
+const MAX_BULK_IDS = 200;
+
 export async function handleMutation(
   runtime: AdminRuntime,
   event: any,
@@ -87,6 +90,77 @@ export async function handleMutation(
       );
     }
     return redirectToList(route.model);
+  }
+
+  /**
+   * Suppression en masse. Une seule opération d'écriture, pas une boucle de
+   * `deleteRecord` : une boucle qui casse au septième id sur une contrainte de
+   * clé étrangère laisserait six lignes supprimées et rien pour revenir en
+   * arrière. Ici, tout part ou rien ne part.
+   *
+   * La portée du modèle est composée avec les ids DANS le `where` de
+   * l'adapter, jamais vérifiée à part : un id hors portée ne matche pas, sans
+   * erreur — donc rien ne distingue « n'existe pas » de « appartient à un
+   * autre tenant ». Le compte rendu est celui des lignes réellement
+   * supprimées ; un écart avec la sélection ne peut venir que d'un POST forgé,
+   * puisque l'interface n'offre que des lignes en portée.
+   */
+  if (action === 'bulk-delete') {
+    const ids = formData.getAll('ids').map(String);
+    if (ids.length === 0) {
+      throw new AdminMutationError('validation', 'Select at least one record to delete.');
+    }
+    // L'interface ne peut cocher que ce qu'elle affiche, et une page plafonne
+    // à 200 lignes : au-delà la requête est forgée, et un `IN (…)` de plusieurs
+    // milliers d'éléments est un vecteur de charge à lui seul.
+    if (ids.length > MAX_BULK_IDS) {
+      throw new AdminMutationError(
+        'validation',
+        `Cannot delete more than ${MAX_BULK_IDS} records at once.`
+      );
+    }
+
+    const coerced = ids.map((id) => coerceId(id, model));
+    const scope = modelScopeFrom(runtime, model, { locals: event.locals });
+
+    // Instantané AVANT suppression, et seulement si un puits d'audit existe :
+    // sans lui le journal serait muet sur l'opération la plus destructive.
+    // Lu avec la même portée que la suppression, donc exactement les lignes qui
+    // vont partir.
+    const idFilter = { op: 'in' as const, field: primaryKeyOf(model), value: coerced };
+    const before = audit
+      ? await runtime.adapter.data.findMany(model, {
+          filter: scope ? { op: 'and', clauses: [idFilter, scope] } : idFilter
+        })
+      : [];
+
+    let deleted: number;
+    try {
+      deleted = await runtime.adapter.data.deleteMany(model, coerced, scope);
+    } catch (e) {
+      throw classifyWriteError(e, 'delete') ?? e;
+    }
+
+    for (const row of before) {
+      await emitAudit(
+        audit!,
+        buildAuditEvent({
+          event,
+          action: 'delete',
+          model,
+          id: row[primaryKeyOf(model)] as string | number,
+          hidden: runtime.hiddenFieldsOf(model),
+          before: row
+        })
+      );
+    }
+
+    return new Response(null, {
+      status: 303,
+      headers: {
+        Location: `${runtime.basePath}/${route.model.toLowerCase()}?deleted=${deleted}`
+      }
+    });
   }
 
   if (action === 'create' || action === 'update') {

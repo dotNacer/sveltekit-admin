@@ -121,7 +121,13 @@ export function createPrismaMock(
       ),
       create: wrap('create', (args: any) => Promise.resolve(args.data)),
       update: wrap('update', (args: any) => Promise.resolve(args.data)),
-      delete: wrap('delete', () => Promise.resolve(undefined))
+      delete: wrap('delete', () => Promise.resolve(undefined)),
+      // Renvoie `{ count }` comme le vrai client. Le filtrage réutilise
+      // `filterByWhere` : un `where` composé (ids + scope) doit compter ce
+      // qu'il matche réellement, sinon les tests de portée ne prouvent rien.
+      deleteMany: wrap('deleteMany', (args: any) =>
+        Promise.resolve({ count: filterByWhere(records, args?.where).length })
+      )
     };
   }
 

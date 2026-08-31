@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, getTableColumns } from "drizzle-orm";
+import { and, asc, count, desc, eq, getTableColumns, inArray } from "drizzle-orm";
 import type { Column, Table } from "drizzle-orm";
 import { coerceId, primaryKeyOf } from "../../data.js";
 import type { Model } from "../../types/schema.js";
@@ -429,6 +429,54 @@ export function createDrizzleDataAdapter(
           const result = await tx.delete(table).where(parentWhere);
           if (Number(result?.affectedRows ?? 0) !== 1) throw new Error("record is outside the authorization scope");
         }
+      }, { isolationLevel: "serializable" }));
+    },
+
+    async deleteMany(model, ids, authorizationFilter) {
+      const table = tableFor(ctx, model);
+      const primaryKey = primaryKeyColumn(table, model);
+      const coerced = ids.map((id) => coerceId(String(id), model));
+      const scopedWhere = and(inArray(primaryKey, coerced), compileHere(table, authorizationFilter));
+      const links = [...ctx.m2m.entries()]
+        .filter(([key]) => key.startsWith(`${model.name}.`))
+        .map(([, link]) => link);
+
+      /**
+       * Les ids réellement concernés sont LUS avant de toucher quoi que ce
+       * soit, à l'intérieur de la transaction. Ce n'est pas une vérification
+       * défensive : les pivots m2m doivent être supprimés pour ces lignes-là et
+       * pas pour les autres. Composer le scope directement dans le DELETE des
+       * pivots effacerait les liaisons d'une ligne hors portée que le DELETE du
+       * parent, lui, ne toucherait pas — une ligne d'un autre tenant amputée de
+       * ses relations sans que rien ne l'indique.
+       *
+       * `deleteRecord` peut s'en passer parce qu'il vise UNE ligne et lève quand
+       * elle n'est pas dans la portée, ce qui annule tout. Ici une portée
+       * partielle est un résultat normal, pas une erreur : le compte renvoyé est
+       * celui des lignes supprimées.
+       */
+      if (ctx.dialect === "sqlite") {
+        return db.transaction((tx: any) => {
+          const matched = tx.select({ id: primaryKey }).from(table).where(scopedWhere).all()
+            .map((row: any) => row.id);
+          if (matched.length === 0) return 0;
+          for (const link of links) {
+            tx.delete(link.pivot).where(inArray(link.selfColumn, matched)).run();
+          }
+          tx.delete(table).where(inArray(primaryKey, matched)).run();
+          return matched.length;
+        }, { behavior: "immediate" });
+      }
+
+      return withWriteRetry(() => db.transaction(async (tx: any) => {
+        const rows = await tx.select({ id: primaryKey }).from(table).where(scopedWhere);
+        const matched = rows.map((row: any) => row.id);
+        if (matched.length === 0) return 0;
+        for (const link of links) {
+          await tx.delete(link.pivot).where(inArray(link.selfColumn, matched));
+        }
+        await tx.delete(table).where(inArray(primaryKey, matched));
+        return matched.length;
       }, { isolationLevel: "serializable" }));
     },
 

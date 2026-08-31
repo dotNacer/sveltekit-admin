@@ -84,3 +84,17 @@ describe('hiddenParams', () => {
     ]);
   });
 });
+
+describe('buildListUrl — notification à usage unique', () => {
+  it('retire `deleted` comme il retire `page`', () => {
+    // C'est un compte rendu d'action, pas un état de liste : le laisser se
+    // propager le ferait réapparaître à chaque clic de filtre ou de page.
+    const url = new URL('https://x.test/admin/user?deleted=3&q=bob');
+    expect(buildListUrl(url, { q: 'alice' })).toBe('/admin/user?q=alice');
+  });
+
+  it('le retire aussi des paramètres réémis par le formulaire GET', () => {
+    const url = new URL('https://x.test/admin/user?deleted=3&sort=email');
+    expect(hiddenParams(url, ['q']).map((p) => p.name)).toEqual(['sort']);
+  });
+});

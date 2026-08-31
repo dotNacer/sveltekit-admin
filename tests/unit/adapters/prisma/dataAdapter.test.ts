@@ -74,6 +74,31 @@ describe('createPrismaDataAdapter — listRecords trié', () => {
   });
 });
 
+describe('createPrismaDataAdapter — deleteMany', () => {
+  it('supprime les lignes désignées et renvoie le compte', async () => {
+    const prisma = createPrismaMock({ user: [{ id: 1 }, { id: 2 }, { id: 3 }] });
+    const adapter = createPrismaDataAdapter(prisma);
+
+    expect(await adapter.deleteMany(User, [1, 3])).toBe(2);
+    expect((callsTo(prisma, 'user', 'deleteMany')[0].args as any).where).toMatchObject({
+      id: { in: [1, 3] }
+    });
+  });
+
+  it('compose le filtre d’autorisation avec les ids', async () => {
+    // Un id hors scope ne matche simplement pas : pas d'erreur, donc aucun
+    // moyen de distinguer « n'existe pas » de « appartient à un autre tenant ».
+    const prisma = createPrismaMock({ user: [{ id: 1 }] });
+    const adapter = createPrismaDataAdapter(prisma);
+
+    await adapter.deleteMany(User, [1, 2], { op: 'eq', field: 'tenantId', value: 7 });
+
+    const where = (callsTo(prisma, 'user', 'deleteMany')[0].args as any).where;
+    expect(where).toMatchObject({ id: { in: [1, 2] } });
+    expect(where.AND).toBeDefined();
+  });
+});
+
 describe('createPrismaDataAdapter — findMany', () => {
   it('sans skip/take : renvoie tout ce qui matche, orderBy transmis tel quel', async () => {
     const records = [{ id: 2, name: 'B' }, { id: 1, name: 'A' }];
