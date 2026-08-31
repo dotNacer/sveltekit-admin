@@ -452,3 +452,43 @@ describe('List.svelte — tri de colonnes', () => {
     expect(html).toContain('<th>email</th>');
   });
 });
+
+describe('List.svelte — pagination', () => {
+  const url = new URL('https://x.test/admin/user');
+  const render20 = (page: number) =>
+    renderList(viewModel, items, { page, perPage: 2, total: 40 }, '/admin', empty, noQuery, url);
+
+  it('rend les numéros de page en liens', () => {
+    const html = render20(10);
+    expect(html).toContain('href="/admin/user?page=9"');
+    expect(html).toContain('href="/admin/user?page=11"');
+  });
+
+  it('marque la page courante sans en faire un lien', () => {
+    const html = render20(10);
+    expect(html).toMatch(/aria-current="page"[^>]*>10</);
+    expect(html).not.toContain('href="/admin/user?page=10"');
+  });
+
+  it('rend les trous sans lien', () => {
+    const html = render20(10);
+    expect(html).toContain('…');
+    expect(html).not.toContain('href="/admin/user?page=gap"');
+  });
+
+  it('donne accès à la première et à la dernière page', () => {
+    const html = render20(10);
+    expect(html).toContain('href="/admin/user?page=1"');
+    expect(html).toContain('href="/admin/user?page=20"');
+  });
+
+  it('nomme la navigation pour les lecteurs d’écran', () => {
+    expect(render20(10)).toContain('aria-label="Pagination"');
+  });
+
+  it('conserve la recherche active dans les liens de page', () => {
+    const searched = new URL('https://x.test/admin/user?q=bob');
+    const html = renderList(viewModel, items, { page: 2, perPage: 2, total: 40 }, '/admin', empty, noQuery, searched);
+    expect(html).toContain('page=3&amp;q=bob');
+  });
+});
