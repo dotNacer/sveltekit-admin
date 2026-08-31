@@ -14,6 +14,13 @@ import type { Model } from './types/schema.js';
 import { buildWhere, parseListQuery, type ListQuery } from './query/listQuery.js';
 import type { Filter } from './adapters/types.js';
 import { OPAQUE_FILTER_ERROR } from './adapters/filter.js';
+import { primaryKeyOf } from './data.js';
+import type { ActiveSort } from './query/sortQuery.js';
+
+/** Plafond dur, même politique que `MAX_PAGE_SIZE` (runtime.ts). */
+const MAX_RECENT = 50;
+const isLimit = (n: unknown): n is number =>
+  typeof n === 'number' && Number.isSafeInteger(n) && n >= 1 && n <= MAX_RECENT;
 
 export interface DashboardConfig {
   /** Titre de la page. Défaut : « Dashboard ». */
@@ -44,12 +51,28 @@ export type DashboardWidget =
        * le total égale le compteur.
        */
       query?: string;
+    }
+  | {
+      type: 'recent';
+      model: string;
+      title?: string;
+      limit?: number;
+      sort?: string;
+      dir?: 'asc' | 'desc';
     };
 
 export type ResolvedWidget =
   | { type: 'stats' }
   | { type: 'models'; title?: string; modelNames: string[] }
-  | { type: 'count'; modelName: string; label: string; query: ListQuery; href: string };
+  | { type: 'count'; modelName: string; label: string; query: ListQuery; href: string }
+  | {
+      type: 'recent';
+      modelName: string;
+      title: string;
+      limit: number;
+      orderBy: Record<string, 'asc' | 'desc'>;
+      href: string;
+    };
 
 export interface ResolvedDashboard {
   title: string;
@@ -69,6 +92,9 @@ export interface ResolveDashboardDeps {
   basePath: string;
   searchFieldsOf: (model: Model) => string[];
   filterableFieldsOf: (model: Model) => Set<string>;
+  sortableColumnsOf: (model: Model) => string[];
+  defaultSortOf: (model: Model) => ActiveSort | undefined;
+  labelOf: (model: Model) => string;
 }
 
 export function resolveDashboard(deps: ResolveDashboardDeps): ResolvedDashboard {
@@ -154,6 +180,46 @@ function resolveWidget(
     };
   }
 
+  if (widget.type === 'recent') {
+    const model = requireModel(widget.model, index, deps);
+    if (widget.limit !== undefined && !isLimit(widget.limit)) {
+      throw new AdminConfigError(
+        `[sveltekit-admin] dashboard.widgets[${index}] \`limit\` must be an integer ` +
+          `between 1 and ${MAX_RECENT}.`
+      );
+    }
+    if (widget.dir !== undefined && widget.dir !== 'asc' && widget.dir !== 'desc') {
+      throw new AdminConfigError(
+        `[sveltekit-admin] dashboard.widgets[${index}] \`dir\` must be "asc" or "desc".`
+      );
+    }
+    if (widget.sort !== undefined) {
+      const sortable = deps.sortableColumnsOf(model);
+      if (!sortable.includes(widget.sort)) {
+        throw new AdminConfigError(
+          `[sveltekit-admin] dashboard.widgets[${index}] sorts on "${widget.sort}", ` +
+            `which the list view does not display. Displayed columns: ` +
+            `[${sortable.join(', ')}].`
+        );
+      }
+    }
+    // Pas de devinette sur un champ nommé `createdAt` : même position que
+    // `defaultSort`, deviner réordonnerait silencieusement et la devinette
+    // divergerait de ce que la vue rend. Sans tri configuré, clé primaire
+    // décroissante — le défaut de l'adapter.
+    const configured = deps.defaultSortOf(model);
+    const field = widget.sort ?? configured?.field ?? primaryKeyOf(model);
+    const dir = widget.dir ?? (widget.sort ? 'asc' : (configured?.dir ?? 'desc'));
+    return {
+      type: 'recent',
+      modelName: model.name,
+      title: widget.title ?? `Latest ${deps.labelOf(model)}`,
+      limit: widget.limit ?? 5,
+      orderBy: { [field]: dir },
+      href: `${deps.basePath}/${model.name.toLowerCase()}`
+    };
+  }
+
   throw new AdminConfigError(
     `[sveltekit-admin] dashboard.widgets[${index}] has unknown type ` +
       `"${(widget as { type: string }).type}".`
@@ -233,9 +299,11 @@ export function groupWidgetRows(loaded: LoadedWidget[]): DashboardRow[] {
 }
 
 // `Exclude<..., { type: 'models' }>` : seul le widget « models » n'est pas
-// carte. Quand une future tâche ajoutera d'autres variantes en cartes, ce
-// type et ce switch grandiront avec elles — pas de branche pour un widget
-// qui n'existe pas encore.
+// carte. Le futur widget `recent` (tâche 11) n'en sera pas une non plus — il
+// obtient sa propre rangée, comme `models` — donc il rejoindra l'exclusion
+// ci-dessus plutôt que cette fonction. Si une future variante est réellement
+// carte-shaped, ce type et ce switch grandiront avec elle — pas de branche
+// pour un widget qui n'existe pas encore.
 function cardsOf(widget: Exclude<LoadedWidget, { type: 'models' }>): DashboardCard[] {
   if (widget.type === 'count') {
     return [{ value: widget.value, label: widget.label, icon: 'filter', href: widget.href }];
@@ -330,6 +398,17 @@ export async function loadDashboard(
       }
       loaded.push({ type: 'count', label: widget.label, value, href: widget.href });
       continue;
+    }
+
+    // TEMPORAIRE : `resolveDashboard` (tâche 10) valide déjà la variante
+    // `recent` au boot, mais son chargement/rendu est la tâche 11
+    // (`RecentPanel.svelte`, `LoadedWidget`/`DashboardRow` étendus). Tant
+    // que ce chargement n'existe pas, un widget `recent` ne doit ni tomber
+    // silencieusement dans la branche `models` ci-dessous (`widget.modelNames`
+    // n'existerait pas) ni être ignoré : lever fort signale l'écart plutôt
+    // que de produire une page cassée. La tâche 11 supprime ce bloc.
+    if (widget.type === 'recent') {
+      throw new Error('[sveltekit-admin] recent widget loading is not implemented yet (task 11).');
     }
 
     const cards = await Promise.all(

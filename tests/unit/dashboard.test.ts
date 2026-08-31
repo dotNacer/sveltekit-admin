@@ -4,6 +4,7 @@ import { parsePrismaSchema } from '../../src/lib/server/introspection/parser.js'
 import { FULL_SCHEMA_PATH } from '../fixtures/prismaMock.js';
 import { resolveSearchFields } from '../../src/lib/server/query/listQuery.js';
 import { isSensitiveFieldName } from '../../src/lib/server/introspection/parser.js';
+import { resolveListColumns } from '../../src/lib/server/query/listColumns.js';
 
 const schema = parsePrismaSchema(FULL_SCHEMA_PATH);
 const models = schema.models;
@@ -25,7 +26,10 @@ const deps = (config?: any) => ({
             !isSensitiveFieldName(f.name)
         )
         .map((f: any) => f.name as string)
-    )
+    ),
+  sortableColumnsOf: (m: any): string[] => resolveListColumns(m.fields, {}).map((f) => f.name),
+  defaultSortOf: (_m: any) => undefined,
+  labelOf: (m: any): string => m.name
 });
 
 describe('resolveDashboard', () => {
@@ -143,6 +147,90 @@ describe('resolveDashboard — widget count', () => {
     expect(() =>
       resolveDashboard(deps({ widgets: [{ type: 'count', model: 'Session', label: 'X' }] }))
     ).toThrow(/unknown or excluded/);
+  });
+});
+
+describe('resolveDashboard — widget recent', () => {
+  it('trie par clé primaire décroissante sans defaultSort', () => {
+    const [widget] = resolveDashboard(
+      deps({ widgets: [{ type: 'recent', model: 'User' }] })
+    ).widgets;
+    expect(widget).toEqual({
+      type: 'recent',
+      modelName: 'User',
+      title: 'Latest User',
+      limit: 5,
+      orderBy: { id: 'desc' },
+      href: '/admin/user'
+    });
+  });
+
+  it('respecte un sort et un titre explicites', () => {
+    const [widget] = resolveDashboard(
+      deps({
+        widgets: [
+          { type: 'recent', model: 'User', title: 'Nouveaux', limit: 3, sort: 'email', dir: 'asc' }
+        ]
+      })
+    ).widgets;
+    expect(widget).toMatchObject({ title: 'Nouveaux', limit: 3, orderBy: { email: 'asc' } });
+  });
+
+  it('refuse un tri sur une colonne que la liste n’affiche pas', () => {
+    expect(() =>
+      resolveDashboard(deps({ widgets: [{ type: 'recent', model: 'User', sort: 'password' }] }))
+    ).toThrow(/dashboard\.widgets\[0\].*"password".*does not display/);
+  });
+
+  it('refuse une limite hors bornes', () => {
+    expect(() =>
+      resolveDashboard(deps({ widgets: [{ type: 'recent', model: 'User', limit: 0 }] }))
+    ).toThrow(/`limit` must be an integer between 1 and 50/);
+    expect(() =>
+      resolveDashboard(deps({ widgets: [{ type: 'recent', model: 'User', limit: 51 }] }))
+    ).toThrow(/`limit` must be an integer between 1 and 50/);
+    expect(() =>
+      resolveDashboard(deps({ widgets: [{ type: 'recent', model: 'User', limit: 2.5 }] }))
+    ).toThrow(/`limit` must be an integer between 1 and 50/);
+  });
+
+  it('refuse une direction invalide', () => {
+    expect(() =>
+      resolveDashboard(
+        deps({ widgets: [{ type: 'recent', model: 'User', dir: 'sideways' as any }] })
+      )
+    ).toThrow(/`dir` must be "asc" or "desc"/);
+  });
+
+  it('refuse un modèle inconnu ou exclu', () => {
+    expect(() =>
+      resolveDashboard(deps({ widgets: [{ type: 'recent', model: 'Session' }] }))
+    ).toThrow(/dashboard\.widgets\[0\].*"Session".*unknown or excluded/);
+  });
+
+  it('un sort explicite sans dir trie en ordre ascendant', () => {
+    const [widget] = resolveDashboard(
+      deps({ widgets: [{ type: 'recent', model: 'User', sort: 'email' }] })
+    ).widgets as any;
+    expect(widget.orderBy).toEqual({ email: 'asc' });
+  });
+
+  it('un dir explicite l’emporte sur le sens du defaultSort configuré', () => {
+    const customDeps = {
+      ...deps({ widgets: [{ type: 'recent', model: 'User', dir: 'desc' }] }),
+      defaultSortOf: (m: any) => (m.name === 'User' ? { field: 'email', dir: 'asc' as const } : undefined)
+    };
+    const [widget] = resolveDashboard(customDeps).widgets as any;
+    expect(widget.orderBy).toEqual({ email: 'desc' });
+  });
+
+  it('sans sort explicite, utilise le champ et le sens du defaultSort configuré', () => {
+    const customDeps = {
+      ...deps({ widgets: [{ type: 'recent', model: 'User' }] }),
+      defaultSortOf: (m: any) => (m.name === 'User' ? { field: 'email', dir: 'asc' as const } : undefined)
+    };
+    const [widget] = resolveDashboard(customDeps).widgets as any;
+    expect(widget.orderBy).toEqual({ email: 'asc' });
   });
 });
 
