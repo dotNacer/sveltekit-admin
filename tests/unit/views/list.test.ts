@@ -412,7 +412,7 @@ describe('List.svelte — tri de colonnes', () => {
 
   it('annonce la colonne triée avec aria-sort', () => {
     const html = renderList(viewModel, items, page, '/admin', empty, noQuery, url, undefined, sorted('email', 'asc'));
-    expect(html).toMatch(/<th aria-sort="ascending"><a[^>]*>email/);
+    expect(html).toMatch(/<th[^>]*aria-sort="ascending"[^>]*><a[^>]*>email/);
   });
 
   it('annonce la direction descendante', () => {
@@ -449,7 +449,7 @@ describe('List.svelte — tri de colonnes', () => {
 
   it('ne rend aucun lien de tri sans URL courante', () => {
     const html = renderList(viewModel, items, page, '/admin', empty);
-    expect(html).toContain('<th>email</th>');
+    expect(html).toContain('<th scope="col">email</th>');
   });
 });
 

@@ -77,7 +77,7 @@ describe('models[].defaultSort', () => {
     const { event, resolve } = createEvent({ url: '/admin/user' });
     const html = await (await handler({ event, resolve } as any)).text();
 
-    expect(html).toMatch(/<th aria-sort="ascending"><a[^>]*>name/);
+    expect(html).toMatch(/<th[^>]*aria-sort="ascending"[^>]*><a[^>]*>name/);
   });
 
   it('refuse au démarrage une colonne inexistante', () => {

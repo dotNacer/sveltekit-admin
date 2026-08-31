@@ -260,10 +260,15 @@ export function styles(primaryColor: string): string {
       transition: all 0.15s;
     }
 
-    .ska-input:focus {
-      outline: none;
+    /* 'outline: none' remplacé par un box-shadow à 10 % d'opacité donnait un
+       contraste d'environ 1,1:1 contre le fond blanc — soit, en pratique, aucun
+       indicateur de focus. Le contour reprend la couleur de marque, qui est
+       elle contrastée, et le box-shadow ne fait plus que l'accompagner. */
+    .ska-input:focus-visible {
+      outline: 2px solid var(--ska-primary);
+      outline-offset: 1px;
       border-color: var(--ska-primary);
-      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
     }
 
     .ska-input[readonly] {
@@ -278,9 +283,10 @@ export function styles(primaryColor: string): string {
       border-color: #dc2626;
     }
 
-    .ska-input[aria-invalid='true']:focus {
+    .ska-input[aria-invalid='true']:focus-visible {
+      outline-color: #dc2626;
       border-color: #dc2626;
-      box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+      box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15);
     }
 
     .ska-field__error {
@@ -590,6 +596,87 @@ export function styles(primaryColor: string): string {
       background: #f0fdf4;
       color: #16a34a;
       border: 1px solid #bbf7d0;
+    }
+
+    /* Hors flux tant qu'il n'est pas ciblé : 'display: none' le retirerait de
+       l'ordre de tabulation, ce qui le rendrait inatteignable — donc inutile. */
+    .ska-skip {
+      position: absolute;
+      left: -9999px;
+      top: 0;
+      background: var(--ska-primary);
+      color: #fff;
+      padding: 0.625rem 1rem;
+      border-radius: 0 0 0.375rem 0;
+      z-index: 100;
+    }
+
+    .ska-skip:focus {
+      left: 0;
+    }
+
+    /* Un seul contour, de la couleur de marque, sur tout ce qui prend le focus.
+       'focus-visible' et non 'focus' : le contour apparaît au clavier sans
+       s'afficher au clic à la souris. La cible du lien d'évitement porte
+       tabindex="-1" pour être focusable par programme, mais elle ne doit pas
+       dessiner de contour pour autant. */
+    .ska-btn:focus-visible,
+    .ska-nav__link:focus-visible,
+    .ska-logo:focus-visible,
+    .ska-back:focus-visible,
+    .ska-checkbox:focus-visible,
+    .ska-logout__btn:focus-visible,
+    .ska-skip:focus-visible {
+      outline: 2px solid var(--ska-primary);
+      outline-offset: 2px;
+    }
+
+    .ska-main:focus-visible { outline: none; }
+
+    /* La sidebar était fixe à 260px et le contenu décalé d'autant : sur un
+       écran de 375px il restait 115px utilisables. Elle repasse dans le flux et
+       la navigation devient horizontale. */
+    @media (max-width: 900px) {
+      .ska-layout { flex-direction: column; }
+
+      .ska-sidebar {
+        position: static;
+        width: auto;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid #e2e8f0;
+        padding: 1rem;
+      }
+
+      .ska-nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+      }
+
+      .ska-nav__item { margin-bottom: 0; }
+
+      .ska-main {
+        margin-left: 0;
+        padding: 1rem;
+      }
+
+      .ska-header {
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+
+      .ska-form { max-width: none; }
+    }
+
+    /* Cinq 'transition: all' vivent dans cette feuille. Le réglage système est
+       une demande explicite, pas une préférence esthétique. */
+    @media (prefers-reduced-motion: reduce) {
+      * {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
     }
   `;
 }
