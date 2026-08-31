@@ -132,6 +132,15 @@ describe('createAdminRuntime', () => {
     ).toThrow(/unknown or excluded/);
   });
 
+  it('refuse un widget qui vise un modèle exclu', () => {
+    expect(() =>
+      runtimeFor(FULL_SCHEMA_PATH, {
+        exclude: ['Post'],
+        dashboard: { widgets: [{ type: 'models', models: ['Post'] }] }
+      })
+    ).toThrow(/references model "Post", which is unknown or excluded/);
+  });
+
   it('schéma illisible → models vide + warn', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const adapter = {
