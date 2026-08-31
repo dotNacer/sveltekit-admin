@@ -7,6 +7,12 @@ import { createPrismaAdapter } from '../../src/lib/server/adapters/prisma/index.
 import { createAdminHandler } from '../../src/lib/server/adapters/prisma/handler.js';
 import { createEvent } from '../fixtures/events.js';
 
+/**
+ * `handleMutation` reçoit le corps déjà lu — c'est le handler qui le lit, pour
+ * pouvoir re-rendre le formulaire avec les valeurs soumises quand ça échoue.
+ */
+const bodyOf = (event: { request: Request }) => event.request.formData();
+
 function runtimeFor(prisma: any, config: Record<string, unknown> = {}) {
   const adapter = createPrismaAdapter({ prisma, schemaPath: RELATIONS_SCHEMA_PATH });
   return createAdminRuntime({ adapter, ...config } as any);
@@ -22,7 +28,7 @@ describe('handleMutation lève des AdminMutationError', () => {
     });
 
     await expect(
-      handleMutation(runtime, event, { view: 'create', model: 'post' } as any)
+      handleMutation(runtime, event, { view: 'create', model: 'post' } as any, await bodyOf(event))
     ).rejects.toMatchObject({
       constructor: AdminMutationError,
       kind: 'validation',
@@ -37,7 +43,7 @@ describe('handleMutation lève des AdminMutationError', () => {
     const { event } = createEvent({ url: '/admin/nope/new', body: { _action: 'create' } });
 
     await expect(
-      handleMutation(runtime, event, { view: 'create', model: 'nope' } as any)
+      handleMutation(runtime, event, { view: 'create', model: 'nope' } as any, await bodyOf(event))
     ).rejects.toMatchObject({
       kind: 'notFound',
       message: 'Model "nope" not found'
@@ -58,7 +64,7 @@ describe('handleMutation lève des AdminMutationError', () => {
     });
 
     await expect(
-      handleMutation(runtime, event, { view: 'create', model: 'post' } as any)
+      handleMutation(runtime, event, { view: 'create', model: 'post' } as any, await bodyOf(event))
     ).rejects.toMatchObject({ kind: 'authorization', field: 'authorId' });
   });
 });
@@ -156,10 +162,9 @@ describe('rendu des erreurs de mutation', () => {
   it('rend "referenced by other records" (restrict) sur une suppression bloquée par une FK, jamais "reference"', async () => {
     // Couvre la branche `restrict` de `classifyWriteError` : `reference` et
     // `restrict` partagent le même code SQLSTATE (P2003 / 23503), seule
-    // l'action en cours les distingue. Cette classification se fait
-    // désormais dans `mutations.ts`, au site d'appel de `deleteRecord` — le
-    // seul qui connaît encore l'action, `handler.ts` ayant déjà perdu le
-    // corps de la requête à ce stade.
+    // l'action en cours les distingue. Cette classification se fait dans
+    // `mutations.ts`, au site d'appel de `deleteRecord`, qui est le seul à
+    // savoir laquelle des deux actions est en cours.
     const prisma = createPrismaMock({ tag: [{ id: 1, name: 'x' }] });
     prisma.tag.delete = () => {
       throw Object.assign(new Error('Foreign key constraint failed on the field: `posts`'), {

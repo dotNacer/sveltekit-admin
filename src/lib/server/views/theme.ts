@@ -232,6 +232,24 @@ export function styles(primaryColor: string): string {
       color: #6b7280;
     }
 
+    /* Sélecteur d'attribut et non une classe : aria-invalid est déjà la source
+       de vérité pour les lecteurs d'écran, une classe parallèle finirait par en
+       diverger. */
+    .ska-input[aria-invalid='true'] {
+      border-color: #dc2626;
+    }
+
+    .ska-input[aria-invalid='true']:focus {
+      border-color: #dc2626;
+      box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+    }
+
+    .ska-field__error {
+      margin-top: 0.375rem;
+      font-size: 0.8125rem;
+      color: #b91c1c;
+    }
+
     .ska-checkbox-wrap {
       display: flex;
       align-items: center;

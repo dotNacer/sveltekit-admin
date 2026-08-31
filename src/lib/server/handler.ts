@@ -28,6 +28,7 @@ import { handleSearch } from './search.js';
 import { handleMutation } from './mutations.js';
 import { AdminMutationError, AdminConfigError } from './errors.js';
 import { verifyOrigin, resolveCsrfConfig, type CsrfConfig } from './csrf.js';
+import { readSubmittedForm, type SubmittedForm } from './submitted.js';
 import { resolvePluginRegistry, actionsForModel } from './pluginRegistry.js';
 import { createPluginPageContext } from './pluginAccess.js';
 import type { AdminPlugin } from './plugin.js';
@@ -301,7 +302,9 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     let currentModel: string | undefined;
     let extraStyles = '';
     let extraScripts = '';
-    let mutationError: string | undefined;
+    /** Renseignés ensemble : un formulaire re-rendu porte toujours les deux. */
+    let mutationError: { message: string; field?: string } | undefined;
+    let submitted: SubmittedForm | undefined;
 
     try {
       // Handle POST requests (create, update, delete). Unrecognised actions fall
@@ -312,24 +315,27 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       // field, never `route.view`, so it cannot be confused by a plugin's
       // view id landing here.
       if (event.request.method === 'POST') {
+        // Lu ici et non dans `handleMutation` : un corps de requête ne se lit
+        // qu'une fois, et il faut le garder pour re-rendre le formulaire si la
+        // mutation échoue.
+        const formData = await event.request.formData();
         // `try` propre au chemin de mutation, et non le `catch` partagé plus
         // bas : celui-ci couvre aussi le rendu GET et les pages de plugin,
         // dont le contrat (rendre le message levé) ne change pas ici.
         try {
-          const mutationResponse = await handleMutation(runtime, event, route as ParsedRoute);
+          const mutationResponse = await handleMutation(runtime, event, route as ParsedRoute, formData);
           if (mutationResponse) return mutationResponse;
         } catch (e: unknown) {
-          // Plus de classification ici : `handleMutation` a déjà consommé le
-          // corps de la requête, donc ce site ne peut plus lire `_action` et
-          // ne saurait pas distinguer une création d'une suppression. La
-          // classification par code pilote se fait désormais dans
-          // `mutations.ts`, au site d'appel qui connaît l'action réelle —
-          // ce `catch` ne fait plus qu'un aiguillage à trois branches sur le
-          // type de l'erreur déjà classée.
+          // Pas de classification ici, même si `formData` est maintenant à
+          // portée : ce site verrait bien `_action`, mais `reference` et
+          // `restrict` se distinguent par l'écriture qui a effectivement
+          // échoué, pas par l'action demandée. Seul `mutations.ts` le sait,
+          // au site d'appel de chaque `*Record`. Ce `catch` n'est donc qu'un
+          // aiguillage à trois branches sur le type de l'erreur déjà classée.
           if (e instanceof AdminMutationError) {
             // Message construit par la bibliothèque (validation, scope, ou
             // code pilote reconnu) : sûr à rendre tel quel.
-            mutationError = e.message;
+            mutationError = { message: e.message, field: e.field };
           } else if (e instanceof AdminConfigError) {
             // Mauvaise configuration côté consommateur : message écrit par la
             // bibliothèque, destiné au développeur. Le `catch` partagé plus bas
@@ -339,8 +345,23 @@ export function createAdminHandler(config: AdminHandlerConfig) {
             // Tout le reste est présumé venir du moteur : son texte peut porter le nom
             // de la table, un fragment de requête ou un dump d'arguments. Jamais rendu.
             console.error('[sveltekit-admin] mutation failed:', e);
-            mutationError = 'The change could not be saved.';
+            mutationError = { message: 'The change could not be saved.' };
           }
+          // Placé après le `throw` de la branche AdminConfigError : une erreur
+          // de montage remplace la page entière (contrat inchangé) et ne
+          // re-rend aucun formulaire, donc rien à conserver pour elle.
+          //
+          // `findModel` peut ne rien rendre — un POST sur un modèle inconnu est
+          // justement ce que la branche `notFound` de `handleMutation` lève. Ce
+          // cas ne rend aucun formulaire, la liste de champs masqués y est donc
+          // sans objet. Pas de garde sur `route.model` en revanche : sans
+          // modèle, `handleMutation` rend `null` sans lever et ce `catch` n'est
+          // pas atteint.
+          const errorModel = runtime.findModel(route.model);
+          submitted = readSubmittedForm(
+            formData,
+            errorModel ? runtime.hiddenFieldsOf(errorModel) : new Set()
+          );
         }
       }
 
@@ -512,7 +533,9 @@ export function createAdminHandler(config: AdminHandlerConfig) {
               basePath: runtime.basePath,
               config: runtime.config,
               item: itemPrefill,
-              recordActions: []
+              recordActions: [],
+              submitted,
+              mutationError
             }
           }).body;
         } else {
@@ -541,6 +564,8 @@ export function createAdminHandler(config: AdminHandlerConfig) {
                   basePath: runtime.basePath,
                   config: runtime.config,
                   item,
+                  submitted,
+                  mutationError,
                   recordActions: actionsForModel(registry, model.name).map((action) => ({
                     label: action.label,
                     href: action.href({
@@ -566,7 +591,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       // convention d'alerte dans toute la page (cf. handler.test.ts, l'alerte
       // « modèle inconnu en POST »).
       content =
-        `<div class="ska-alert ska-alert--error">Error: ${escapeHtml(mutationError)}</div>` +
+        `<div class="ska-alert ska-alert--error">Error: ${escapeHtml(mutationError.message)}</div>` +
         content;
     }
 
@@ -582,6 +607,17 @@ export function createAdminHandler(config: AdminHandlerConfig) {
     }).body;
 
     return new Response(html, {
+      // 422 pour un formulaire refusé : la requête était bien formée, son
+      // contenu a été rejeté. Un 200 fait passer l'échec pour un succès aux
+      // yeux de tout ce qui lit le statut sans lire le HTML — un test, un
+      // client, un log, un cache. Uniforme sur tous les `kind` : la nuance
+      // entre 409 (conflit) et 403 (scope) n'apporterait rien à un formulaire
+      // rendu en HTML, et le seul consommateur est un navigateur qui affiche
+      // la page.
+      //
+      // Le `catch` partagé plus haut garde son 200 : il couvre aussi le rendu
+      // GET et les pages de plugin, dont le contrat ne change pas ici.
+      status: mutationError ? 422 : 200,
       headers: {
         'Content-Type': 'text/html; charset=utf-8'
       }

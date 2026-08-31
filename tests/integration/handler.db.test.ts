@@ -125,12 +125,24 @@ describe('handler sur une vraie base SQLite', () => {
     // mais P2002 est classifié — pas de bruit attendu ici.
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     await prisma.widget.create({ data: { name: 'dup' } });
-    const html = await (await call('/admin/widget/new', { _action: 'create', name: 'dup' })).text();
+    const res = await call('/admin/widget/new', {
+      _action: 'create',
+      name: 'dup',
+      // `price` et non `quantity` : un champ à `@default(...)` n'est pas rendu
+      // par le formulaire de création, il ne prouverait donc rien ici.
+      price: '9.99'
+    });
+    const html = await res.text();
+    expect(res.status).toBe(422);
     expect(html).toContain(ERROR_ALERT);
     // Le code P2002 renvoyé par le vrai moteur SQLite est classifié en
     // `conflict` : le message générique de la bibliothèque est rendu, jamais
     // le texte brut du pilote.
     expect(html).toContain('A record with these values already exists.');
+    // Et le formulaire re-rendu porte ce qui venait d'être soumis, sur une
+    // erreur levée par le vrai pilote et non par un code mocké.
+    expect(html).toContain('value="dup"');
+    expect(html).toContain('value="9.99"');
     expect(error).not.toHaveBeenCalled();
     error.mockRestore();
   });

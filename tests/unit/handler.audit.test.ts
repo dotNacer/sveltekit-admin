@@ -133,7 +133,8 @@ describe('audit callback', () => {
       body: { _action: 'create', email: 'n@x.y', password: 'p' }
     });
     const res = await handler({ event, resolve } as any);
-    expect(res.status).toBe(200);
+    // 422 et non 200 : la requête était bien formée, son contenu a été rejeté.
+    expect(res.status).toBe(422);
     expect(audit).not.toHaveBeenCalled();
     expect(error).toHaveBeenCalled();
   });
