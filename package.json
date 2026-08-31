@@ -41,6 +41,7 @@
     "package": "svelte-kit sync && svelte-package -o dist",
     "prepublishOnly": "pnpm run package",
     "size": "pnpm run package && node scripts/package-size.mjs",
+    "smoke:packaged": "node scripts/consumer-smoke.mjs",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "test:gen": "prisma generate --schema tests/fixtures/prisma/schema.prisma",

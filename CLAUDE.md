@@ -38,6 +38,8 @@ pnpm exec vitest run -t "some test name"
 
 `vitest.config.ts` enforces **100% coverage** (lines/statements/functions/branches) on `src/lib/**`. There is no `exclude` escape hatch and no `/* v8 ignore */` convention in this codebase — every branch you add needs a real test, not a suppression. Don't introduce defensive code paths that can't be exercised (see the "no code for hypothetical inputs" style already in the source — e.g. `data.ts`'s comment on why `listRecords` doesn't reuse `paginate`, or `filterDetection.ts`'s comment on why an unreachable `default` case is left uncovered-but-necessary only when TypeScript requires it).
 
+`pnpm run smoke:packaged` (`scripts/consumer-smoke.mjs`) is the only check that exercises the **published artifact** rather than the sources: it runs `npm pack`, installs the tarball into a copy of `example/` placed outside the workspace (inside it, pnpm would relink the sources and the tarball would never be read), builds that app with Vite, boots it and drives it over HTTP. It catches what unit tests structurally cannot — a file missing from `files`, a broken `exports` subpath, a wrong peer range. `--keep` leaves the temp app on disk for inspection. It has its own CI job, `packaged-consumer`.
+
 `tests/integration/setup.ts` (Vitest `globalSetup`) spins up a throwaway SQLite DB via `prisma db push` for `tests/integration/handler.db.test.ts`; unit tests instead use the mock in `tests/fixtures/prismaMock.ts`.
 
 CI (`.github/workflows/ci.yml`) also runs a `changeset-check` job on PRs (`pnpm exec changeset status --since=origin/main`) that fails if publishable source changed without an added `.changeset/*.md`.
