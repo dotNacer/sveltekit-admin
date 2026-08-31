@@ -98,4 +98,13 @@ describe('loadDashboard', () => {
       /must return a non-empty condition/
     );
   });
+
+  it('refuse encore de charger un widget count — livré par la tâche suivante', async () => {
+    const { runtime } = runtimeWith({
+      dashboard: { widgets: [{ type: 'count', model: 'User', label: 'Actifs' }] }
+    });
+    await expect(loadDashboard(runtime, { locals: {} })).rejects.toThrow(
+      /widget "Actifs" \(type "count"\) cannot be loaded yet/
+    );
+  });
 });
