@@ -36,7 +36,16 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - run: npm install -g npm@latest
+      # Épinglé sur la majeure 11, PAS `@latest`. npm 12.0.0 a changé le format
+      # de `npm view --json` (il retourne désormais toujours un tableau), et
+      # `@changesets/cli@3.0.1` — la dernière publiée — en ressort avec un
+      # `info.versions` undefined, donc un `TypeError: Cannot read properties of
+      # undefined (reading 'includes')` dans `getUnpublishedPackages`. La release
+      # 0.8.1 a cassé exactement là-dessus. `@latest` dans un chemin de
+      # publication signifie qu'une majeure d'outil tierce peut casser une
+      # release sans qu'une seule ligne n'ait bougé ici. Connu bon : 11.19.1.
+      # À relever quand changesets gère npm 12.
+      - run: npm install -g npm@11
       - run: pnpm install --frozen-lockfile
       - run: npm run package
 
