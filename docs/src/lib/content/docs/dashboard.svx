@@ -1,0 +1,47 @@
+---
+title: Dashboard
+name: Dashboard
+description: Compose the admin home page from ordered widgets.
+---
+
+Without configuration the dashboard shows global stats and one card per model,
+each card linking to its list and to its create form.
+
+`dashboard.widgets` replaces that default with an ordered list — the array
+order is the on-screen order.
+
+## Widgets
+
+```typescript
+createAdminHandler({
+  adapter,
+  dashboard: {
+    title: 'Console',
+    subtitle: 'Everything at a glance',
+    widgets: [
+      { type: 'stats' },
+      { type: 'models', title: 'Content', models: ['Post', 'Comment'] },
+      { type: 'models', title: 'Accounts', models: ['User'] }
+    ]
+  }
+});
+```
+
+- `stats` — the two global cards: number of models, total records.
+- `models` — a grid of model cards. `models` selects and orders a subset;
+  omitted, it shows every visible model. `title` renders a section heading.
+
+`widgets: []` renders an empty page, which is a valid choice.
+
+## Validation
+
+The configuration is validated when the handler is created, not when the page
+is rendered. A widget with an unknown `type`, or one referencing a model that
+does not exist or sits in `exclude`, throws at boot — a typo stops startup
+instead of silently rendering an empty block.
+
+## Scope
+
+Every count on the dashboard composes the model's `scope`, exactly like every
+other read the admin serves. A model in `exclude` cannot be surfaced by a
+widget.

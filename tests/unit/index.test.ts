@@ -8,7 +8,7 @@ import { FULL_SCHEMA_PATH } from '../fixtures/prismaMock.js';
  * `AdminPlugin`, `AdminPluginPage`, `AdminPluginRecordAction`, `PluginPageContext`,
  * `PluginPageResult`, `AuditAction`, `AuditEvent`, `PrismaSchema`, `PrismaModel`,
  * `PrismaField`, `Schema`, `Model`, `Field`, `DataAdapter`, `SchemaIntrospector`,
- * `Filter`) n'ont aucune présence
+ * `Filter`, `DashboardConfig`, `DashboardWidget`) n'ont aucune présence
  * à l'exécution : les fonctions publiques attendues doivent apparaître ici. Toute addition ou
  * suppression dans `src/lib/index.ts` fait échouer ce test — c'est voulu, la surface
  * publiée est un contrat.
@@ -40,7 +40,9 @@ const TYPE_ONLY_EXPORTS = [
   'Field',
   'DataAdapter',
   'SchemaIntrospector',
-  'Filter'
+  'Filter',
+  'DashboardConfig',
+  'DashboardWidget'
 ] as const;
 
 afterEach(() => vi.restoreAllMocks());
