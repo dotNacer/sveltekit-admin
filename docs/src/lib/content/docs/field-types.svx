@@ -46,13 +46,15 @@ everything you typed still in place. Two exceptions, both deliberate:
 
 ## Values that cannot be converted
 
-A value that cannot be turned into the column's type — unparseable JSON, a
-number field carrying something that is not a number — is refused the same way,
-with `<field>: invalid value` on the field. Nothing is written.
+A value that cannot be turned into the column's type — for example unparseable
+JSON, or a numeric value that produces `NaN` — is refused the same way, with
+`<field>: invalid value` on the field. Nothing is written.
 
-Unparseable JSON used to be written as `null` without a word, which lost both
-what you typed and what the row already held, behind a redirect that looked
-successful.
+Numeric values currently use JavaScript `parseInt`/`parseFloat`; malformed
+partial strings such as `12abc` may therefore be coerced to `12` rather than
+rejected. Invalid DateTime text is passed through to the adapter and may be
+rejected there. Treat these as current conversion limitations, not strict input
+validation.
 
 ## Types the admin does not edit
 
@@ -77,12 +79,11 @@ Any field whose name contains `password`, `hash`, `secret` or `token`
 (case-insensitive) is treated as sensitive. This covers `hashedPassword`,
 `passwordHash` and `refreshToken` with no configuration.
 
-- **Sensitive `String` columns are never shown in list views, never searchable
-  or filterable, never included in the audit payload, and are not rendered in
-  the edit form at all.** An update never writes them, even if a value arrives
-  in the POST. The create form still offers the field, since nothing is stored
-  yet to leak and removing it would make a model with a required sensitive
-  column impossible to create.
+- **Sensitive-looking `String` columns are excluded by default** from list views,
+  search, filters, audit payloads and edit forms. An explicit `listFields` entry
+  can override a false positive for list display, but `hidden` always wins.
+  Sensitive values still remain excluded from search, filters and audit payloads.
+  The create form still offers the field because nothing is stored yet to leak.
 - **Only `String` columns are affected.** The match is on substrings, so
   without that restriction an `Int` named `tokenCount` or `hashtagCount` would
   have become uneditable. Those stay visible and editable.

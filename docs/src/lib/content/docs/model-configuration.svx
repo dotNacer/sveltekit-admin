@@ -1,53 +1,78 @@
 ---
 title: Model Configuration
 name: Model Configuration
-description: Per-model options for hiding fields, marking them readonly, and controlling list view columns.
+description: Per-model options for security, fields, relations, search, filters and sorting.
 ---
 
-The `models` option lets you override behavior per Prisma model, keyed by
-model name.
+The `models` option overrides behavior per model, keyed by Prisma model name
+when using Prisma, or by the model names returned by a custom adapter.
 
 ```typescript
 models: {
   User: {
-    // Fields to hide from all views
-    hidden: ['password', 'hashedPassword', 'twoFactorSecret'],
-
-    // Fields that cannot be edited (shown as readonly)
-    readonly: ['id', 'createdAt', 'updatedAt', 'emailVerified'],
-
-    // Fields to show in list view (default: first 6 non-hidden fields)
+    hidden: ['password', 'hashedPassword'],
+    readonly: ['id', 'createdAt', 'updatedAt'],
     listFields: ['email', 'name', 'role', 'createdAt'],
-
-    // Custom display name for the model
-    label: 'Users'
+    label: 'Users',
+    scope: ({ locals }) => ({ organizationId: locals.organizationId }),
+    searchFields: ['email', 'name'],
+    listFilter: ['role', 'active'],
+    defaultSort: { field: 'name', dir: 'asc' },
+    relations: {
+      organization: { widget: 'select', where: ({ locals }) => ({ id: locals.organizationId }) }
+    }
   }
 }
 ```
 
 ## `hidden`
 
-Fields listed here never appear anywhere in the admin — not in list views,
-not in create/edit forms. Use this for sensitive fields you don't want
-rendered under any circumstance.
+Fields listed here never appear in the admin — not in list views, create/edit
+forms, audit payloads or plugin record payloads. Use this for secrets and fields
+you do not want rendered under any circumstance.
 
 ## `readonly`
 
-Fields listed here are shown in edit forms but cannot be changed — useful
-for `id`, timestamps, or anything else that should be visible but immutable
-through the admin.
+Fields listed here are shown in edit forms but cannot be changed. This is useful
+for IDs, timestamps, or anything else that should be visible but immutable.
 
 ## `listFields`
 
-Controls which columns appear in the list view for a model. Without this,
-sveltekit-admin shows the first six non-hidden fields. Set it explicitly to
-control column order and which fields matter for at-a-glance scanning.
-
-`listFields` is also the escape hatch for the automatic sensitive-field
-detection described in [Field Types](/docs/field-types) — listing a field
-here shows it in the list view regardless of what its name looks like.
+Controls which columns appear in the list view. Without it, the admin shows the
+first six eligible fields. An explicit entry can override a false positive from
+the automatic sensitive-name heuristic; `hidden` still wins.
 
 ## `label`
 
-Overrides the display name used for the model throughout the admin UI
-(navigation, dashboard, page titles). Defaults to the Prisma model name.
+Overrides the display name used throughout the admin UI. Defaults to the model
+name.
+
+## `scope` and `listWhere`
+
+Use `scope` for tenant authorization. It applies to every admin read and
+mutation, including detail, edit, delete, dashboard counts, relations and
+plugins. Scoped creates impose equality values and fail closed when the tenant
+context is missing or ambiguous.
+
+`listWhere` is list-only: it narrows list/search/filter/pagination results but
+never protects direct detail or mutation URLs. Use it for presentation filters,
+not authorization. Both scopes compose with `AND`; an empty scope throws rather
+than failing open. See [Configuration Reference](/docs/configuration-reference).
+
+## `relations`
+
+Configure relation widgets, labels, ordering and option scoping. Supported
+widgets are `select`, `raw-id` and `hidden`; many-to-many relations render
+checkboxes by default. See [Relations](/docs/relations).
+
+## `searchFields` and `listFilter`
+
+`searchFields` explicitly selects fields for free-text search. `listFilter`
+configures the sidebar filters; Boolean and enum fields can also be detected
+automatically. See [Search & Filters](/docs/search-filters).
+
+## `defaultSort`
+
+Sets the initial order for a list before a visitor chooses a `?sort=` value. The
+field must be displayed by `listFields` (or be eligible for the default list),
+and `dir` defaults to `asc`.

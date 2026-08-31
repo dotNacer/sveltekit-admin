@@ -1,13 +1,13 @@
 ---
 title: sveltekit-admin
 name: Introduction
-description: A Django-like admin panel for SvelteKit applications with Prisma. Auto-generated CRUD, list views, and forms from your Prisma schema in three lines of code.
+description: A Django-like admin panel for SvelteKit applications with Prisma or Drizzle. Auto-generated CRUD, list views, and forms in three lines of code.
 ---
 
 **sveltekit-admin** is a Django-like admin panel for SvelteKit applications
-backed by Prisma. Point it at your Prisma client and it introspects your
-schema to generate a full admin interface — no routes to write, no forms to
-hand-build.
+backed by Prisma or Drizzle. Point it at your configured adapter and it
+introspects your schema to generate a full admin interface — no routes to write,
+no forms to hand-build.
 
 ## Features
 
@@ -31,7 +31,9 @@ Once installed, navigating to `/admin` gives you:
 ## Requirements
 
 - SvelteKit 2.x
-- Prisma 5.x or 6.x
+- Svelte 5.x
+- Prisma 5.x or 6.x when using the Prisma adapter
+- Drizzle ORM 0.32+ when using the Drizzle adapter
 
 ## Next steps
 

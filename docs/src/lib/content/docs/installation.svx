@@ -44,6 +44,24 @@ for every model in your Prisma schema.
 </Step>
 </Steps>
 
+## Using a Drizzle adapter
+
+Prisma is the shortest path, but Drizzle is supported through the dedicated
+subpath export. Import both the handler and adapter from that subpath:
+
+```typescript
+import { createAdminHandler, createDrizzleAdapter } from 'sveltekit-admin/adapters/drizzle';
+import { db } from './db';
+import * as schema from './db/schema';
+
+export const handle = createAdminHandler({
+  adapter: createDrizzleAdapter({ db, schema })
+});
+```
+
+A custom adapter can provide the same `{ introspector, data }` pair. See the
+configuration reference for the complete adapter contract.
+
 ## Using it alongside existing auth
 
 If you already have an auth handler, combine the two with SvelteKit's

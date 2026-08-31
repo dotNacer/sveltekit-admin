@@ -20,9 +20,9 @@ are never shown side by side.
   (`relationDefaults.selectThreshold`, 200 by default), the select falls
   back to a raw ID input — loading tens of thousands of options into a
   dropdown isn't practical.
-- The same fallback applies to **composite foreign keys** (a relation
-  backed by more than one scalar column) — these can't be represented as a
-  single `<option>` value, so they're rendered as a raw ID input instead.
+- Composite foreign keys (a relation backed by more than one scalar column) are
+  currently **not editable through the generated form**. Manage them in your
+  application code or provide a custom UI.
 - Required relations don't render an empty option; optional ones do, to let
   you clear the relation.
 
@@ -83,6 +83,6 @@ permission boundary.
   string field found (checked against a small list of common label field
   names like `name`, `title`, `email`, `slug`) is used, falling back to the
   primary key.
-- `widget: 'raw-id'` is always available as an escape hatch for relations
-  the automatic detection can't confidently handle (composite foreign keys,
-  ambiguous relation matches).
+- `widget: 'raw-id'` is available as an escape hatch for relations the automatic
+  detection cannot confidently handle. It does not make composite foreign keys
+  editable; those remain unsupported by the generated form.
