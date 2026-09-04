@@ -245,8 +245,14 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
     const label = toLabel(m.name);
     return label.charAt(0).toUpperCase() + label.slice(1);
   };
-  const singularLabelOf = (m: Model) => modelsConfig[m.name]?.singularLabel ?? modelsConfig[m.name]?.label ?? defaultLabelOf(m);
-  const pluralLabelOf = (m: Model) => modelsConfig[m.name]?.pluralLabel ?? modelsConfig[m.name]?.label ?? defaultLabelOf(m);
+  const singularLabelOf = (m: Model) => {
+    const singular = modelsConfig[m.name]?.singularLabel || modelsConfig[m.name]?.label;
+    return singular || defaultLabelOf(m);
+  };
+  const pluralLabelOf = (m: Model) => {
+    const plural = modelsConfig[m.name]?.pluralLabel || modelsConfig[m.name]?.label;
+    return plural || defaultLabelOf(m);
+  };
   const labelOf = pluralLabelOf;
   const modelList = models.map((m) => ({ name: m.name, label: pluralLabelOf(m) }));
   const findModel = (name?: string) =>

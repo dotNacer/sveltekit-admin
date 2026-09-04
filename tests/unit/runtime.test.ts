@@ -109,6 +109,10 @@ describe('createAdminRuntime', () => {
       label: 'Accounts', singularLabel: 'Account', pluralLabel: 'Accounts'
     });
 
+    const empty = runtimeFor(FULL_SCHEMA_PATH, { models: { User: { label: '' } } });
+    expect(empty.labelOf(empty.findModel('User')!)).toBe('User');
+    expect(empty.singularLabelOf(empty.findModel('User')!)).toBe('User');
+
     const legacy = runtimeFor(FULL_SCHEMA_PATH, { models: { User: { label: 'People' } } });
     expect(legacy.singularLabelOf(legacy.findModel('User')!)).toBe('People');
     expect(legacy.pluralLabelOf(legacy.findModel('User')!)).toBe('People');
