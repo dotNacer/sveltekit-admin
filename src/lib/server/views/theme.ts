@@ -469,6 +469,40 @@ export function styles(primaryColor: string): string {
       color: var(--ska-primary);
     }
 
+    /* Recent panel */
+    .ska-recent {
+      list-style: none;
+      margin: 0 0 0.75rem;
+      padding: 0;
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 0.5rem;
+    }
+
+    .ska-recent__item + .ska-recent__item {
+      border-top: 1px solid #e2e8f0;
+    }
+
+    .ska-recent__item a {
+      display: block;
+      padding: 0.75rem 1rem;
+      color: #1e293b;
+      text-decoration: none;
+      font-size: 0.875rem;
+    }
+
+    .ska-recent__item a:hover {
+      background: #f8fafc;
+      color: var(--ska-primary);
+    }
+
+    .ska-recent__all {
+      color: var(--ska-primary);
+      font-size: 0.875rem;
+      font-weight: 500;
+      text-decoration: none;
+    }
+
     /* Header with actions */
     .ska-header {
       display: flex;
@@ -681,6 +715,8 @@ export function styles(primaryColor: string): string {
     .ska-checkbox:focus-visible,
     .ska-logout__btn:focus-visible,
     .ska-stat--link:focus-visible,
+    .ska-recent__item a:focus-visible,
+    .ska-recent__all:focus-visible,
     .ska-skip:focus-visible {
       outline: 2px solid var(--ska-primary);
       outline-offset: 2px;

@@ -102,4 +102,37 @@ describe('Dashboard.svelte', () => {
     ]);
     expect(html).not.toContain('ska-stat--link');
   });
+
+  it('rend un bloc de récents', () => {
+    const html = renderDashboard([
+      {
+        kind: 'recent',
+        title: 'Latest Users',
+        href: '/admin/user',
+        items: [{ label: 'Alice', href: '/admin/user/1' }]
+      }
+    ]);
+    expect(html).toContain('Latest Users');
+    expect(html).toContain('href="/admin/user/1"');
+    expect(html).toContain('Alice');
+  });
+
+  it('annonce un bloc de récents vide', () => {
+    const html = renderDashboard([
+      { kind: 'recent', title: 'Latest Users', href: '/admin/user', items: [] }
+    ]);
+    expect(html).toContain('No records yet');
+  });
+
+  it('échappe le libellé d’un enregistrement récent', () => {
+    const html = renderDashboard([
+      {
+        kind: 'recent',
+        title: 'T',
+        href: '/admin/user',
+        items: [{ label: '<img src=x>', href: '/admin/user/1' }]
+      }
+    ]);
+    expect(html).not.toContain('<img src=x>');
+  });
 });

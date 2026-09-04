@@ -15,6 +15,7 @@ import { buildWhere, parseListQuery, type ListQuery } from './query/listQuery.js
 import type { Filter } from './adapters/types.js';
 import { OPAQUE_FILTER_ERROR } from './adapters/filter.js';
 import { primaryKeyOf } from './data.js';
+import { redactForAudit } from './audit.js';
 import type { ActiveSort } from './query/sortQuery.js';
 
 /** Plafond dur, même politique que `MAX_PAGE_SIZE` (runtime.ts). */
@@ -264,14 +265,21 @@ export interface ModelCardData {
   newHref: string;
 }
 
+export interface RecentItem {
+  label: string;
+  href: string;
+}
+
 export type LoadedWidget =
   | { type: 'stats'; models: number; total: number }
   | { type: 'models'; title?: string; cards: ModelCardData[] }
-  | { type: 'count'; label: string; value: number; href: string };
+  | { type: 'count'; label: string; value: number; href: string }
+  | { type: 'recent'; title: string; href: string; items: RecentItem[] };
 
 export type DashboardRow =
   | { kind: 'cards'; cards: DashboardCard[] }
-  | { kind: 'models'; title?: string; cards: ModelCardData[] };
+  | { kind: 'models'; title?: string; cards: ModelCardData[] }
+  | { kind: 'recent'; title: string; href: string; items: RecentItem[] };
 
 /**
  * Replie les widgets-cartes ADJACENTS dans une même rangée. Sans ce repli,
@@ -290,6 +298,15 @@ export function groupWidgetRows(loaded: LoadedWidget[]): DashboardRow[] {
       );
       continue;
     }
+    if (widget.type === 'recent') {
+      rows.push({
+        kind: 'recent',
+        title: widget.title,
+        href: widget.href,
+        items: widget.items
+      });
+      continue;
+    }
     const cards = cardsOf(widget);
     const last = rows[rows.length - 1];
     if (last && last.kind === 'cards') last.cards.push(...cards);
@@ -298,13 +315,14 @@ export function groupWidgetRows(loaded: LoadedWidget[]): DashboardRow[] {
   return rows;
 }
 
-// `Exclude<..., { type: 'models' }>` : seul le widget « models » n'est pas
-// carte. Le futur widget `recent` (tâche 11) n'en sera pas une non plus — il
-// obtient sa propre rangée, comme `models` — donc il rejoindra l'exclusion
-// ci-dessus plutôt que cette fonction. Si une future variante est réellement
+// `Exclude<..., { type: 'models' } | { type: 'recent' }>` : ni `models` ni
+// `recent` ne sont carte-shaped, tous deux obtiennent leur propre rangée
+// (voir `groupWidgetRows` ci-dessus). Si une future variante est réellement
 // carte-shaped, ce type et ce switch grandiront avec elle — pas de branche
 // pour un widget qui n'existe pas encore.
-function cardsOf(widget: Exclude<LoadedWidget, { type: 'models' }>): DashboardCard[] {
+function cardsOf(
+  widget: Exclude<LoadedWidget, { type: 'models' } | { type: 'recent' }>
+): DashboardCard[] {
   if (widget.type === 'count') {
     return [{ value: widget.value, label: widget.label, icon: 'filter', href: widget.href }];
   }
@@ -400,15 +418,43 @@ export async function loadDashboard(
       continue;
     }
 
-    // TEMPORAIRE : `resolveDashboard` (tâche 10) valide déjà la variante
-    // `recent` au boot, mais son chargement/rendu est la tâche 11
-    // (`RecentPanel.svelte`, `LoadedWidget`/`DashboardRow` étendus). Tant
-    // que ce chargement n'existe pas, un widget `recent` ne doit ni tomber
-    // silencieusement dans la branche `models` ci-dessous (`widget.modelNames`
-    // n'existerait pas) ni être ignoré : lever fort signale l'écart plutôt
-    // que de produire une page cassée. La tâche 11 supprime ce bloc.
     if (widget.type === 'recent') {
-      throw new Error('[sveltekit-admin] recent widget loading is not implemented yet (task 11).');
+      const model = runtime.models.find((m) => m.name === widget.modelName)!;
+      // `combinedScopeFrom` reste HORS du `try/catch`, même politique que la
+      // branche `count` juste au-dessus : il lève volontairement sur un scope
+      // (`scope` ou `listWhere`) qui échouerait ouvert (`{}`), et cette
+      // erreur-là ne doit jamais être confondue avec « la table n'existe pas
+      // encore ».
+      const scope = combinedScopeFrom(runtime, model, { locals: event.locals });
+      const pk = primaryKeyOf(model);
+      const hidden = runtime.hiddenFieldsOf(model);
+      let rowsRead: Record<string, unknown>[];
+      try {
+        rowsRead = await runtime.adapter.data.findMany(model, {
+          filter: scope as Filter | undefined,
+          orderBy: widget.orderBy,
+          take: widget.limit
+        });
+      } catch (err) {
+        // Même distinction que dans `makeCounter` et la branche `count` :
+        // un `listWhere` opaque refusé par l'adaptateur Drizzle
+        // (`OPAQUE_FILTER_ERROR`) est une erreur de configuration et doit
+        // remonter ; seule une table qui n'existe pas encore se rend vide.
+        if (err instanceof Error && err.message === OPAQUE_FILTER_ERROR) throw err;
+        rowsRead = [];
+      }
+      loaded.push({
+        type: 'recent',
+        title: widget.title,
+        href: widget.href,
+        items: rowsRead.map((row) => ({
+          // Rédigé AVANT de résoudre le libellé : sans ça, un champ masqué ou
+          // sensible pourrait devenir le texte affiché.
+          label: runtime.resolveLabel(model, redactForAudit(row, model, hidden)),
+          href: `${widget.href}/${row[pk]}`
+        }))
+      });
+      continue;
     }
 
     const cards = await Promise.all(
