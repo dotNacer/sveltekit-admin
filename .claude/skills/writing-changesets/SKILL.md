@@ -39,11 +39,11 @@ feat: **Column sorting in list views.** Every column heading is a link; `?sort=`
 
 ## Tags
 
-The body opens with exactly one tag, lowercase, followed by a space. The tag decides
-which changelog section the bullet lands in, and it must agree with the frontmatter
-bump. A mismatch fails the linter, which makes the tag a second check on a bump that
-has drifted before (all eleven `0.9.0` entries shipped as `minor`; two were refinements
-of existing behavior).
+The body opens with exactly one tag, lowercase, followed by a space or tab. The tag
+decides which changelog section the bullet lands in, and it must agree with the
+frontmatter bump. A mismatch fails the linter, which makes the tag a second check on
+a bump that has drifted before (all eleven `0.9.0` entries shipped as `minor`; two
+were refinements of existing behavior).
 
 | Tag | Bump | Use when the change |
 |---|---|---|
@@ -54,9 +54,10 @@ of existing behavior).
 
 ## Hard limits
 
-- **300 characters** of summary: tag excluded, markdown markup included, since
-  backticks and asterisks are part of what the reader scans past. **600** for
-  `breaking:`, which owes both what breaks and what to do about it.
+- **300 characters** of summary: tag excluded, soft wraps counted as one space, and
+  markdown markup included, since backticks and asterisks are part of what the reader
+  scans past. **600** for `breaking:`, which owes both what breaks and what to do
+  about it.
 - **One paragraph.** No blank line, no markdown heading, no fenced block; inline
   backticks are welcome. This rule, not the cap, is what makes a subtitled essay
   structurally impossible.
@@ -64,8 +65,7 @@ of existing behavior).
   agreement, the cap and the paragraph rule, and CI runs it in the `changeset-check`
   job.
 
-The five rewrites below land between 169 and 188 characters, under two thirds of the
-cap. Real content fits under it; the essay does not.
+The examples below run from 169 to 341 characters, each comfortably inside its cap.
 
 ## Editorial rules
 
@@ -98,8 +98,8 @@ cap. Real content fits under it; the essay does not.
 
 ## Worked rewrites
 
-Real `0.9.0` entries. Each block below replaces its entry in full. Pattern-match
-against these before writing your own.
+Real entries from this repo's releases. Each block below replaces its entry in full.
+Pattern-match against these before writing your own.
 
 **2044 chars → 188**
 
@@ -131,6 +131,20 @@ feat: **An accessibility and responsive baseline.** Visible focus on every contr
 feat: **`perPage` and `pageSizeOptions` configure list page size** (default 20, selector offering 10/20/50/100). `?perPage=` is honoured only for offered sizes, and capped at 200.
 ```
 
+The five above are `feat:` and `fix:`. Two more, for the tags they leave unmodelled.
+
+**`improvement:` — 1136 chars → 214** (numbered pagination, `0.9.0`)
+
+```md
+improvement: List pagination is a window of page numbers around the current page, with the first and last always one click away, instead of a lone Previous/Next pair. `?page=` links preserve the active search, filters and sort.
+```
+
+**`breaking:` — 341 chars, well inside the 600 cap** (the loader-based API removed in `0.3.0`)
+
+```md
+breaking: **The loader-based API is gone.** `createAdmin`, `createLayoutLoad` and `createModelListLoad`, the `sveltekit-admin/components` and `sveltekit-admin/admin` exports, and the CRUD utilities (`createListOperation`, `buildSearchWhere`, `createAuthGuard`) are all removed. Replace them with one `createAdminHandler` hook in `src/hooks.server.ts`.
+```
+
 ## Bump type: sharper than "new capability vs bug fix"
 
 `CONTRIBUTING.md`'s three-line definition (MAJOR breaks the API, MINOR adds a
@@ -149,7 +163,7 @@ Worked precedent from this project's own history:
   `listFilter` config options — genuinely new capability → **MINOR**.
 - `0.5.1` widened the auto-detected search-field heuristic (recognizing
   `description`, `content`, `body`, `text` in addition to the existing list)
-  — no new config option, no new export, just more cases matched by a
+  — no new config option, no new export, only more cases matched by a
   heuristic that already existed → **PATCH**, not MINOR, even though "more
   fields get searched" sounds additive in isolation.
 
