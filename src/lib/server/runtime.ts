@@ -109,6 +109,8 @@ export interface AdminRuntime {
   labelFieldCandidates: string[];
   findModel(name?: string): Model | undefined;
   labelOf(model: Model): string;
+  singularLabelOf(model: Model): string;
+  pluralLabelOf(model: Model): string;
   hiddenFieldsOf(model: Model): Set<string>;
   viewModel(model: Model): ViewModel;
   resolveLabel(
@@ -160,13 +162,40 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
    */
   const schemaEnums = schema?.enums ?? new Map<string, string[]>();
 
-  const models = schema?.models.filter((m) => {
+  const filteredModels = schema?.models.filter((m) => {
     // Exclude explicitly excluded models
     if (exclude.includes(m.name)) return false;
     // Exclude pivot tables if option is enabled
     if (hidePivotTables && m.isPivotTable) return false;
     return true;
   }) || [];
+
+  const orderModels = (items: Model[], order: string[] | undefined, key: string): Model[] => {
+    if (!order) return items;
+    const seen = new Set<string>();
+    const byName = new Map(items.map((m) => [m.name, m]));
+    for (const name of order) {
+      if (seen.has(name)) throw new AdminConfigError(`[sveltekit-admin] ${key} contains duplicate "${name}".`);
+      seen.add(name);
+      if (!byName.has(name)) throw new AdminConfigError(`[sveltekit-admin] ${key} contains unknown model "${name}".`);
+    }
+    return [...order.map((name) => byName.get(name)!), ...items.filter((m) => !seen.has(m.name))];
+  };
+  const validateFieldOrders = (items: Model[]) => {
+    for (const m of items) {
+      const order = modelsConfig[m.name]?.fieldOrder;
+      if (!order) continue;
+      const fieldNames = new Set(m.fields.map((f) => f.name));
+      const seen = new Set<string>();
+      for (const name of order) {
+        if (seen.has(name)) throw new AdminConfigError(`[sveltekit-admin] models.${m.name}.fieldOrder contains duplicate "${name}".`);
+        seen.add(name);
+        if (!fieldNames.has(name)) throw new AdminConfigError(`[sveltekit-admin] models.${m.name}.fieldOrder contains unknown field "${name}".`);
+      }
+    }
+  };
+  const models = orderModels(filteredModels, config.modelOrder, 'modelOrder');
+  validateFieldOrders(models);
 
   // Valider `listFilter` au démarrage : une config invalide (champ
   // inexistant, sensible, relation, type non supporté) doit échouer fort
@@ -212,19 +241,24 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
   };
   const defaultSorts = new Map(models.map((m) => [m.name, defaultSortOf(m)]));
 
-  const labelOf = (m: Model) => {
-    const configured = modelsConfig[m.name]?.label;
-    if (configured) return configured;
+  const defaultLabelOf = (m: Model) => {
     const label = toLabel(m.name);
     return label.charAt(0).toUpperCase() + label.slice(1);
   };
-  const modelList = models.map((m) => ({ name: m.name, label: labelOf(m) }));
+  const singularLabelOf = (m: Model) => modelsConfig[m.name]?.singularLabel ?? modelsConfig[m.name]?.label ?? defaultLabelOf(m);
+  const pluralLabelOf = (m: Model) => modelsConfig[m.name]?.pluralLabel ?? modelsConfig[m.name]?.label ?? defaultLabelOf(m);
+  const labelOf = pluralLabelOf;
+  const modelList = models.map((m) => ({ name: m.name, label: pluralLabelOf(m) }));
   const findModel = (name?: string) =>
     models.find((m) => m.name.toLowerCase() === name?.toLowerCase());
   const viewModel = (m: Model): ViewModel => ({
     name: m.name,
     label: labelOf(m),
-    fields: m.fields,
+    singularLabel: singularLabelOf(m),
+    pluralLabel: pluralLabelOf(m),
+    fields: modelsConfig[m.name]?.fieldOrder
+      ? [...modelsConfig[m.name]!.fieldOrder!.map((name) => m.fields.find((f) => f.name === name)!), ...m.fields.filter((f) => !modelsConfig[m.name]!.fieldOrder!.includes(f.name))]
+      : m.fields,
     primaryKey: primaryKeyOf(m),
     enums: schemaEnums,
     // Non-null par construction : `m` vient toujours de `models`,
@@ -329,6 +363,8 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
     labelFieldCandidates,
     findModel,
     labelOf,
+    singularLabelOf,
+    pluralLabelOf,
     hiddenFieldsOf,
     viewModel,
     resolveLabel,

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { AdminHandlerConfig } from '../handler.js';
   import type { RecordAction, ViewModel } from './types.js';
+import type { RelationEdge } from '../introspection/relations.js';
   import type { SubmittedForm } from '../submitted.js';
   import { isSensitiveStringField } from '../introspection/parser.js';
   import FieldInput from './FieldInput.svelte';
@@ -51,9 +52,16 @@
       : undefined;
 
   const modelConfig = $derived(config.models?.[model.name] || {});
+  type FormItem =
+    | { kind: 'field'; field: (typeof model.fields)[number] }
+    | { kind: 'select'; edge: RelationEdge }
+    | { kind: 'checkbox'; edge: RelationEdge };
   const hidden = $derived(modelConfig.hidden || []);
   const readonly = $derived(modelConfig.readonly || []);
   const listPath = $derived(`${basePath}/${model.name.toLowerCase()}`);
+  const fieldOrder = $derived(model.fields.map((f) => f.name));
+  const edgeOrder = (a: { field: string }, b: { field: string }) =>
+    fieldOrder.indexOf(a.field) - fieldOrder.indexOf(b.field);
 
   /**
    * `Bytes` n'a pas de widget : rendue dans la branche texte générique, la
@@ -108,7 +116,7 @@
             !e.unsupported &&
             !hidden.includes(e.field) &&
             model.relationOptions?.has(`${e.model}.${e.field}`)
-        )
+        ).sort(edgeOrder)
       : []
   );
 
@@ -130,11 +138,22 @@
             !e.unsupported &&
             !hidden.includes(e.field) &&
             model.relationOptions?.has(`${e.model}.${e.field}`)
-        )
+        ).sort(edgeOrder)
       : []
   );
+  const formItems = $derived.by(() => {
+    const selects = new Map(relationSelects.map((edge) => [edge.field, edge]));
+    const checkboxes = new Map(relationCheckboxGroups.map((edge) => [edge.field, edge]));
+    return model.fields.flatMap((field): FormItem[] => {
+      const select = selects.get(field.name);
+      if (select) return [{ kind: 'select' as const, edge: select }];
+      const checkbox = checkboxes.get(field.name);
+      if (checkbox) return [{ kind: 'checkbox' as const, edge: checkbox }];
+      return formFields.includes(field) ? [{ kind: 'field' as const, field }] : [];
+    });
+  });
 
-  // Built as a single string (rather than {#if}/{#each}) so an empty/create-mode
+
   // render stays a single @html call: Svelte 5's SSR wraps every {#if}/{#each} node
   // in its own hydration-boundary comment regardless of the branch/array taken, so
   // nesting recordActions in its own control-flow blocks would add bytes to every
@@ -156,13 +175,13 @@
     model.relationGraph
       ? [...model.relationGraph.edges.values()].filter(
           (e) => e.model === model.name && (e.kind === 'to-many-inverse' || e.kind === 'to-one-inverse')
-        )
+        ).sort(edgeOrder)
       : []
   );
 </script>
 
 <a href={listPath} class="ska-back">← Back to list</a>
-<h1>{mode === 'create' ? 'Create' : 'Edit'} {model.label}</h1>
+<h1>{mode === 'create' ? 'Create' : 'Edit'} {model.singularLabel ?? model.label}</h1>
 {#if mode === 'edit'}
   <p class="ska-subtitle">ID: {item[model.primaryKey]}</p>
 {/if}
@@ -173,32 +192,32 @@
 <div class="ska-card">
   <form method="POST" class="ska-form">
     <input type="hidden" name="_action" value={mode === 'create' ? 'create' : 'update'} />
-    {#each formFields as f (f.name)}
-      <FieldInput
-        field={f}
-        value={item ? item[f.name] : null}
-        isReadonly={isFieldReadonly(f)}
-        {submitted}
-        errorMessage={errorFor(f.name)}
-        enums={model.enums}
-      />
-    {/each}
-    {#each relationSelects as edge (edge.field)}
-      <RelationSelect
-        {edge}
-        meta={model.relationOptions!.get(`${edge.model}.${edge.field}`)!}
-        currentValue={currentValueOf(edge.scalarFields[0])}
-        {config}
-        errorMessage={errorFor(edge.field, edge.scalarFields[0])}
-      />
-    {/each}
-    {#each relationCheckboxGroups as edge (edge.field)}
-      <RelationCheckboxes
-        {edge}
-        meta={model.relationOptions!.get(`${edge.model}.${edge.field}`)!}
-        submittedIds={submitted?.m2m[edge.field]}
-        errorMessage={errorFor(edge.field)}
-      />
+    {#each formItems as formItem (formItem.kind === 'field' ? formItem.field.name : formItem.edge.field)}
+      {#if formItem.kind === 'field'}
+        <FieldInput
+          field={formItem.field}
+          value={item ? item[formItem.field.name] : null}
+          isReadonly={isFieldReadonly(formItem.field)}
+          {submitted}
+          errorMessage={errorFor(formItem.field.name)}
+          enums={model.enums}
+        />
+      {:else if formItem.kind === 'select'}
+        <RelationSelect
+          edge={formItem.edge}
+          meta={model.relationOptions!.get(`${formItem.edge.model}.${formItem.edge.field}`)!}
+          currentValue={currentValueOf(formItem.edge.scalarFields[0])}
+          {config}
+          errorMessage={errorFor(formItem.edge.field, formItem.edge.scalarFields[0])}
+        />
+      {:else}
+        <RelationCheckboxes
+          edge={formItem.edge}
+          meta={model.relationOptions!.get(`${formItem.edge.model}.${formItem.edge.field}`)!}
+          submittedIds={submitted?.m2m[formItem.edge.field]}
+          errorMessage={errorFor(formItem.edge.field)}
+        />
+      {/if}
     {/each}
     <div class="ska-form__actions">
       <button type="submit" class="ska-btn ska-btn--primary">{mode === 'create' ? 'Create' : 'Save Changes'}</button>

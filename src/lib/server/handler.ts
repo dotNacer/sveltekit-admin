@@ -105,11 +105,19 @@ export interface AdminHandlerConfig {
    */
   audit?: (entry: AuditEvent) => void | Promise<void>;
   /** Per-model configuration */
+  /** Models listed here are rendered first; unlisted models keep schema order. */
+  modelOrder?: string[];
   models?: Record<string, {
     hidden?: string[];
     readonly?: string[];
     listFields?: string[];
     label?: string;
+    /** Singular heading/action label. Falls back to `label`. */
+    singularLabel?: string;
+    /** Plural navigation/list label. Falls back to `label`. */
+    pluralLabel?: string;
+    /** Fields listed here are rendered first; unlisted fields keep schema order. */
+    fieldOrder?: string[];
     scope?: (ctx: { locals?: any }) => Record<string, unknown> | import('./adapters/types.js').Filter;
     /**
      * Scoping `where` applied to the LIST VIEW ONLY of this model

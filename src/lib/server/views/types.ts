@@ -17,6 +17,8 @@ export interface RelationMeta {
 export interface ViewModel {
   name: string;
   label: string;
+  singularLabel?: string;
+  pluralLabel?: string;
   fields: PrismaField[];
   primaryKey: string;
   /**

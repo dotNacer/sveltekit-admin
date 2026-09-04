@@ -208,12 +208,12 @@
 
 <div class="ska-header">
   <div>
-    <h1>{model.label}</h1>
+    <h1>{model.pluralLabel ?? model.label}</h1>
     <p class="ska-subtitle">{pagination.total} records</p>
   </div>
   <a href="{listPath}/new" class="ska-btn ska-btn--primary">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-    Add {model.label}
+    Add {model.singularLabel ?? model.label}
   </a>
 </div>
 

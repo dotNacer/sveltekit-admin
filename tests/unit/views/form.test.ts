@@ -161,6 +161,12 @@ describe('Form.svelte (create)', () => {
     expect(renderForm('create', viewModel, '/admin', config)).toContain('value="create"');
   });
 
+  it('utilise le label singulier pour le titre', () => {
+    const html = renderForm('create', { ...viewModel, label: 'Users', singularLabel: 'User', pluralLabel: 'Users' }, '/admin', config);
+    expect(html).toContain('<h1>Create User</h1>');
+    expect(html).not.toContain('<h1>Create Users</h1>');
+  });
+
   it('fonctionne sans config.models déclaré', () => {
     // Couvre les valeurs par défaut `config.models?.[model.name] || {}` et
     // `modelConfig.hidden || []` quand aucun modèle n'est configuré.

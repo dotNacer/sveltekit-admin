@@ -97,12 +97,41 @@ describe('createAdminRuntime', () => {
     expect(findMany).toHaveBeenCalledOnce();
   });
 
-  it('labelOf utilise models[].label sinon toLabel capitalisé', () => {
-    const rt = runtimeFor(FULL_SCHEMA_PATH, { models: { User: { label: 'Accounts' } } });
-    const user = rt.findModel('User')!;
-    expect(rt.labelOf(user)).toBe('Accounts');
-    const post = rt.findModel('Post')!;
-    expect(rt.labelOf(post)).toBe('Post');
+  it('résout les labels singulier/pluriel en gardant label rétrocompatible', () => {
+    const configured = runtimeFor(FULL_SCHEMA_PATH, {
+      models: { User: { singularLabel: 'Account', pluralLabel: 'Accounts' } }
+    });
+    const user = configured.findModel('User')!;
+    expect(configured.singularLabelOf(user)).toBe('Account');
+    expect(configured.pluralLabelOf(user)).toBe('Accounts');
+    expect(configured.labelOf(user)).toBe('Accounts');
+    expect(configured.viewModel(user)).toMatchObject({
+      label: 'Accounts', singularLabel: 'Account', pluralLabel: 'Accounts'
+    });
+
+    const legacy = runtimeFor(FULL_SCHEMA_PATH, { models: { User: { label: 'People' } } });
+    expect(legacy.singularLabelOf(legacy.findModel('User')!)).toBe('People');
+    expect(legacy.pluralLabelOf(legacy.findModel('User')!)).toBe('People');
+    expect(legacy.singularLabelOf(legacy.findModel('Post')!)).toBe('Post');
+  });
+
+  it('applique modelOrder et fieldOrder partiels sans réordonner le reste', () => {
+    const rt = runtimeFor(FULL_SCHEMA_PATH, {
+      modelOrder: ['Post', 'User'],
+      models: { User: { fieldOrder: ['name', 'email'] } }
+    });
+    expect(rt.models.slice(0, 2).map((m) => m.name)).toEqual(['Post', 'User']);
+    expect(rt.modelList.slice(0, 2).map((m) => m.name)).toEqual(['Post', 'User']);
+    expect(rt.viewModel(rt.findModel('User')!).fields.slice(0, 3).map((f) => f.name)).toEqual([
+      'name', 'email', 'id'
+    ]);
+  });
+
+  it('refuse les noms inconnus et doublons dans les ordres au démarrage', () => {
+    expect(() => runtimeFor(FULL_SCHEMA_PATH, { modelOrder: ['User', 'User'] })).toThrow(/modelOrder.*duplicate/i);
+    expect(() => runtimeFor(FULL_SCHEMA_PATH, { modelOrder: ['Ghost'] })).toThrow(/modelOrder.*Ghost/i);
+    expect(() => runtimeFor(FULL_SCHEMA_PATH, { models: { User: { fieldOrder: ['email', 'email'] } } })).toThrow(/fieldOrder.*duplicate/i);
+    expect(() => runtimeFor(FULL_SCHEMA_PATH, { models: { User: { fieldOrder: ['missing'] } } })).toThrow(/fieldOrder.*missing/i);
   });
 
   it('hidePivotTables: true masque les pivots (défaut)', () => {
