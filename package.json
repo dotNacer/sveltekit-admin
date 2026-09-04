@@ -49,6 +49,7 @@
     "test:watch": "svelte-kit sync && pnpm run test:gen && vitest",
     "test:coverage": "svelte-kit sync && pnpm run test:gen && vitest run --coverage",
     "lint": "svelte-kit sync && eslint .",
+    "lint:changesets": "node scripts/check-changesets.mjs",
     "format": "prettier --write .",
     "changeset": "changeset",
     "version-packages": "changeset version",
