@@ -253,16 +253,99 @@ describe('loadDashboard', () => {
     await expect(loadDashboard(runtime, { locals: {} })).rejects.toThrow(OPAQUE_FILTER_ERROR);
   });
 
-  // TEMPORAIRE (tâche 10) : le chargement du widget `recent` est la tâche 11.
-  // En attendant, `loadDashboard` lève fort plutôt que de tomber
-  // silencieusement dans la branche `models` ou de l'ignorer. La tâche 11
-  // SUPPRIME ce test en implémentant le vrai chargement.
-  it('lève : le chargement du widget recent n’est pas encore implémenté (tâche 11)', async () => {
+  // Le mock `createPrismaMock.findMany` ignore `orderBy` (filtre par `where`
+  // puis tranche) : lui apprendre à trier ferait bouger l'ordre de chaque
+  // autre test de liste et des snapshots de caractérisation. On vérifie donc
+  // le CONTRAT de tri (ce que `findMany` a reçu), pas un ordre que le mock ne
+  // peut pas produire ; l'ordre observable réel est couvert par le test
+  // d'intégration SQLite de la tâche suivante.
+  it('demande le tri décroissant sur la clé primaire et respecte la limite', async () => {
+    const { runtime, prisma } = runtimeWith({
+      dashboard: { widgets: [{ type: 'recent', model: 'User', limit: 1 }] }
+    });
+    const { rows } = await loadDashboard(runtime, { locals: {} });
+    expect(callsTo(prisma, 'user', 'findMany')[0].args).toMatchObject({
+      orderBy: { id: 'desc' },
+      take: 1
+    });
+    // Le mock ne trie pas : `take: 1` sur `[A, B]` non trié renvoie `A`, pas
+    // le plus récent. On affirme donc le mapping des lignes que le mock rend
+    // réellement, dans son ordre à lui.
+    expect(rows).toEqual([
+      {
+        kind: 'recent',
+        title: 'Latest User',
+        href: '/admin/user',
+        items: [{ label: 'A', href: '/admin/user/1' }]
+      }
+    ]);
+  });
+
+  it('n’expose ni champ sensible ni champ masqué dans un libellé', async () => {
     const { runtime } = runtimeWith({
+      models: { User: { hidden: ['name'] } },
+      dashboard: { widgets: [{ type: 'recent', model: 'User', limit: 2 }] }
+    });
+    const { rows } = await loadDashboard(runtime, { locals: {} });
+    const labels = (rows[0] as any).items.map((i: any) => i.label);
+    // `name` est masqué : le label retombe sur `email`, jamais sur le mot de
+    // passe ni sur le champ masqué. Ordre du mock (non trié) : A puis B.
+    expect(labels).toEqual(['a@x.y', 'b@x.y']);
+    expect(JSON.stringify(rows)).not.toContain('secret');
+  });
+
+  it('scope la lecture des récents', async () => {
+    const { runtime, prisma } = runtimeWith({
+      models: { User: { scope: () => ({ isActive: true }) } },
       dashboard: { widgets: [{ type: 'recent', model: 'User' }] }
     });
-    await expect(loadDashboard(runtime, { locals: {} })).rejects.toThrow(
-      /recent widget loading is not implemented yet/
+    const { rows } = await loadDashboard(runtime, { locals: {} });
+    expect((rows[0] as any).items).toEqual([{ label: 'A', href: '/admin/user/1' }]);
+    expect(callsTo(prisma, 'user', 'findMany')[0].args).toMatchObject({
+      where: { isActive: true },
+      take: 5
+    });
+  });
+
+  it('rend un panneau vide quand aucun enregistrement ne correspond', async () => {
+    const { runtime } = runtimeWith({
+      dashboard: { widgets: [{ type: 'recent', model: 'Category' }] }
+    });
+    const { rows } = await loadDashboard(runtime, { locals: {} });
+    expect((rows[0] as any).items).toEqual([]);
+  });
+
+  it('rend une liste vide quand la table n’existe pas encore', async () => {
+    const prisma = createPrismaMock(DATA, {
+      user: {
+        findMany: () => {
+          throw new Error('no such table: User');
+        }
+      }
+    });
+    const { runtime } = runtimeWith(
+      { dashboard: { widgets: [{ type: 'recent', model: 'User' }] } },
+      prisma
     );
+    const { rows } = await loadDashboard(runtime, { locals: {} });
+    expect((rows[0] as any).items).toEqual([]);
+  });
+
+  it('laisse remonter une erreur de filtre opaque (Drizzle) sur un widget recent plutôt que de la rendre vide', async () => {
+    // Même distinction que pour `stats`/`count` : seule une table absente est
+    // tolérée par ce catch, pas un `listWhere` opaque refusé par l'adaptateur
+    // Drizzle.
+    const prisma = createPrismaMock(DATA, {
+      user: {
+        findMany: () => {
+          throw new Error(OPAQUE_FILTER_ERROR);
+        }
+      }
+    });
+    const { runtime } = runtimeWith(
+      { dashboard: { widgets: [{ type: 'recent', model: 'User' }] } },
+      prisma
+    );
+    await expect(loadDashboard(runtime, { locals: {} })).rejects.toThrow(OPAQUE_FILTER_ERROR);
   });
 });

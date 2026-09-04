@@ -1,6 +1,7 @@
 <script lang="ts">
   import StatCard from './StatCard.svelte';
   import ModelCard from './ModelCard.svelte';
+  import RecentPanel from './RecentPanel.svelte';
   import type { DashboardRow } from '../dashboard.js';
 
   let {
@@ -22,7 +23,7 @@
         <StatCard value={card.value} label={card.label} icon={card.icon} href={card.href} />
       {/each}
     </div>
-  {:else}
+  {:else if row.kind === 'models'}
     <section class="ska-dashboard__section">
       {#if row.title}<h2>{row.title}</h2>{/if}
       <div class="ska-models">
@@ -31,5 +32,7 @@
         {/each}
       </div>
     </section>
+  {:else if row.kind === 'recent'}
+    <RecentPanel title={row.title} href={row.href} items={row.items} />
   {/if}
 {/each}
