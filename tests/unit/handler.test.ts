@@ -202,13 +202,27 @@ describe('réponses GET', () => {
     expect(prisma.calls).toHaveLength(0);
   });
 
+  it('applique les catégories de navigation et laisse les autres modèles à la fin', async () => {
+    const { handler } = build({ navigation: { categories: [{ label: 'People', models: ['User'] }] } });
+    const { event, resolve } = createEvent({ url: '/admin' });
+    const html = await (await handler({ event, resolve } as any)).text();
+    expect(html.indexOf('People')).toBeLessThan(html.indexOf('/admin/post'));
+    expect(html.indexOf('/admin/user')).toBeLessThan(html.indexOf('/admin/post'));
+  });
+
   it('applique le label configuré du modèle', async () => {
     const { handler } = build({ models: { User: { label: 'Comptes' } } });
     const { event, resolve } = createEvent({ url: '/admin' });
     const html = await (await handler({ event, resolve } as any)).text();
     expect(html).toContain('Comptes');
   });
+
+  it('rejette une catégorie qui référence un modèle inconnu au boot', () => {
+    expect(() => build({ navigation: { categories: [{ label: 'Nope', models: ['Missing'] }] } }))
+      .toThrow(/unknown model/);
+  });
 });
+
 
 describe('actions POST', () => {
   it('crée puis redirige en 303', async () => {

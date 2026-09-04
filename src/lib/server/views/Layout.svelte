@@ -6,6 +6,7 @@
     content,
     config,
     modelList,
+    modelGroups,
     currentModel,
     extraStyles = '',
     extraScripts = ''
@@ -13,6 +14,7 @@
     content: string;
     config: AdminHandlerConfig;
     modelList: Array<{ name: string; label: string }>;
+    modelGroups?: Array<{ label: string; models: Array<{ name: string; label: string }> }>;
     currentModel?: string;
     extraStyles?: string;
     extraScripts?: string;
@@ -72,6 +74,23 @@
               Dashboard
             </a>
           </li>
+          {#if modelGroups}
+            {#each modelGroups as group (group.label)}
+              <li class="ska-nav__section" aria-label={group.label}>{group.label}</li>
+              {#each group.models as m (m.name)}
+              <li class="ska-nav__item">
+                <a
+                  href="{basePath}/{m.name.toLowerCase()}"
+                  class="ska-nav__link"
+                  class:ska-nav__link--active={currentModel?.toLowerCase() === m.name.toLowerCase()}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>
+                  {m.label}
+                </a>
+              </li>
+              {/each}
+            {/each}
+          {/if}
           {#each modelList as m (m.name)}
           <li class="ska-nav__item">
             <a

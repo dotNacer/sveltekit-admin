@@ -230,6 +230,10 @@ export interface AdminHandlerConfig {
     linkThreshold?: number;
     autoDetect?: boolean;
   };
+  /** Custom navigation categories. Models not listed remain below them. */
+  navigation?: {
+    categories?: Array<{ label: string; models: string[] }>;
+  };
   /** Custom branding */
   branding?: {
     title?: string;
@@ -655,6 +659,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
         content,
         config: runtime.config,
         modelList: runtime.modelList,
+        modelGroups: runtime.modelGroups,
         currentModel,
         extraStyles,
         extraScripts
