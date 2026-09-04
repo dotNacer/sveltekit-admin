@@ -8,7 +8,8 @@ import {
   readBump,
   summaryLength,
   limitFor,
-  validateChangeset
+  validateChangeset,
+  formatChangelog
 } from '../../scripts/changeset-rules.mjs';
 
 const cs = (frontmatter: string, body: string) => `---\n${frontmatter}\n---\n\n${body}\n`;
@@ -99,6 +100,14 @@ describe('validateChangeset', () => {
     expect(validateChangeset('x.md', 'feat: X.')[0]).toContain('frontmatter');
   });
 
+  it('rejects a non-empty frontmatter naming no readable sveltekit-admin bump', () => {
+    const [error] = validateChangeset(
+      'x.md',
+      "---\nsome-other-package: minor\n---\n\nfeat: X.\n"
+    );
+    expect(error).toContain("frontmatter must read `'sveltekit-admin': major|minor|patch`");
+  });
+
   it('rejects an empty body', () => {
     expect(validateChangeset('x.md', "---\n'sveltekit-admin': minor\n---\n\n")[0]).toContain(
       'body is empty'
@@ -164,5 +173,112 @@ describe('validateChangeset', () => {
     for (const error of validateChangeset('my-change.md', valid('nope.'))) {
       expect(error.startsWith('my-change.md: ')).toBe(true);
     }
+  });
+});
+
+describe('formatChangelog', () => {
+  const changelog = (body: string) => `# Changelog\n\n## 0.10.0\n\n${body}\n\n## 0.9.0\n\nold stuff\n`;
+
+  it('regroups bullets by tag, in section order', () => {
+    const { output, errors, changed } = formatChangelog(
+      changelog(
+        [
+          '### Minor Changes',
+          '',
+          '- feat: **Column sorting.** Headings are links. ([#42](u))',
+          '- fix: An emptied field writes `null`. ([#37](u))',
+          '- breaking: It breaks. Do this. ([#50](u))',
+          '- improvement: Faster now. ([#39](u))'
+        ].join('\n')
+      )
+    );
+    expect(errors).toEqual([]);
+    expect(changed).toBe(true);
+    expect(output).toBe(
+      [
+        '# Changelog',
+        '',
+        '## 0.10.0',
+        '',
+        '### Breaking changes',
+        '',
+        '- It breaks. Do this. ([#50](u))',
+        '',
+        '### Features',
+        '',
+        '- **Column sorting.** Headings are links. ([#42](u))',
+        '',
+        '### Improvements',
+        '',
+        '- Faster now. ([#39](u))',
+        '',
+        '### Fixes',
+        '',
+        '- An emptied field writes `null`. ([#37](u))',
+        '',
+        '## 0.9.0',
+        '',
+        'old stuff',
+        ''
+      ].join('\n')
+    );
+  });
+
+  it('omits empty sections', () => {
+    const { output } = formatChangelog(changelog('- fix: A was wrong. ([#1](u))'));
+    expect(output).toContain('### Fixes');
+    expect(output).not.toContain('### Features');
+    expect(output).not.toContain('### Breaking changes');
+  });
+
+  it('leaves earlier version blocks untouched', () => {
+    const { output } = formatChangelog(changelog('- fix: A was wrong. ([#1](u))'));
+    expect(output).toContain('## 0.9.0\n\nold stuff');
+  });
+
+  it('keeps a multi-line bullet together and indented', () => {
+    const { output } = formatChangelog(
+      changelog('- feat: **X.** First line here\n  and its continuation. ([#2](u))')
+    );
+    expect(output).toContain('- **X.** First line here\n  and its continuation. ([#2](u))');
+  });
+
+  it('preserves the PR link and author text it does not own', () => {
+    const { output } = formatChangelog(
+      changelog('- [#42](u) [`abc1234`](u) Thanks [@dotNacer](u)! - feat: **X.**')
+    );
+    expect(output).toContain('- [#42](u) [`abc1234`](u) Thanks [@dotNacer](u)! - **X.**');
+  });
+
+  it('is idempotent: a formatted block is left alone', () => {
+    const formatted = changelog('### Fixes\n\n- A was wrong. ([#1](u))');
+    const { output, errors, changed } = formatChangelog(formatted);
+    expect(errors).toEqual([]);
+    expect(changed).toBe(false);
+    expect(output).toBe(formatted);
+  });
+
+  it('fails loudly on an untagged bullet among tagged ones', () => {
+    const { errors, output } = formatChangelog(
+      changelog('- feat: **X.** ([#1](u))\n- Updated dependencies [abc]:')
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('0 tags');
+    expect(output).toContain('- feat:'); // nothing rewritten
+  });
+
+  it('fails loudly on a bullet carrying two tags', () => {
+    const { errors } = formatChangelog(changelog('- feat: **X.** fix: also this. ([#1](u))'));
+    expect(errors[0]).toContain('2 tags');
+  });
+
+  it('fails loudly with no version heading', () => {
+    const { errors } = formatChangelog('# Changelog\n\nnothing here\n');
+    expect(errors[0]).toContain('no `## <version>` heading');
+  });
+
+  it('fails loudly on a version block with no bullets', () => {
+    const { errors } = formatChangelog('# Changelog\n\n## 0.10.0\n\n### Minor Changes\n');
+    expect(errors[0]).toContain('no bullets');
   });
 });

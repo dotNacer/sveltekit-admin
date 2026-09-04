@@ -141,3 +141,90 @@ export function validateChangeset(filename, contents) {
 
   return errors;
 }
+
+/** A tag anywhere inside a changelog bullet. Built fresh to avoid shared `lastIndex`. */
+function tagPattern(flags = '') {
+  return new RegExp(`\\b(${TAGS.join('|')}):[ \\t]`, flags);
+}
+
+/**
+ * Regroup the newest `## <version>` block of a changelog by tag.
+ *
+ * Only the newest block is touched; earlier versions keep whatever shape they
+ * were released with. Fails without rewriting anything rather than emitting a
+ * half-sorted changelog.
+ *
+ * @param {string} content
+ * @returns {{ output: string; errors: string[]; changed: boolean }}
+ */
+export function formatChangelog(content) {
+  const lines = content.split('\n');
+  const start = lines.findIndex((line) => /^## /.test(line));
+  if (start === -1) {
+    return { output: content, errors: ['CHANGELOG.md: no `## <version>` heading found.'], changed: false };
+  }
+
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^## /.test(lines[i])) {
+      end = i;
+      break;
+    }
+  }
+
+  /** @type {string[][]} */
+  const collected = [];
+  for (const line of lines.slice(start + 1, end)) {
+    if (/^- /.test(line)) collected.push([line]);
+    else if (/^#{1,6} /.test(line)) continue;
+    else if (collected.length > 0) collected[collected.length - 1].push(line);
+  }
+
+  const bullets = collected.map((b) => b.join('\n').replace(/\s+$/, '')).filter((b) => b !== '');
+  if (bullets.length === 0) {
+    return {
+      output: content,
+      errors: [`CHANGELOG.md: version block "${lines[start].slice(3).trim()}" has no bullets.`],
+      changed: false
+    };
+  }
+
+  // Already formatted: no bullet carries a tag, so there is nothing to move.
+  if (bullets.every((bullet) => !tagPattern().test(bullet))) {
+    return { output: content, errors: [], changed: false };
+  }
+
+  /** @type {string[]} */
+  const errors = [];
+  /** @type {Map<string, string[]>} */
+  const buckets = new Map(SECTIONS.map((section) => [section.tag, []]));
+
+  for (const bullet of bullets) {
+    const found = bullet.match(tagPattern('g')) ?? [];
+    if (found.length !== 1) {
+      errors.push(
+        `CHANGELOG.md: bullet carries ${found.length} tags, expected exactly 1: ${bullet.split('\n')[0]}`
+      );
+      continue;
+    }
+    const match = /** @type {RegExpExecArray} */ (tagPattern().exec(bullet));
+    const stripped = (bullet.slice(0, match.index) + bullet.slice(match.index + match[0].length))
+      .replace(/^- +/, '- ');
+    /** @type {string[]} */ (buckets.get(match[1])).push(stripped);
+  }
+
+  if (errors.length > 0) return { output: content, errors, changed: false };
+
+  /** @type {string[]} */
+  const rendered = [];
+  for (const section of SECTIONS) {
+    const items = /** @type {string[]} */ (buckets.get(section.tag));
+    if (items.length === 0) continue;
+    rendered.push(`### ${section.title}`, '', ...items, '');
+  }
+  rendered.pop();
+
+  const tail = end < lines.length ? ['', ...lines.slice(end)] : [];
+  const output = [...lines.slice(0, start + 1), '', ...rendered, ...tail].join('\n');
+  return { output, errors: [], changed: true };
+}
