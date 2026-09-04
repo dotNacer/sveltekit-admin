@@ -180,12 +180,29 @@ describe('createAdminRuntime', () => {
     });
   });
 
-  it('un widget recent trié respecte models[].hidden/listFields configurés pour ce modèle', () => {
-    const rt = runtimeFor(FULL_SCHEMA_PATH, {
-      models: { User: { hidden: ['bio'] } },
-      dashboard: { widgets: [{ type: 'recent', model: 'User', sort: 'email' }] }
-    });
-    expect(rt.dashboard.widgets[0]).toMatchObject({ orderBy: { email: 'asc' } });
+  it('un widget recent trié refuse un champ masqué via models[].hidden', () => {
+    // `bio` est un champ normal (String, non sensible par nom) qui figurerait
+    // dans les colonnes triables si `hidden` n'était pas pris en compte ici —
+    // le test précédent triait sur `email`, qui n'est pas masqué, et restait
+    // vert même sans le câblage `hidden`. Trier sur la colonne masquée elle-même
+    // est la seule façon de prouver que `hidden` ferme aussi ce chemin.
+    expect(() =>
+      runtimeFor(FULL_SCHEMA_PATH, {
+        models: { User: { hidden: ['bio'] } },
+        dashboard: { widgets: [{ type: 'recent', model: 'User', sort: 'bio' }] }
+      })
+    ).toThrow(/does not display/);
+  });
+
+  it('un widget count refuse un filtre f.* sur un champ masqué via models[].hidden', () => {
+    expect(() =>
+      runtimeFor(FULL_SCHEMA_PATH, {
+        models: { User: { hidden: ['bio'] } },
+        dashboard: {
+          widgets: [{ type: 'count', model: 'User', label: 'Bio', query: 'f.bio=hello' }]
+        }
+      })
+    ).toThrow(/query rejects/);
   });
 
   it('un widget recent respecte le defaultSort configuré pour ce modèle', () => {

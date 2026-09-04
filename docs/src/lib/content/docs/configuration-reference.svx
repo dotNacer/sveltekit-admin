@@ -62,6 +62,7 @@ createAdminHandler({
 | `prisma`            | `PrismaClient`                           | —                               | Required. Your Prisma client instance.                                       |
 | `prismaSchemaPath`  | `string`                                  | `'./prisma/schema.prisma'`     | Path to the schema file the admin introspects to discover models and fields. |
 | `basePath`          | `string`                                  | `'/admin'`                     | URL prefix all admin routes are served under.                                |
+| `dashboard`         | `{ title?: string; subtitle?: string; widgets?: DashboardWidget[] }` | global stats + one card per model | Composes the home page from an ordered list of widgets (`stats`, `models`, `count`, `recent`). See [Dashboard](/docs/dashboard). |
 | `authCheck`         | `(event: RequestEvent) => boolean \| Promise<boolean>` | none (open access) | Gate that must return `true` for a request to reach the admin. See [Authentication](/docs/authentication). |
 | `csrf`              | `false \| { trustedOrigins?: string[] }`  | check enabled          | Origin verification for every state-changing admin request. On by default; `false` opts out entirely. See [Cross-site protection](/docs/csrf). |
 | `audit`             | `(entry: AuditEvent) => void \| Promise<void>` | none | Called after a successful create/update/delete with a redacted event (actor via `entry.event.locals`). See [Audit log](/docs/audit-log). |

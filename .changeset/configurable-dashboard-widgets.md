@@ -19,4 +19,4 @@ Two widget types ship here: `stats` (the two global cards) and `models` (a grid,
 
 **The configuration is validated when the handler is created, not when the page renders.** An unknown widget type, or a widget pointing at a model that does not exist or sits in `exclude`, throws at boot — the same policy as `listFilter` and plugins. A model in `exclude` therefore cannot be brought back into view through a widget.
 
-Counts are scoped exactly as before, and a model appearing in several widgets is counted once per request.
+A model appearing in several widgets is counted once per request.
