@@ -207,7 +207,9 @@ function resolveWidget(
     // Pas de devinette sur un champ nommé `createdAt` : même position que
     // `defaultSort`, deviner réordonnerait silencieusement et la devinette
     // divergerait de ce que la vue rend. Sans tri configuré, clé primaire
-    // décroissante — le défaut de l'adapter.
+    // décroissante — le défaut est fourni ICI, précisément parce que
+    // `findMany` n'en a aucun par lui-même (Prisma transmet `orderBy` tel
+    // quel, Drizzle n'émet même pas de `ORDER BY` quand il est vide).
     const configured = deps.defaultSortOf(model);
     const field = widget.sort ?? configured?.field ?? primaryKeyOf(model);
     const dir = widget.dir ?? (widget.sort ? 'asc' : (configured?.dir ?? 'desc'));
