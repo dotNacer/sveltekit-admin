@@ -159,6 +159,48 @@ describe('handler sur une vraie base SQLite', () => {
     expect(error).not.toHaveBeenCalled();
     error.mockRestore();
   });
+
+  it('rend un dashboard configuré de bout en bout, avec un vrai tri « recent »', async () => {
+    // Le fixture Prisma n'a ni modèle `User` ni champ `password` : on
+    // s'appuie sur les modèles réellement présents ici (`Widget`, `Doc`).
+    const dashboardHandler = createAdminHandler({
+      prisma,
+      prismaSchemaPath: SCHEMA,
+      dashboard: {
+        title: 'Console',
+        widgets: [
+          { type: 'count', model: 'Widget', label: 'Active widgets', query: 'f.active=true' },
+          { type: 'models', title: 'Content', models: ['Doc'] },
+          { type: 'recent', model: 'Widget', limit: 2 }
+        ]
+      }
+    });
+    // Id explicite, HORS de l'ordre d'insertion : la ligne d'id 3 est créée
+    // EN PREMIER, celle d'id 10 en second. `createPrismaMock.findMany`
+    // (utilisé par les tests unitaires) ignore `orderBy` et ne peut donc
+    // jamais distinguer un vrai tri d'un simple ordre d'insertion — c'est
+    // exactement ce qu'un mock ne peut pas prouver. Ici, si `loadDashboard`
+    // renvoyait les lignes dans l'ordre d'insertion plutôt que par un
+    // véritable `ORDER BY id DESC` exécuté par SQLite, « Three » (id 3)
+    // sortirait avant « Ten » (id 10). Seul le vrai moteur peut mettre
+    // « Ten » en tête.
+    await prisma.widget.create({ data: { id: 3, name: 'Three', active: true } });
+    await prisma.widget.create({ data: { id: 10, name: 'Ten', active: false } });
+
+    const { event, resolve: res } = createEvent({ url: '/admin' });
+    const html = await (await dashboardHandler({ event, resolve: res })).text();
+
+    expect(html).toContain('Console');
+    expect(html).toContain('Active widgets');
+    expect(html).toContain('href="/admin/widget?f.active=true"');
+    expect(html).toContain('Content');
+    expect(html).toContain('Latest Widget');
+    const tenIndex = html.indexOf('href="/admin/widget/10"');
+    const threeIndex = html.indexOf('href="/admin/widget/3"');
+    expect(tenIndex).toBeGreaterThan(-1);
+    expect(threeIndex).toBeGreaterThan(-1);
+    expect(tenIndex).toBeLessThan(threeIndex);
+  });
 });
 
 describe('audit callback sur une vraie base SQLite', () => {

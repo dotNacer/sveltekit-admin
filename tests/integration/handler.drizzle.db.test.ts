@@ -418,6 +418,59 @@ describe('admin handler with a real Drizzle SQLite database', () => {
     expect(html).not.toContain('Hidden tenant');
   });
 
+  it('renders a configured dashboard end-to-end, with a real "recent" ordering', async () => {
+    // Gate de parité : si le compilateur de filtre Drizzle ou son
+    // `findMany`/`countRecords` ne sait pas produire ce qu'un widget
+    // `count`/`recent` demande, c'est ici que ça se voit.
+    const dashboardHandler = createAdminHandler({
+      adapter: createDrizzleAdapter({ db, schema }),
+      authCheck: () => true,
+      dashboard: {
+        title: 'Console',
+        widgets: [
+          { type: 'count', model: 'users', label: 'Tenant one users', query: 'f.tenantId=1' },
+          { type: 'models', title: 'Content', models: ['posts'] },
+          { type: 'recent', model: 'users', limit: 2 }
+        ]
+      }
+    });
+    // Id explicite, HORS de l'ordre d'insertion : la ligne d'id 3 est
+    // insérée EN PREMIER, celle d'id 10 en second. `createPrismaMock`
+    // (utilisé côté unitaire, pas ici) ignore `orderBy` et ne peut donc
+    // jamais distinguer un vrai tri d'un simple ordre d'insertion. Si
+    // `loadDashboard` renvoyait les lignes dans l'ordre d'insertion plutôt
+    // que par un véritable `ORDER BY id DESC` exécuté par SQLite, "Three"
+    // (id 3) sortirait avant "Ten" (id 10). Seul le vrai moteur peut mettre
+    // "Ten" en tête.
+    sqlite
+      .prepare(
+        'INSERT INTO users (id, email, name, password_hash, tenant_id) VALUES (?, ?, ?, ?, ?)'
+      )
+      .run(3, 'three@x.y', 'Three', 'secret-hash-three', 1);
+    sqlite
+      .prepare(
+        'INSERT INTO users (id, email, name, password_hash, tenant_id) VALUES (?, ?, ?, ?, ?)'
+      )
+      .run(10, 'ten@x.y', 'Ten', 'secret-hash-ten', 2);
+
+    const html = await (await callWith(dashboardHandler, '/admin')).text();
+
+    expect(html).toContain('Console');
+    expect(html).toContain('Tenant one users');
+    expect(html).toContain('href="/admin/users?f.tenantId=1"');
+    expect(html).toContain('Content');
+    expect(html).toContain('Latest Users');
+    // Redaction : la colonne sensible n'apparaît nulle part, même si elle
+    // n'est pas le champ choisi comme libellé.
+    expect(html).not.toContain('secret-hash-three');
+    expect(html).not.toContain('secret-hash-ten');
+    const tenIndex = html.indexOf('href="/admin/users/10"');
+    const threeIndex = html.indexOf('href="/admin/users/3"');
+    expect(tenIndex).toBeGreaterThan(-1);
+    expect(threeIndex).toBeGreaterThan(-1);
+    expect(tenIndex).toBeLessThan(threeIndex);
+  });
+
   it('renders an error instead of failing open for a nested listWhere scope', async () => {
     const tenantOneAuthorId = insertUser('one@x.y', 1, 'Tenant one');
     const tenantTwoAuthorId = insertUser('two@x.y', 2, 'Tenant two');

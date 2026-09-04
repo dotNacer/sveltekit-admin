@@ -77,6 +77,20 @@ const admin = createAdminHandler({
     }
   },
 
+  // Un widget de chaque type. Chaque lecture compose `tenantScope` comme
+  // n'importe quelle autre lecture servie par l'admin : ce dashboard ne
+  // montre jamais les données d'une autre organisation.
+  dashboard: {
+    title: 'Multi-tenant demo',
+    subtitle: 'Everything below is scoped to the current tenant',
+    widgets: [
+      { type: 'stats' },
+      { type: 'models', title: 'Content', models: ['Post', 'Category'] },
+      { type: 'count', model: 'Post', label: 'Published posts', query: 'f.published=true' },
+      { type: 'recent', model: 'Post', title: 'Latest posts', limit: 5 }
+    ]
+  },
+
   authCheck: (event) => event.locals.user?.role === 'admin'
 });
 

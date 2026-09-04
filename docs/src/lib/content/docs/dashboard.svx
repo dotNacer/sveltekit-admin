@@ -45,6 +45,23 @@ whitelist and the sensitive-field exclusion, and the card links to a list whose
 total equals the number displayed. Anything else — `page`, `sort`, an unknown
 field — is refused at boot.
 
+### Recent records
+
+```typescript
+{ type: 'recent', model: 'User', title: 'New sign-ups', limit: 5 }
+```
+
+Rows are ordered by the model's `defaultSort` when it has one, and by primary
+key descending otherwise — never by guessing at a `createdAt` column. `sort`
+accepts only a column the list view actually displays; `dir` accepts `asc` or
+`desc`. `limit` defaults to 5 and is capped at 50. `title` defaults to
+`Latest <model label>`.
+
+Only the record's label and its link are rendered. The row is redacted with the
+same rules as the audit payload (`hidden` plus the sensitive-name predicate)
+**before** the label is resolved, so a hidden or sensitive column can never
+become the visible text.
+
 ## Validation
 
 The configuration is validated when the handler is created, not when the page
