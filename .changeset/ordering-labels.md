@@ -1,7 +1,5 @@
 ---
-"sveltekit-admin": minor
+'sveltekit-admin': minor
 ---
 
-Add configurable model and field ordering, plus separate singular and plural
-labels for admin navigation, lists, forms, and actions. The existing `label`
-option remains the backwards-compatible fallback for both forms.
+feat: **`modelOrder`, `singularLabel` and `pluralLabel` configure how models are ordered and named.** Listed models come first and the rest keep schema order; `singularLabel` names form headings and the Add action, `pluralLabel` the navigation and lists. `label` stays the fallback for both.
