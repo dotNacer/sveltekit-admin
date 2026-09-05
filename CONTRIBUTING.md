@@ -38,7 +38,7 @@ interactive CLI. You are writing it by hand so the name reflects the change in `
 
 #### Tags and bumps
 
-The body opens with exactly one tag, lowercase, followed by a space. The tag decides the bump type
+The body opens with exactly one tag, lowercase, followed by a space or tab. The tag decides the bump type
 and the changelog section the bullet lands in — it must agree with the frontmatter, or the linter
 catches a drift before it ships:
 
@@ -84,8 +84,11 @@ A docs-only or test-only PR with no changeset file fails CI exactly like a sourc
 
 #### Versioning locally
 
-`pnpm run version-packages` needs the `GITHUB_TOKEN` environment variable set — it resolves each
-changeset's commit through the GitHub API. A local run requires `GITHUB_TOKEN=$(gh auth token) pnpm run version-packages`. CI needs nothing — `.github/workflows/release.yml` already sets `GITHUB_TOKEN` at the step level. Versioning is CI-only by design.
+`pnpm run version-packages` needs the `GITHUB_TOKEN` environment variable set — it resolves
+each changeset's commit through the GitHub API. A local run requires
+`GITHUB_TOKEN=$(gh auth token) pnpm run version-packages`. CI needs nothing — 
+`.github/workflows/release.yml` already sets `GITHUB_TOKEN` at the step level. Versioning is
+CI-only by design.
 
 ### Releasing
 
