@@ -97,6 +97,7 @@ export interface AdminRuntime {
   relationGraph: RelationGraph | null;
   models: Model[];
   modelList: Array<{ name: string; label: string }>;
+  modelGroups?: Array<{ label: string; models: Array<{ name: string; label: string }> }>;
   config: AdminHandlerConfig;
   basePath: string;
   perPage: number;
@@ -219,6 +220,44 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
     return label.charAt(0).toUpperCase() + label.slice(1);
   };
   const modelList = models.map((m) => ({ name: m.name, label: labelOf(m) }));
+
+  const configuredCategories = config.navigation?.categories;
+  let modelGroups: AdminRuntime['modelGroups'];
+  if (configuredCategories) {
+    const assigned = new Set<string>();
+    const labels = new Set<string>();
+    modelGroups = configuredCategories.map((category) => {
+      if (!category.label.trim()) {
+        throw new AdminConfigError('[sveltekit-admin] navigation category labels must not be empty.');
+      }
+      const labelKey = category.label.toLowerCase();
+      if (labels.has(labelKey)) {
+        throw new AdminConfigError(`[sveltekit-admin] navigation category label "${category.label}" is duplicated.`);
+      }
+      labels.add(labelKey);
+      if (category.models.length === 0) {
+        throw new AdminConfigError(`[sveltekit-admin] navigation category "${category.label}" must contain at least one model.`);
+      }
+      const categoryModels = category.models.map((name) => {
+        const model = models.find((candidate) => candidate.name.toLowerCase() === name.toLowerCase());
+        if (!model) {
+          throw new AdminConfigError(`[sveltekit-admin] navigation category "${category.label}" references unknown model "${name}".`);
+        }
+        const key = model.name.toLowerCase();
+        if (assigned.has(key)) {
+          throw new AdminConfigError(`[sveltekit-admin] navigation model "${name}" is assigned to more than one category.`);
+        }
+        assigned.add(key);
+        return { name: model.name, label: labelOf(model) };
+      });
+      return { label: category.label, models: categoryModels };
+    });
+    const categorized = new Set(assigned);
+    const uncategorized = modelList.filter((model) => !categorized.has(model.name.toLowerCase()));
+    // `modelList` remains the uncategorized tail when categories are enabled.
+    modelList.splice(0, modelList.length, ...uncategorized);
+  }
+
   const findModel = (name?: string) =>
     models.find((m) => m.name.toLowerCase() === name?.toLowerCase());
   const viewModel = (m: Model): ViewModel => ({
@@ -319,6 +358,7 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
     relationGraph,
     models,
     modelList,
+    modelGroups,
     config,
     basePath,
     perPage,

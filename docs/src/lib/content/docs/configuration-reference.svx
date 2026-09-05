@@ -54,6 +54,14 @@ createAdminHandler({
   // Models to exclude from admin
   exclude: ['Session', 'VerificationToken'],
 
+  // Navigation categories (optional; unlisted models stay in an uncategorized tail)
+  navigation: {
+    categories: [
+      { label: 'Content', models: ['Post', 'Category'] },
+      { label: 'People', models: ['User'] }
+    ]
+  },
+
   // Custom branding
   branding: {
     title: 'My Admin',
@@ -78,6 +86,7 @@ createAdminHandler({
 | `audit`             | `(entry: AuditEvent) => void \| Promise<void>` | none | Called after a successful create/update/delete with a redacted event (actor via `entry.event.locals`). See [Audit log](/docs/audit-log). |
 | `models`            | `Record<string, ModelConfig>`             | `{}`                            | Per-model overrides — hiding/readonly fields and list columns (see [Model Configuration](/docs/model-configuration)), relation rendering (see [Relations](/docs/relations)), and search/filter behavior (see [Search & Filters](/docs/search-filters)). A model can also define `scope(ctx)` for tenant isolation; it is applied to every read and mutation. |
 | `exclude`           | `string[]`                                | `[]`                             | Model names to hide from the admin entirely.                                 |
+| `navigation`        | `{ categories?: Array<{ label: string; models: string[] }> }` | none | Groups sidebar models in the configured order. Models omitted from every category remain in an uncategorized list after the groups. Category labels and model names are validated at startup; labels and model lists must be non-empty, models cannot be assigned twice, and category labels must be unique (case-insensitive). |
 | `hidePivotTables`   | `boolean`                                  | `true`                          | Automatically hides Prisma's implicit many-to-many pivot/junction tables from the admin. Explicit pivot models (ones you defined yourself with their own fields) are never auto-hidden. |
 | `relationDefaults`  | `{ selectThreshold?: number; labelFields?: string[] }` | `{ selectThreshold: 200, labelFields: ['name','title','label','email','username','slug'] }` | Defaults for relation rendering. `selectThreshold` is the option count above which a foreign-key `<select>` falls back to a raw ID input (see [Relations](/docs/relations)); `labelFields` is the field-name preference order used to auto-pick a relation's display label. |
 | `listFilterDefaults` | `{ linkThreshold?: number; autoDetect?: boolean }` | `{ linkThreshold: 20, autoDetect: true }` | Defaults for the list-view filter sidebar. `linkThreshold` is the option count above which a filter renders as a `<select>` instead of a list of links (see [Search & Filters](/docs/search-filters)); `autoDetect` controls whether Boolean/enum fields get an automatic sidebar filter when a model has no explicit `listFilter` config. |

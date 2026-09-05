@@ -14,6 +14,11 @@ const renderLayout = (
 const navItems = (html: string) =>
   (html.match(/<li class="ska-nav__item">/g) ?? []).length;
 
+const groupedModels = [
+  { label: 'Content', models: [{ name: 'Post', label: 'Posts' }] },
+  { label: 'People', models: [{ name: 'User', label: 'Users' }] }
+];
+
 describe('Layout.svelte', () => {
   it('applique le branding fourni', () => {
     const html = renderLayout('X', { prisma: {}, branding: { title: 'T', primaryColor: '#ff0000' } });
@@ -72,6 +77,29 @@ describe('Layout.svelte', () => {
     expect(html).toContain('&lt;b>T');
     expect(html).toContain('&lt;i>U');
     expect(html).not.toContain('<i>U');
+  });
+
+  it('rend les catégories dans l’ordre configuré puis les modèles non catégorisés', () => {
+    const html = render(Layout, {
+      props: {
+        content: 'X', config: { prisma: {} } as any, modelList: models,
+        modelGroups: [...groupedModels, { label: 'Other', models: [] }], currentModel: 'Post'
+      }
+    }).body;
+    expect(html.indexOf('Content')).toBeLessThan(html.indexOf('People'));
+    expect(html.indexOf('/admin/post')).toBeLessThan(html.indexOf('/admin/user'));
+    expect(html).toContain('/admin/user');
+  });
+
+  it('échappe les libellés de catégorie', () => {
+    const html = render(Layout, {
+      props: {
+        content: 'X', config: { prisma: {} } as any, modelList: [],
+        modelGroups: [{ label: '<script>alert(1)</script>', models }]
+      }
+    }).body;
+    expect(html).toContain('&lt;script>alert(1)&lt;/script>');
+    expect(html).not.toContain('<script>alert(1)</script>');
   });
 });
 

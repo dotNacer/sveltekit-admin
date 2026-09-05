@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createAdminRuntime, modelScopeFrom, modelScopeValues } from '../../src/lib/server/runtime.js';
+import { AdminConfigError } from '../../src/lib/server/errors.js';
 import { combinedScope, filterSelectedIds } from '../../src/lib/server/relationLoaders.js';
 import { createPrismaAdapter } from '../../src/lib/server/adapters/prisma/index.js';
 import {
@@ -21,6 +22,29 @@ function runtimeFor(
 }
 
 describe('createAdminRuntime', () => {
+  it('construit les groupes de navigation et conserve les modèles non catégorisés', () => {
+    const rt = runtimeFor(FULL_SCHEMA_PATH, {
+      navigation: { categories: [
+        { label: 'Posts', models: ['Post'] },
+        { label: 'People', models: ['User'] }
+      ] }
+    });
+    expect(rt.modelGroups).toEqual([
+      { label: 'Posts', models: [{ name: 'Post', label: 'Post' }] },
+      { label: 'People', models: [{ name: 'User', label: 'User' }] }
+    ]);
+  });
+
+  it('valide les catégories de navigation au démarrage', () => {
+    const invalid = (categories: unknown) =>
+      expect(() => runtimeFor(FULL_SCHEMA_PATH, { navigation: { categories } })).toThrow(AdminConfigError);
+    invalid([{ label: '', models: ['User'] }]);
+    invalid([{ label: 'Users', models: [] }]);
+    invalid([{ label: 'Users', models: ['Missing'] }]);
+    invalid([{ label: 'Users', models: ['User'] }, { label: 'Other', models: ['User'] }]);
+    invalid([{ label: 'Users', models: ['User'] }, { label: 'Users', models: ['Post'] }]);
+  });
+
   it('filtre exclude', () => {
     const rt = runtimeFor(FULL_SCHEMA_PATH, { exclude: ['Post'] });
     expect(rt.models.map((m) => m.name)).not.toContain('Post');
