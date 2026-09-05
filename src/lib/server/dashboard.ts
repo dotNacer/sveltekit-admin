@@ -13,7 +13,6 @@ import { combinedScopeFrom, type AdminRuntime } from './runtime.js';
 import type { Model } from './types/schema.js';
 import { buildWhere, parseListQuery, type ListQuery } from './query/listQuery.js';
 import type { Filter } from './adapters/types.js';
-import { OPAQUE_FILTER_ERROR } from './adapters/filter.js';
 import { primaryKeyOf } from './data.js';
 import { redactForAudit } from './audit.js';
 import type { ActiveSort } from './query/sortQuery.js';
@@ -22,6 +21,21 @@ import type { ActiveSort } from './query/sortQuery.js';
 const MAX_RECENT = 50;
 const isLimit = (n: unknown): n is number =>
   typeof n === 'number' && Number.isSafeInteger(n) && n >= 1 && n <= MAX_RECENT;
+
+/**
+ * Le dashboard historique tolérait une table introspectée mais pas encore
+ * migrée. Ne conserver ce repli que pour cette erreur précise : transformer
+ * une panne de connexion ou une requête invalide en `0` rendrait les chiffres
+ * du dashboard mensongers.
+ */
+function missingTableFallback<T>(error: unknown, fallback: T): T {
+  const message = error instanceof Error ? error.message : '';
+  const missing = /\bno such table\b|\btable\b.*\bdoes not exist\b|\brelation\b.*\bdoes not exist\b/i.test(
+    message
+  );
+  if (!missing) throw error;
+  return fallback;
+}
 
 export interface DashboardConfig {
   /** Titre de la page. Défaut : « Dashboard ». */
@@ -362,13 +376,7 @@ function makeCounter(runtime: AdminRuntime, locals: unknown) {
         // même cast que celui-là.
         return await runtime.adapter.data.countRecords(model, scope as Filter | undefined);
       } catch (err) {
-        // Un `listWhere` opaque (where Prisma imbriqué) est refusé par
-        // l'adaptateur Drizzle avec `OPAQUE_FILTER_ERROR` : c'est une
-        // erreur de configuration, pas une table absente, et elle doit
-        // remonter au lieu de se rendre 0 silencieusement. Seul ça distingue
-        // le vrai cas toléré ici : la table n'existe pas encore.
-        if (err instanceof Error && err.message === OPAQUE_FILTER_ERROR) throw err;
-        return 0;
+        return missingTableFallback(err, 0);
       }
     })();
     cache.set(model.name, pending);
@@ -409,12 +417,7 @@ export async function loadDashboard(
       try {
         value = await runtime.adapter.data.countRecords(model, filter);
       } catch (err) {
-        // Même distinction que dans `makeCounter` : un `listWhere` opaque
-        // refusé par l'adaptateur Drizzle (`OPAQUE_FILTER_ERROR`) est une
-        // erreur de configuration et doit remonter ; seule une table qui
-        // n'existe pas encore se rend 0.
-        if (err instanceof Error && err.message === OPAQUE_FILTER_ERROR) throw err;
-        value = 0;
+        value = missingTableFallback(err, 0);
       }
       loaded.push({ type: 'count', label: widget.label, value, href: widget.href });
       continue;
@@ -438,12 +441,7 @@ export async function loadDashboard(
           take: widget.limit
         });
       } catch (err) {
-        // Même distinction que dans `makeCounter` et la branche `count` :
-        // un `listWhere` opaque refusé par l'adaptateur Drizzle
-        // (`OPAQUE_FILTER_ERROR`) est une erreur de configuration et doit
-        // remonter ; seule une table qui n'existe pas encore se rend vide.
-        if (err instanceof Error && err.message === OPAQUE_FILTER_ERROR) throw err;
-        rowsRead = [];
+        rowsRead = missingTableFallback(err, []);
       }
       loaded.push({
         type: 'recent',
