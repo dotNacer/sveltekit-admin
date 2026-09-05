@@ -45,12 +45,12 @@ frontmatter bump. A mismatch fails the linter, which makes the tag a second chec
 a bump that has drifted before (all eleven `0.9.0` entries shipped as `minor`; two
 were refinements of existing behavior).
 
-| Tag | Bump | Use when the change |
-|---|---|---|
-| `breaking:` | `major` | forces existing callers to react |
-| `feat:` | `minor` | gives a new lever or a new surface |
-| `improvement:` | `patch` | refines something that already worked |
-| `fix:` | `patch` | repairs something that was wrong |
+| Tag | Bump | Section | Use when the change |
+|---|---|---|---|
+| `breaking:` | `major` | Breaking changes | forces existing callers to react |
+| `feat:` | `minor` | Features | gives a new lever or a new surface |
+| `improvement:` | `patch` | Improvements | refines something that already worked |
+| `fix:` | `patch` | Fixes | repairs something that was wrong |
 
 ## Hard limits
 
@@ -61,6 +61,9 @@ were refinements of existing behavior).
 - **One paragraph.** No blank line, no markdown heading, no fenced block; inline
   backticks are welcome. This rule, not the cap, is what makes a subtitled essay
   structurally impossible.
+- **Keep the body on one physical line, even under the cap.** The changelog template
+  attaches the PR link (`{ref}`) to the first physical line only; a soft-wrapped body
+  strands the link mid-sentence once the release notes render.
 - Run `pnpm run lint:changesets` before pushing. It checks the tag, the tag/bump
   agreement, the cap and the paragraph rule, and CI runs it in the `changeset-check`
   job.

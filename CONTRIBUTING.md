@@ -38,16 +38,16 @@ interactive CLI. You are writing it by hand so the name reflects the change in `
 
 #### Tags and bumps
 
-The body opens with exactly one tag, lowercase, followed by a space or tab. The tag decides the bump type
-and the changelog section the bullet lands in — it must agree with the frontmatter, or the linter
-catches a drift before it ships:
+The body opens with exactly one tag, lowercase, followed by a space or tab. The tag decides which
+changelog section the bullet lands in, and it must agree with the frontmatter bump — a mismatch fails
+the linter before it ships:
 
-| Tag | Bump | Use when the change |
-|---|---|---|
-| `breaking:` | `major` | forces existing callers to react |
-| `feat:` | `minor` | gives a new lever or a new surface |
-| `improvement:` | `patch` | refines something that already worked |
-| `fix:` | `patch` | repairs something that was wrong |
+| Tag | Bump | Section | Use when the change |
+|---|---|---|---|
+| `breaking:` | `major` | Breaking changes | forces existing callers to react |
+| `feat:` | `minor` | Features | gives a new lever or a new surface |
+| `improvement:` | `patch` | Improvements | refines something that already worked |
+| `fix:` | `patch` | Fixes | repairs something that was wrong |
 
 #### Length and structure
 

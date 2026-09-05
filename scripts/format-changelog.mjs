@@ -6,6 +6,14 @@
  * reads CHANGELOG.md at publish time (`run.ts`, `createRelease`) and slices the
  * block between the version heading and the next heading of the same depth, so
  * whatever this script writes becomes the GitHub release body verbatim.
+ *
+ * Why `package.json` pins `@changesets/changelog-github` to an exact `1.0.1`,
+ * not `^1.0.1`: `.changeset/config.json`'s `template` option (`"- {summary} {ref}"`,
+ * the shape this script's output relies on) is upstream-declared experimental —
+ * its own README says the token syntax may change in any release, including a
+ * patch, and to pin exactly if you depend on it. There is no dependabot here,
+ * so nothing else will re-flag a `^` added back by a routine dependency sweep.
+ * JSON cannot carry a comment explaining the pin, so this header is that comment.
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
