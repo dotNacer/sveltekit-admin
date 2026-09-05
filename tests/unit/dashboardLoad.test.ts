@@ -93,6 +93,19 @@ describe('loadDashboard', () => {
     expect((rows[1] as any).cards[0].count).toBe(0);
   });
 
+  it('laisse remonter une panne DB au lieu de la présenter comme un compteur à zéro', async () => {
+    const outage = new Error('database connection lost');
+    const prisma = createPrismaMock(DATA, {
+      user: {
+        count: () => {
+          throw outage;
+        }
+      }
+    });
+    const { runtime } = runtimeWith({}, prisma);
+    await expect(loadDashboard(runtime, { locals: {} })).rejects.toBe(outage);
+  });
+
   it('laisse remonter un scope qui échouerait ouvert', async () => {
     const { runtime } = runtimeWith({ models: { User: { scope: () => ({}) } } });
     await expect(loadDashboard(runtime, { locals: {} })).rejects.toThrow(
@@ -162,6 +175,22 @@ describe('loadDashboard', () => {
     );
     const { rows } = await loadDashboard(runtime, { locals: {} });
     expect((rows[0] as any).cards[0].value).toBe(0);
+  });
+
+  it('laisse remonter une panne DB sur un widget count', async () => {
+    const outage = new Error('database connection lost');
+    const prisma = createPrismaMock(DATA, {
+      user: {
+        count: () => {
+          throw outage;
+        }
+      }
+    });
+    const { runtime } = runtimeWith(
+      { dashboard: { widgets: [{ type: 'count', model: 'User', label: 'Actifs' }] } },
+      prisma
+    );
+    await expect(loadDashboard(runtime, { locals: {} })).rejects.toBe(outage);
   });
 
   it('laisse remonter un scope de compteur qui échouerait ouvert', async () => {
@@ -329,6 +358,37 @@ describe('loadDashboard', () => {
     );
     const { rows } = await loadDashboard(runtime, { locals: {} });
     expect((rows[0] as any).items).toEqual([]);
+  });
+
+  it('laisse remonter une panne DB sur un widget recent', async () => {
+    const outage = new Error('database connection lost');
+    const prisma = createPrismaMock(DATA, {
+      user: {
+        findMany: () => {
+          throw outage;
+        }
+      }
+    });
+    const { runtime } = runtimeWith(
+      { dashboard: { widgets: [{ type: 'recent', model: 'User' }] } },
+      prisma
+    );
+    await expect(loadDashboard(runtime, { locals: {} })).rejects.toBe(outage);
+  });
+
+  it('laisse aussi remonter une erreur adapter non-Error', async () => {
+    const prisma = createPrismaMock(DATA, {
+      user: {
+        findMany: () => {
+          throw 'driver offline';
+        }
+      }
+    });
+    const { runtime } = runtimeWith(
+      { dashboard: { widgets: [{ type: 'recent', model: 'User' }] } },
+      prisma
+    );
+    await expect(loadDashboard(runtime, { locals: {} })).rejects.toBe('driver offline');
   });
 
   it('laisse remonter une erreur de filtre opaque (Drizzle) sur un widget recent plutôt que de la rendre vide', async () => {

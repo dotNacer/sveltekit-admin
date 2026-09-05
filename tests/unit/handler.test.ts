@@ -134,7 +134,7 @@ describe('réponses GET', () => {
       {
         user: {
           count: () => {
-            throw new Error('no table');
+            throw new Error('no such table: user');
           }
         }
       }
