@@ -224,7 +224,7 @@ export function formatChangelog(content) {
   }
   rendered.pop();
 
-  const tail = end < lines.length ? ['', ...lines.slice(end)] : [];
+  const tail = end < lines.length ? ['', ...lines.slice(end)] : content.endsWith('\n') ? [''] : [];
   const output = [...lines.slice(0, start + 1), '', ...rendered, ...tail].join('\n');
   return { output, errors: [], changed: true };
 }

@@ -281,4 +281,13 @@ describe('formatChangelog', () => {
     const { errors } = formatChangelog('# Changelog\n\n## 0.10.0\n\n### Minor Changes\n');
     expect(errors[0]).toContain('no bullets');
   });
+
+  it('preserves the trailing newline when the regrouped block is the last content in the file', () => {
+    const { output, errors, changed } = formatChangelog(
+      '# Changelog\n\n## 0.10.0\n\n- fix: A was wrong. ([#1](u))\n'
+    );
+    expect(errors).toEqual([]);
+    expect(changed).toBe(true);
+    expect(output).toBe('# Changelog\n\n## 0.10.0\n\n### Fixes\n\n- A was wrong. ([#1](u))\n');
+  });
 });
