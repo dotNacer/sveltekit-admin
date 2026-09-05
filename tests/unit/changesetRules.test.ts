@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import {
   SECTIONS,
   TAGS,
@@ -137,6 +140,35 @@ describe('validateChangeset', () => {
     ['fix: X was wrong.', 'patch']
   ])('accepts %s with bump %s', (body, bump) => {
     expect(validateChangeset('x.md', valid(body, bump))).toEqual([]);
+  });
+
+  it('rejects a tag reappearing bare mid-prose, naming the tag count and the backtick remedy', () => {
+    const [error] = validateChangeset(
+      'x.md',
+      valid(
+        'improvement: Commit subjects opening with fix: or feat: are now recognised by the parser.',
+        'patch'
+      )
+    );
+    expect(error).toContain('carries 3 tags');
+    expect(error).toContain('backtick the others');
+  });
+
+  it('rejects a tag reappearing after a hyphen (word boundary fires past the hyphen)', () => {
+    const [error] = validateChangeset(
+      'x.md',
+      valid('fix: A hot-fix: label no longer breaks the parser.', 'patch')
+    );
+    expect(error).toContain('carries 2 tags');
+  });
+
+  it('accepts a backticked tag in prose (the colon is not followed by a space or tab)', () => {
+    expect(
+      validateChangeset(
+        'x.md',
+        valid('fix: Backticked `fix:` in prose stays safe.', 'patch')
+      )
+    ).toEqual([]);
   });
 
   it('rejects a blank line in the body', () => {
@@ -290,4 +322,40 @@ describe('formatChangelog', () => {
     expect(changed).toBe(true);
     expect(output).toBe('# Changelog\n\n## 0.10.0\n\n### Fixes\n\n- A was wrong. ([#1](u))\n');
   });
+});
+
+// Pins SKILL.md's worked examples to the contract they teach. Resolved via
+// import.meta.url, not process.cwd(), so it holds regardless of where vitest
+// is invoked from. If SUMMARY_LIMIT changes, a tag is added, or an example is
+// edited to no longer match its own tag/bump, this fails instead of quietly
+// teaching a stale format.
+describe('SKILL.md worked examples stay valid', () => {
+  const skillPath = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '../../.claude/skills/writing-changesets/SKILL.md'
+  );
+  const skill = readFileSync(skillPath, 'utf8');
+  const blocks = [...skill.matchAll(/```md\n([\s\S]*?)```/g)].map((m) => m[1].trim());
+  const openingTagRe = new RegExp(`^(${TAGS.join('|')}):`);
+  // Two of the nine blocks are the empty-changeset shapes and never open with
+  // a tag (the `## Format` example carries its own frontmatter, and the
+  // `## Empty changesets` example is deliberately untagged) — skip those
+  // rather than special-casing them by index.
+  const tagged = blocks
+    .map((block) => ({ block, match: openingTagRe.exec(block) }))
+    .filter((entry): entry is { block: string; match: RegExpExecArray } => entry.match !== null);
+
+  it('finds the nine worked ```md blocks, seven of which open with a tag', () => {
+    expect(blocks).toHaveLength(9);
+    expect(tagged).toHaveLength(7);
+  });
+
+  it.each(tagged.map(({ block, match }) => [match[1], block] as const))(
+    'validates the %s: example against the current contract',
+    (tag, block) => {
+      const section = SECTIONS.find((s) => s.tag === tag);
+      if (!section) throw new Error(`no SECTIONS entry for tag "${tag}"`);
+      expect(validateChangeset('skill-example.md', valid(block, section.bump))).toEqual([]);
+    }
+  );
 });

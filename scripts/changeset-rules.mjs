@@ -28,6 +28,17 @@ export const BREAKING_SUMMARY_LIMIT = 600;
 const BODY_TAG_RE = new RegExp(`^(${TAGS.join('|')}):[ \\t]`);
 
 /**
+ * A tag anywhere inside a body or changelog bullet. Built fresh to avoid a
+ * shared `lastIndex`. Used both by `validateChangeset` (a body may carry only
+ * its one opening tag — any other match must be backticked) and by
+ * `formatChangelog` (a bullet must carry exactly one tag to regroup). One
+ * pattern, so the two cannot disagree about what counts as a tag.
+ */
+function tagPattern(flags = '') {
+  return new RegExp(`\\b(${TAGS.join('|')}):[ \\t]`, flags);
+}
+
+/**
  * The same frontmatter regex `@changesets/parse` uses, so this linter and the
  * tool agree on what a changeset file is.
  */
@@ -123,6 +134,15 @@ export function validateChangeset(filename, contents) {
     );
   }
 
+  const extra = (body.match(tagPattern('g')) ?? []).length - 1;
+  if (extra > 0) {
+    errors.push(
+      at(
+        `body carries ${extra + 1} tags; only the opener may be one — backtick the others (\`fix:\`).`
+      )
+    );
+  }
+
   if (/\n[ \t]*\n/.test(body)) {
     errors.push(at('body must be a single paragraph (found a blank line).'));
   }
@@ -140,11 +160,6 @@ export function validateChangeset(filename, contents) {
   }
 
   return errors;
-}
-
-/** A tag anywhere inside a changelog bullet. Built fresh to avoid shared `lastIndex`. */
-function tagPattern(flags = '') {
-  return new RegExp(`\\b(${TAGS.join('|')}):[ \\t]`, flags);
 }
 
 /**
