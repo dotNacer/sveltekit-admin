@@ -14,6 +14,9 @@ models: {
     readonly: ['id', 'createdAt', 'updatedAt'],
     listFields: ['email', 'name', 'role', 'createdAt'],
     label: 'Users',
+    singularLabel: 'User',
+    pluralLabel: 'Users',
+    fieldOrder: ['email', 'name'],
     scope: ({ locals }) => ({ organizationId: locals.organizationId }),
     searchFields: ['email', 'name'],
     listFilter: ['role', 'active'],
@@ -44,8 +47,19 @@ the automatic sensitive-name heuristic; `hidden` still wins.
 
 ## `label`
 
-Overrides the display name used throughout the admin UI. Defaults to the model
-name.
+Legacy display name override. It remains the fallback for both singular and
+plural labels, so existing configurations keep their behavior.
+
+## `singularLabel` and `pluralLabel`
+
+`singularLabel` is used in form headings and the **Add** action. `pluralLabel`
+is used by the dashboard, navigation, and list headings. Each defaults to
+`label` when provided, then to a capitalized model name.
+
+At the top level, `modelOrder: ['Post', 'User']` places listed models first;
+all unlisted models retain schema order. `fieldOrder` works the same way for a
+model's fields and affects forms, lists, and relation widgets. Unknown or
+duplicate names are configuration errors and throw during handler creation.
 
 ## `scope` and `listWhere`
 

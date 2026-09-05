@@ -65,6 +65,16 @@ describe('Layout.svelte', () => {
     expect(navItems(renderLayout('X', { prisma: {} }))).toBe(3);
   });
 
+  it('préserve l’ordre et les libellés pluriels du modelList', () => {
+    const html = renderLayout('X', { prisma: {} }, [
+      { name: 'Post', label: 'Articles' },
+      { name: 'User', label: 'Accounts' }
+    ]);
+    expect(html.indexOf('Articles')).toBeLessThan(html.indexOf('Accounts'));
+    expect(html).toContain('Articles</a>');
+    expect(html).toContain('Accounts</a>');
+  });
+
   it('échappe les libellés fournis par la configuration', () => {
     const html = renderLayout('X', { prisma: {}, branding: { title: '<b>T' } }, [
       { name: 'User', label: '<i>U' }

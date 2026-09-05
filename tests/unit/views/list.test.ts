@@ -41,6 +41,25 @@ describe('List.svelte', () => {
       .toContain('2 records');
   });
 
+  it('utilise le pluriel pour le titre et le singulier pour Ajouter', () => {
+    const html = renderList(
+      { ...viewModel, singularLabel: 'Account', pluralLabel: 'Accounts' },
+      [], { page: 1, perPage: 20, total: 0 }, '/admin', empty
+    );
+    expect(html).toContain('<h1>Accounts</h1>');
+    expect(html).toContain('Add Account');
+    expect(html).not.toContain('Add Accounts');
+  });
+
+  it('rend les colonnes dans l’ordre fourni par le ViewModel', () => {
+    const ordered = {
+      ...viewModel,
+      fields: [User.fields.find((f) => f.name === 'name')!, User.fields.find((f) => f.name === 'email')!]
+    };
+    expect(columns(renderList(ordered, items, { page: 1, perPage: 20, total: 2 }, '/admin', empty)))
+      .toEqual(['name', 'email', 'Actions']);
+  });
+
   it('affiche un message quand la table est vide', () => {
     const html = renderList(viewModel, [], { page: 1, perPage: 20, total: 0 }, '/admin', empty);
     expect(html).toContain('No records found');

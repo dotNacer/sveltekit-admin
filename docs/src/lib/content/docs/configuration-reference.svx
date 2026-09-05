@@ -42,12 +42,16 @@ createAdminHandler({
   },
 
   // Per-model configuration
+  modelOrder: ['Post', 'User'],
   models: {
     User: {
       hidden: ['password', 'hashedPassword'],
       readonly: ['id', 'createdAt', 'updatedAt'],
       listFields: ['email', 'name', 'role', 'createdAt'],
-      label: 'Users'
+      label: 'Users',
+      singularLabel: 'User',
+      pluralLabel: 'Users',
+      fieldOrder: ['email', 'name']
     }
   },
 
@@ -77,6 +81,7 @@ createAdminHandler({
 | `csrf`              | `false \| { trustedOrigins?: string[] }`  | check enabled          | Origin verification for every state-changing admin request. On by default; `false` opts out entirely. See [Cross-site protection](/docs/csrf). |
 | `audit`             | `(entry: AuditEvent) => void \| Promise<void>` | none | Called after a successful create/update/delete with a redacted event (actor via `entry.event.locals`). See [Audit log](/docs/audit-log). |
 | `models`            | `Record<string, ModelConfig>`             | `{}`                            | Per-model overrides — hiding/readonly fields and list columns (see [Model Configuration](/docs/model-configuration)), relation rendering (see [Relations](/docs/relations)), and search/filter behavior (see [Search & Filters](/docs/search-filters)). A model can also define `scope(ctx)` for tenant isolation; it is applied to every read and mutation. |
+| `modelOrder`         | `string[]`                               | schema order                    | Models listed here appear first; unlisted models retain schema order. Unknown or duplicate names throw at startup. |
 | `exclude`           | `string[]`                                | `[]`                             | Model names to hide from the admin entirely.                                 |
 | `hidePivotTables`   | `boolean`                                  | `true`                          | Automatically hides Prisma's implicit many-to-many pivot/junction tables from the admin. Explicit pivot models (ones you defined yourself with their own fields) are never auto-hidden. |
 | `relationDefaults`  | `{ selectThreshold?: number; labelFields?: string[] }` | `{ selectThreshold: 200, labelFields: ['name','title','label','email','username','slug'] }` | Defaults for relation rendering. `selectThreshold` is the option count above which a foreign-key `<select>` falls back to a raw ID input (see [Relations](/docs/relations)); `labelFields` is the field-name preference order used to auto-pick a relation's display label. |
