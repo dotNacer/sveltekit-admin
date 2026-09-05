@@ -52,7 +52,7 @@
     "lint:changesets": "node scripts/check-changesets.mjs",
     "format": "prettier --write .",
     "changeset": "changeset",
-    "version-packages": "changeset version",
+    "version-packages": "changeset version && node scripts/format-changelog.mjs",
     "release": "pnpm run package && changeset publish"
   },
   "peerDependencies": {
@@ -70,6 +70,7 @@
     }
   },
   "devDependencies": {
+    "@changesets/changelog-github": "1.0.1",
     "@changesets/cli": "^3.0.1",
     "@eslint/js": "9",
     "@prisma/client": "^6.19.3",
