@@ -27,7 +27,7 @@ for (const name of entries) {
 if (errors.length > 0) {
   for (const error of errors) console.error(`::error::${error}`);
   console.error(
-    `\n${errors.length} problem(s) in ${entries.length} changeset(s). If you are an AI agent: read ${SKILL} — it defines the tag vocabulary, the length cap and the single-paragraph rule, and shows worked rewrites.`
+    `::error::${errors.length} problem(s) in ${entries.length} changeset(s). If you are an AI agent: read ${SKILL} — it defines the tag vocabulary, the length cap and the single-paragraph rule, and shows worked rewrites.`
   );
   process.exit(1);
 }

@@ -105,3 +105,8 @@ jobs:
             echo "::error::No changeset found for this change. If you are an AI agent: read .claude/skills/writing-changesets/SKILL.md in this repo before adding one — it explains how to pick the bump type (patch/minor/major) and write the entry. Then add a .changeset/*.md file and push it to this branch."
             exit 1
           }
+      # `changeset status` only proves a changeset exists. This proves it is
+      # readable: tag present and matching the bump, one paragraph, under the
+      # length cap. Without it the skill is advisory and the verbosity returns
+      # on the first PR.
+      - run: pnpm run lint:changesets
