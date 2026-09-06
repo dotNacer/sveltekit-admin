@@ -46,7 +46,7 @@ const TYPE_ONLY_EXPORTS = [
 afterEach(() => vi.restoreAllMocks());
 
 describe('surface publique du paquet', () => {
-  it('n’exporte à l’exécution que les cinq fonctions attendues', () => {
+  it('n’exporte à l’exécution que les sept fonctions attendues', () => {
     expect(Object.keys(api).sort()).toEqual([...RUNTIME_EXPORTS].sort());
   });
 
