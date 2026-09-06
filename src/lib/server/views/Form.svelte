@@ -162,7 +162,7 @@
 </script>
 
 <a href={listPath} class="ska-back">← Back to list</a>
-<h1>{mode === 'create' ? 'Create' : 'Edit'} {model.label}</h1>
+<h1>{mode === 'create' ? 'Create' : 'Edit'} {model.singularLabel ?? model.label}</h1>
 {#if mode === 'edit'}
   <p class="ska-subtitle">ID: {item[model.primaryKey]}</p>
 {/if}

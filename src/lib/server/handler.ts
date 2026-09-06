@@ -35,6 +35,7 @@ import { readSubmittedForm, type SubmittedForm } from './submitted.js';
 import { resolvePluginRegistry, actionsForModel } from './pluginRegistry.js';
 import { createPluginPageContext } from './pluginAccess.js';
 import type { AdminPlugin } from './plugin.js';
+import type { NavigationConfig } from './config.js';
 
 export interface AdminHandlerConfig {
   /**
@@ -104,12 +105,20 @@ export interface AdminHandlerConfig {
    * both stores.
    */
   audit?: (entry: AuditEvent) => void | Promise<void>;
-  /** Per-model configuration */
+  /** Per-model configuration. Presentation settings are normalized at boot. */
+  /** Models listed here are rendered first; unlisted models keep schema order. */
+  modelOrder?: readonly string[];
   models?: Record<string, {
     hidden?: string[];
     readonly?: string[];
     listFields?: string[];
     label?: string;
+    /** Singular heading/action label. Falls back to `label`. */
+    singularLabel?: string;
+    /** Plural navigation/list label. Falls back to `label`. */
+    pluralLabel?: string;
+    /** Fields listed here are rendered first; unlisted fields keep schema order. */
+    fieldOrder?: readonly string[];
     scope?: (ctx: { locals?: any }) => Record<string, unknown> | import('./adapters/types.js').Filter;
     /**
      * Scoping `where` applied to the LIST VIEW ONLY of this model
@@ -235,6 +244,8 @@ export interface AdminHandlerConfig {
     title?: string;
     primaryColor?: string;
   };
+  /** Global navigation categories. Unlisted models remain in the uncategorized tail. */
+  navigation?: NavigationConfig;
   /**
    * Optional admin plugins (new pages + record actions). Omitted or `[]`
    * keeps every builtin view byte-identical to a build without plugins.
@@ -655,6 +666,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
         content,
         config: runtime.config,
         modelList: runtime.modelList,
+        modelGroups: runtime.modelGroups,
         currentModel,
         extraStyles,
         extraScripts

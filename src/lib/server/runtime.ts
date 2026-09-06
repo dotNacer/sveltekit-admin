@@ -7,7 +7,7 @@ import { buildRelationGraph, type RelationGraph } from './introspection/relation
 import { primaryKeyOf } from './data.js';
 import { validateListFilterConfig } from './query/filterDetection.js';
 import { isCompositeFilter, isLeafFilter, normalizeScope } from './adapters/filter.js';
-import { toLabel } from './views/html.js';
+import { normalizeAdminConfiguration } from './config.js';
 import type { ViewModel } from './views/types.js';
 import type { DataAdapter, SchemaIntrospector, Filter } from './adapters/types.js';
 import type { AdminHandlerConfig } from './handler.js';
@@ -97,6 +97,7 @@ export interface AdminRuntime {
   relationGraph: RelationGraph | null;
   models: Model[];
   modelList: Array<{ name: string; label: string }>;
+  modelGroups?: Array<{ label: string; models: Array<{ name: string; label: string }> }>;
   config: AdminHandlerConfig;
   basePath: string;
   perPage: number;
@@ -109,6 +110,8 @@ export interface AdminRuntime {
   labelFieldCandidates: string[];
   findModel(name?: string): Model | undefined;
   labelOf(model: Model): string;
+  singularLabelOf(model: Model): string;
+  pluralLabelOf(model: Model): string;
   hiddenFieldsOf(model: Model): Set<string>;
   viewModel(model: Model): ViewModel;
   resolveLabel(
@@ -160,13 +163,20 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
    */
   const schemaEnums = schema?.enums ?? new Map<string, string[]>();
 
-  const models = schema?.models.filter((m) => {
+  const filteredModels = schema?.models.filter((m) => {
     // Exclude explicitly excluded models
     if (exclude.includes(m.name)) return false;
     // Exclude pivot tables if option is enabled
     if (hidePivotTables && m.isPivotTable) return false;
     return true;
   }) || [];
+  const normalizedConfig = normalizeAdminConfiguration(
+    filteredModels,
+    modelsConfig,
+    config.modelOrder,
+    config.navigation
+  );
+  const models = normalizedConfig.models;
 
   // Valider `listFilter` au démarrage : une config invalide (champ
   // inexistant, sensible, relation, type non supporté) doit échouer fort
@@ -212,19 +222,20 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
   };
   const defaultSorts = new Map(models.map((m) => [m.name, defaultSortOf(m)]));
 
-  const labelOf = (m: Model) => {
-    const configured = modelsConfig[m.name]?.label;
-    if (configured) return configured;
-    const label = toLabel(m.name);
-    return label.charAt(0).toUpperCase() + label.slice(1);
-  };
-  const modelList = models.map((m) => ({ name: m.name, label: labelOf(m) }));
+  const normalizedModel = (m: Model) => normalizedConfig.viewModels.get(m.name)!;
+  const singularLabelOf = (m: Model) => normalizedModel(m).singularLabel;
+  const pluralLabelOf = (m: Model) => normalizedModel(m).pluralLabel;
+  const labelOf = pluralLabelOf;
+  const modelList = normalizedConfig.modelList;
+  const modelGroups = normalizedConfig.modelGroups;
   const findModel = (name?: string) =>
     models.find((m) => m.name.toLowerCase() === name?.toLowerCase());
   const viewModel = (m: Model): ViewModel => ({
     name: m.name,
-    label: labelOf(m),
-    fields: m.fields,
+    label: pluralLabelOf(m),
+    singularLabel: singularLabelOf(m),
+    pluralLabel: pluralLabelOf(m),
+    fields: normalizedModel(m).fields,
     primaryKey: primaryKeyOf(m),
     enums: schemaEnums,
     // Non-null par construction : `m` vient toujours de `models`,
@@ -319,6 +330,7 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
     relationGraph,
     models,
     modelList,
+    modelGroups,
     config,
     basePath,
     perPage,
@@ -329,6 +341,8 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
     labelFieldCandidates,
     findModel,
     labelOf,
+    singularLabelOf,
+    pluralLabelOf,
     hiddenFieldsOf,
     viewModel,
     resolveLabel,

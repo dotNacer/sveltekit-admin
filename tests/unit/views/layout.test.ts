@@ -8,8 +8,9 @@ const renderLayout = (
   content: string,
   config: any,
   modelList = models,
-  currentModel?: string
-) => render(Layout, { props: { content, config, modelList, currentModel } }).body;
+  currentModel?: string,
+  modelGroups?: Array<{ label: string; models: Array<{ name: string; label: string }> }>
+) => render(Layout, { props: { content, config, modelList, modelGroups, currentModel } }).body;
 
 const navItems = (html: string) =>
   (html.match(/<li class="ska-nav__item">/g) ?? []).length;
@@ -63,6 +64,14 @@ describe('Layout.svelte', () => {
 
   it('rend un item de nav par modèle', () => {
     expect(navItems(renderLayout('X', { prisma: {} }))).toBe(3);
+  });
+
+  it('rend les catégories avant le modèle non catégorisé et échappe leur label', () => {
+    const html = renderLayout('X', { prisma: {} }, [{ name: 'User', label: 'People' }], 'Post', [
+      { label: '<Content>', models: [{ name: 'Post', label: 'Posts' }] }
+    ]);
+    expect(html).toContain('aria-label="&lt;Content>"');
+    expect(html.indexOf('Posts</a>')).toBeLessThan(html.indexOf('People</a>'));
   });
 
   it('échappe les libellés fournis par la configuration', () => {

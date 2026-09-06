@@ -65,7 +65,47 @@ createAdminHandler({
 });
 ```
 
-## Options
+## Unified model and navigation configuration
+
+Presentation and navigation settings are normalized once when the handler is
+created. `label` remains supported as a legacy shorthand; `singularLabel` is
+used by create/edit forms and `pluralLabel` by lists, dashboard, and navigation.
+`modelOrder` and each model's `fieldOrder` are partial orders: listed entries
+come first and the remaining schema entries retain their original order.
+Unknown or duplicate model/field names fail at startup.
+
+```typescript
+import { defineAdminConfig } from 'sveltekit-admin';
+
+type Models = {
+  User: 'id' | 'name' | 'email' | 'password';
+  Post: 'id' | 'title' | 'authorId';
+};
+
+const adminConfig = defineAdminConfig<Models>({
+  prisma,
+  modelOrder: ['Post', 'User'],
+  models: {
+    User: {
+      singularLabel: 'Person',
+      pluralLabel: 'People',
+      hidden: ['password'],
+      readonly: ['id'],
+      fieldOrder: ['name', 'email']
+    }
+  },
+  navigation: {
+    categories: [{ label: 'Content', models: ['Post'] }]
+  }
+});
+```
+
+The generic helper supplies IDE checking when a model/field map is available
+(manual or generated). Automatic Prisma model inference is intentionally not
+included yet: Prisma's generated types are not available to this package's
+runtime config without a consumer-side generation step. Runtime introspection
+still validates every configured name, so the static helper never replaces
+runtime validation.
 
 | Option             | Type                                    | Default                       | Description                                                                 |
 | ------------------ | ---------------------------------------- | ------------------------------ | ----------------------------------------------------------------------------- |
@@ -76,7 +116,9 @@ createAdminHandler({
 | `authCheck`         | `(event: RequestEvent) => boolean \| Promise<boolean>` | none (open access) | Gate that must return `true` for a request to reach the admin. See [Authentication](/docs/authentication). |
 | `csrf`              | `false \| { trustedOrigins?: string[] }`  | check enabled          | Origin verification for every state-changing admin request. On by default; `false` opts out entirely. See [Cross-site protection](/docs/csrf). |
 | `audit`             | `(entry: AuditEvent) => void \| Promise<void>` | none | Called after a successful create/update/delete with a redacted event (actor via `entry.event.locals`). See [Audit log](/docs/audit-log). |
-| `models`            | `Record<string, ModelConfig>`             | `{}`                            | Per-model overrides — hiding/readonly fields and list columns (see [Model Configuration](/docs/model-configuration)), relation rendering (see [Relations](/docs/relations)), and search/filter behavior (see [Search & Filters](/docs/search-filters)). A model can also define `scope(ctx)` for tenant isolation; it is applied to every read and mutation. |
+| `models`            | `Record<string, ModelConfig>`             | `{}`                            | Per-model overrides — labels (`singularLabel`, `pluralLabel`), partial field ordering (`fieldOrder`), hiding/readonly fields and list columns (see [Model Configuration](/docs/model-configuration)), relation rendering (see [Relations](/docs/relations)), and search/filter behavior (see [Search & Filters](/docs/search-filters)). A model can also define `scope(ctx)` for tenant isolation; it is applied to every read and mutation. |
+| `modelOrder`        | `readonly string[]`                       | schema order                   | Partial model order: listed models first, then unlisted models in schema order. Unknown/duplicate names fail at startup. |
+| `navigation.categories` | `{ label: string; models: readonly string[] }[]` | none | Ordered global navigation groups. Each visible model can belong to at most one category; unlisted models remain in the uncategorized tail. |
 | `exclude`           | `string[]`                                | `[]`                             | Model names to hide from the admin entirely.                                 |
 | `hidePivotTables`   | `boolean`                                  | `true`                          | Automatically hides Prisma's implicit many-to-many pivot/junction tables from the admin. Explicit pivot models (ones you defined yourself with their own fields) are never auto-hidden. |
 | `relationDefaults`  | `{ selectThreshold?: number; labelFields?: string[] }` | `{ selectThreshold: 200, labelFields: ['name','title','label','email','username','slug'] }` | Defaults for relation rendering. `selectThreshold` is the option count above which a foreign-key `<select>` falls back to a raw ID input (see [Relations](/docs/relations)); `labelFields` is the field-name preference order used to auto-pick a relation's display label. |
