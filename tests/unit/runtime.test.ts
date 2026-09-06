@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createAdminRuntime, modelScopeFrom, modelScopeValues } from '../../src/lib/server/runtime.js';
+import { AdminConfigError } from '../../src/lib/server/errors.js';
 import { combinedScope, filterSelectedIds } from '../../src/lib/server/relationLoaders.js';
 import { createPrismaAdapter } from '../../src/lib/server/adapters/prisma/index.js';
 import {
@@ -103,6 +104,45 @@ describe('createAdminRuntime', () => {
     expect(rt.labelOf(user)).toBe('Accounts');
     const post = rt.findModel('Post')!;
     expect(rt.labelOf(post)).toBe('Post');
+  });
+
+  it('normalise labels, ordre partiel et ordre des champs via une seule configuration', () => {
+    const rt = runtimeFor(FULL_SCHEMA_PATH, {
+      modelOrder: ['Post', 'User'],
+      models: {
+        User: { label: 'People', singularLabel: 'Person', pluralLabel: 'People', fieldOrder: ['name', 'email'] }
+      },
+      navigation: { categories: [{ label: 'Content', models: ['Post'] }] }
+    });
+    expect(rt.models.slice(0, 2).map((m) => m.name)).toEqual(['Post', 'User']);
+    const user = rt.findModel('User')!;
+    expect(rt.labelOf(user)).toBe('People');
+    expect(rt.singularLabelOf(user)).toBe('Person');
+    expect(rt.viewModel(user).fields.slice(0, 3).map((field) => field.name)).toEqual(['name', 'email', 'id']);
+    expect(rt.modelGroups).toEqual([{ label: 'Content', models: [{ name: 'Post', label: 'Post' }] }]);
+    expect(rt.modelList.map((model) => model.name)).toContain('User');
+  });
+
+  it('refuse les modèles et champs inconnus ou dupliqués dans les ordres', () => {
+    expect(() => runtimeFor(FULL_SCHEMA_PATH, { modelOrder: ['User', 'User'] })).toThrow(/duplicate/);
+    expect(() => runtimeFor(FULL_SCHEMA_PATH, { modelOrder: ['Ghost'] })).toThrow(/unknown model/);
+    expect(() => runtimeFor(FULL_SCHEMA_PATH, { models: { User: { fieldOrder: ['email', 'email'] } } })).toThrow(/duplicate/);
+    expect(() => runtimeFor(FULL_SCHEMA_PATH, { models: { User: { fieldOrder: ['missing'] } } })).toThrow(/unknown field/);
+    expect(() => runtimeFor(FULL_SCHEMA_PATH, { models: { User: { hidden: ['missing'] } } })).toThrow(/hidden.*unknown field/);
+    expect(() => runtimeFor(FULL_SCHEMA_PATH, { models: { User: { readonly: ['email', 'email'] } } })).toThrow(/readonly.*duplicate/);
+    expect(() => runtimeFor(FULL_SCHEMA_PATH, { models: { Ghost: { hidden: ['id'] } } })).toThrow(/unknown model/);
+  });
+
+  it('valide strictement les catégories de navigation', () => {
+    for (const categories of [
+      [{ label: '', models: ['User'] }],
+      [{ label: 'Users', models: [] }],
+      [{ label: 'Users', models: ['Missing'] }],
+      [{ label: 'Users', models: ['User'] }, { label: 'Other', models: ['User'] }],
+      [{ label: 'Users', models: ['User'] }, { label: 'users', models: ['Post'] }]
+    ]) {
+      expect(() => runtimeFor(FULL_SCHEMA_PATH, { navigation: { categories } })).toThrow(AdminConfigError);
+    }
   });
 
   it('hidePivotTables: true masque les pivots (défaut)', () => {
