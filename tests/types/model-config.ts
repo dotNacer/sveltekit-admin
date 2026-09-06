@@ -16,6 +16,12 @@ const validConfig = defineAdminConfig<AppModels>({
     }
   },
   modelOrder: ['User', 'Post'],
+  dashboard: {
+    widgets: [
+      { type: 'count', model: 'User', label: 'Users' },
+      { type: 'recent', model: 'Post', limit: 5 }
+    ]
+  },
   navigation: {
     categories: [{ label: 'Content', models: ['Post'] }]
   }
@@ -36,6 +42,19 @@ defineAdminConfig<AppModels>({
   models: {
     // @ts-expect-error — only declared models may be configured.
     Comment: { hidden: ['id'] }
+  }
+});
+
+defineAdminConfig<AppModels>({
+  dashboard: {
+    widgets: [
+      {
+        type: 'count',
+        // @ts-expect-error — dashboard model names share the typed model map.
+        model: 'Order',
+        label: 'Orders'
+      }
+    ]
   }
 });
 

@@ -52,7 +52,7 @@ export interface DashboardConfig {
 
 export type DashboardWidget =
   | { type: 'stats' }
-  | { type: 'models'; title?: string; models?: string[] }
+  | { type: 'models'; title?: string; models?: readonly string[] }
   | {
       type: 'count';
       model: string;
@@ -132,7 +132,7 @@ function resolveWidget(
 
   if (widget.type === 'models') {
     const known = new Set(deps.models.map((m) => m.name));
-    const modelNames = widget.models ?? deps.models.map((m) => m.name);
+    const modelNames = widget.models ? [...widget.models] : deps.models.map((m) => m.name);
     for (const name of modelNames) {
       // Un modèle listé dans `exclude` n'est pas dans `models` : le refuser
       // ici est ce qui empêche un widget de le rendre visible par la porte

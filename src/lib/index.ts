@@ -21,7 +21,9 @@ export {
   defineModelConfig,
   type ModelFieldMap,
   type ModelConfig,
-  type NavigationConfig
+  type NavigationConfig,
+  type TypedDashboardConfig,
+  type TypedDashboardWidget
 } from './server/config.js';
 export type {
   AdminPlugin,
