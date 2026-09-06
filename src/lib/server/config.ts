@@ -1,4 +1,5 @@
 import type { Model } from './types/schema.js';
+import type { DashboardConfig } from './dashboard.js';
 import { toLabel } from './views/html.js';
 import { AdminConfigError } from './errors.js';
 
@@ -178,6 +179,25 @@ export function normalizeAdminConfiguration(
 /** A map from model names to the union of their field names. */
 export type ModelFieldMap = Record<string, string>;
 
+type ModelName<Models extends ModelFieldMap> = keyof Models & string;
+
+export type TypedDashboardWidget<Models extends ModelFieldMap> =
+  | { type: 'stats' }
+  | { type: 'models'; title?: string; models?: readonly ModelName<Models>[] }
+  | { type: 'count'; model: ModelName<Models>; label: string; query?: string }
+  | {
+      type: 'recent';
+      model: ModelName<Models>;
+      title?: string;
+      limit?: number;
+      sort?: string;
+      dir?: 'asc' | 'desc';
+    };
+
+export type TypedDashboardConfig<Models extends ModelFieldMap> = Omit<DashboardConfig, 'widgets'> & {
+  widgets?: TypedDashboardWidget<Models>[];
+};
+
 type TypedModelConfig<Fields extends string> = Omit<
   ModelConfig,
   'hidden' | 'readonly' | 'listFields' | 'fieldOrder'
@@ -207,13 +227,17 @@ export function defineModelConfig<Fields extends string = string>(
  * mandatory because adapters may introspect a different or dynamic schema.
  */
 export function defineAdminConfig<Models extends ModelFieldMap>(
-  config: Omit<import('./handler.js').AdminHandlerConfig, 'adapter' | 'models' | 'modelOrder' | 'navigation'> & {
+  config: Omit<
+    import('./handler.js').AdminHandlerConfig,
+    'adapter' | 'models' | 'modelOrder' | 'navigation' | 'dashboard'
+  > & {
     adapter?: import('./handler.js').AdminHandlerConfig['adapter'];
     prisma?: any;
     prismaSchemaPath?: string;
     modelOrder?: readonly (keyof Models & string)[];
     models?: { [Name in keyof Models]?: TypedModelConfig<Models[Name]> };
     navigation?: { categories?: Array<{ label: string; models: readonly (keyof Models & string)[] }> };
+    dashboard?: TypedDashboardConfig<Models>;
   }
 ): typeof config {
   return config;

@@ -47,6 +47,7 @@ export const contentSections: ContentSectionConfig[] = [
         items: [
           { slug: 'authentication', name: 'Authentication & Logout' },
           { slug: 'model-configuration', name: 'Configure Models' },
+          { slug: 'dashboard', name: 'Dashboard' },
           { slug: 'relations', name: 'Configure Relations' },
           { slug: 'search-filters', name: 'Search, Filters & Sorting' },
           { slug: 'audit-log', name: 'Add Audit Logging' },

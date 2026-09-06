@@ -6,12 +6,14 @@ import type { ActiveSort } from './query/sortQuery.js';
 import { buildRelationGraph, type RelationGraph } from './introspection/relations.js';
 import { primaryKeyOf } from './data.js';
 import { validateListFilterConfig } from './query/filterDetection.js';
+import { resolveSearchFields } from './query/listQuery.js';
 import { isCompositeFilter, isLeafFilter, normalizeScope } from './adapters/filter.js';
 import { normalizeAdminConfiguration } from './config.js';
 import type { ViewModel } from './views/types.js';
 import type { DataAdapter, SchemaIntrospector, Filter } from './adapters/types.js';
 import type { AdminHandlerConfig } from './handler.js';
 import { AdminConfigError } from './errors.js';
+import { resolveDashboard, type ResolvedDashboard } from './dashboard.js';
 
 export function scopeFrom(
   relConfig: { where?: (ctx: any) => any } | undefined,
@@ -70,6 +72,30 @@ export function modelScopeFrom(
   return normalized;
 }
 
+/**
+ * `scope` (toutes les lectures) ET `listWhere` (historiquement la seule vue
+ * liste), composés en AND. Le dashboard l'utilise aussi : une carte qui
+ * annonce 40 quand la liste vers laquelle elle pointe en montre 12 est un
+ * chiffre faux, et un widget de comptage rend cet écart visible.
+ */
+export function combinedScopeFrom(
+  runtime: AdminRuntime,
+  model: Model,
+  ctx: { locals?: any } // aligné sur listScopeFrom/modelScopeFrom, pas `unknown`
+): Filter | Record<string, unknown> | undefined {
+  // Le type de retour suit `normalizeScope` (pas juste `Filter`) : un
+  // `listWhere` qui renvoie un `where` Prisma imbriqué reste opaque par
+  // conception (voir le commentaire de `normalizeScope`), donc le composé
+  // peut légitimement ne pas être un `Filter` strict. Forcer `Filter` ici
+  // demanderait un cast qui mentirait sur ce cas réel.
+  const modelScope = modelScopeFrom(runtime, model, ctx);
+  const listScope = normalizeScope(listScopeFrom(runtime, model, ctx));
+  if (modelScope && listScope) {
+    return { op: 'and', clauses: [modelScope, listScope] };
+  }
+  return modelScope ?? listScope;
+}
+
 /** Extract equality predicates so create can force tenant-owned columns. */
 export function modelScopeValues(runtime: AdminRuntime, model: Model, ctx: { locals?: any }): Record<string, unknown> {
   const normalized = modelScopeFrom(runtime, model, ctx);
@@ -103,6 +129,8 @@ export interface AdminRuntime {
   perPage: number;
   /** Tailles sélectionnables, vide quand le mécanisme est désactivé. */
   pageSizes: number[];
+  /** Widgets validés au démarrage (jamais re-validés par requête). */
+  dashboard: ResolvedDashboard;
   /** `models[].defaultSort` validé au démarrage, par nom de modèle. */
   defaultSortOf(model: Model): ActiveSort | undefined;
   selectThreshold: number;
@@ -301,6 +329,26 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
     return out;
   };
 
+  // Même politique que `listFilter` et les plugins : une config de dashboard
+  // invalide arrête le démarrage plutôt que de produire un bloc mort à chaque
+  // rendu.
+  const dashboard = resolveDashboard({
+    config: config.dashboard,
+    models,
+    enums: schemaEnums,
+    basePath,
+    searchFieldsOf: (m) =>
+      resolveSearchFields(m, modelsConfig[m.name]?.searchFields, labelFieldCandidates, hiddenFieldsOf(m)),
+    filterableFieldsOf: resolveFilterableFields,
+    sortableColumnsOf: (m) =>
+      resolveListColumns(m.fields, {
+        hidden: modelsConfig[m.name]?.hidden,
+        listFields: modelsConfig[m.name]?.listFields
+      }).map((f) => f.name),
+    defaultSortOf: (m) => defaultSorts.get(m.name),
+    labelOf
+  });
+
   /**
    * Résout le label BRUT (non échappé) d'une ligne : premier champ String
    * candidat présent, sinon template `{a} {b}` si configuré, sinon la PK.
@@ -335,6 +383,7 @@ export function createAdminRuntime(config: AdminHandlerConfig): AdminRuntime {
     basePath,
     perPage,
     pageSizes,
+    dashboard,
     defaultSortOf: (m: Model) => defaultSorts.get(m.name),
     selectThreshold,
     filterLinkThreshold,

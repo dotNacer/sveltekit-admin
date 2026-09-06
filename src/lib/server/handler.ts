@@ -11,7 +11,6 @@ import {
   buildWhere,
   resolveSearchFields
 } from './query/listQuery.js';
-import { normalizeScope } from './adapters/filter.js';
 import type { DataAdapter, SchemaIntrospector } from './adapters/types.js';
 import { resolveListFilters } from './query/filterDetection.js';
 import { resolveListColumns } from './query/listColumns.js';
@@ -25,7 +24,7 @@ import Layout from './views/Layout.svelte';
 import Dashboard from './views/Dashboard.svelte';
 import Form from './views/Form.svelte';
 import List from './views/List.svelte';
-import { createAdminRuntime, listScopeFrom, modelScopeFrom } from './runtime.js';
+import { createAdminRuntime, combinedScopeFrom, modelScopeFrom } from './runtime.js';
 import { loadRelationOptions, resolveFkFilterOptions, loadRelatedCounts } from './relationLoaders.js';
 import { handleSearch } from './search.js';
 import { handleMutation } from './mutations.js';
@@ -36,6 +35,7 @@ import { resolvePluginRegistry, actionsForModel } from './pluginRegistry.js';
 import { createPluginPageContext } from './pluginAccess.js';
 import type { AdminPlugin } from './plugin.js';
 import type { NavigationConfig } from './config.js';
+import { loadDashboard, type DashboardConfig } from './dashboard.js';
 
 export interface AdminHandlerConfig {
   /**
@@ -47,6 +47,12 @@ export interface AdminHandlerConfig {
   adapter: { introspector: SchemaIntrospector; data: DataAdapter };
   /** Base path for admin routes (default: /admin) */
   basePath?: string;
+  /**
+   * Composition du dashboard : titre, sous-titre et widgets dans l'ordre
+   * d'affichage. Omis, le dashboard historique est rendu. Validé au
+   * démarrage — un modèle inconnu ou exclu lève ici, pas à l'écran.
+   */
+  dashboard?: DashboardConfig;
   /** Authentication check - return true if user can access admin */
   authCheck?: (event: any) => boolean | Promise<boolean>;
   /**
@@ -459,30 +465,10 @@ export function createAdminHandler(config: AdminHandlerConfig) {
       } else if (route.view === 'notFound') {
         content = render(NotFound, { props: { message: 'Page not found', basePath: runtime.basePath } }).body;
       } else if (route.view === 'dashboard') {
-        const modelsWithCounts = await Promise.all(
-          runtime.models.map(async (m) => {
-            let count = 0;
-            try {
-              count = await runtime.adapter.data.countRecords(
-                m,
-                modelScopeFrom(runtime, m, { locals: event.locals })
-              );
-            } catch {
-              // model absent from the database
-            }
-            return { name: m.name, label: runtime.labelOf(m), count };
-          })
-        );
-
-        const totalRecords = modelsWithCounts.reduce((sum, m) => sum + m.count, 0);
-
-        content = render(Dashboard, {
-          props: {
-            models: modelsWithCounts,
-            stats: { total: totalRecords, models: modelsWithCounts.length },
-            basePath: runtime.basePath
-          }
-        }).body;
+        const data = await loadDashboard(runtime, event);
+        // `basePath` n'est plus une prop : les liens arrivent déjà construits
+        // par `loadDashboard`, la vue n'a plus rien à concaténer.
+        content = render(Dashboard, { props: data }).body;
       } else if (route.model) {
         currentModel = route.model;
         const model = runtime.findModel(route.model);
@@ -505,11 +491,7 @@ export function createAdminHandler(config: AdminHandlerConfig) {
             searchFields,
             filterableFields
           );
-          const listScope = listScopeFrom(runtime, model, { locals: event.locals });
-          const modelScope = modelScopeFrom(runtime, model, { locals: event.locals });
-          const scope = modelScope && listScope
-            ? { op: 'and' as const, clauses: [modelScope, normalizeScope(listScope)!] }
-            : modelScope ?? listScope;
+          const scope = combinedScopeFrom(runtime, model, { locals: event.locals });
           // Adapter compiles case-sensitivity; this arg is unused by buildWhere.
           const filter = buildWhere(listQuery, scope, false, model) as any;
           // Whitelist de tri = colonnes RÉELLEMENT rendues, résolues par la même

@@ -161,6 +161,106 @@ describe('createAdminRuntime', () => {
     ).toThrow(/no field "nope"/);
   });
 
+  it('résout le dashboard au démarrage', () => {
+    const rt = runtimeFor(FULL_SCHEMA_PATH);
+    expect(rt.dashboard.widgets[0]).toEqual({ type: 'stats' });
+  });
+
+  it('refuse une config de dashboard invalide au démarrage, pas au rendu', () => {
+    expect(() =>
+      runtimeFor(FULL_SCHEMA_PATH, { dashboard: { widgets: [{ type: 'models', models: ['Nope'] }] } })
+    ).toThrow(/unknown or excluded/);
+  });
+
+  it('refuse un widget qui vise un modèle exclu', () => {
+    expect(() =>
+      runtimeFor(FULL_SCHEMA_PATH, {
+        exclude: ['Post'],
+        dashboard: { widgets: [{ type: 'models', models: ['Post'] }] }
+      })
+    ).toThrow(/references model "Post", which is unknown or excluded/);
+  });
+
+  it('résout un widget count via le runtime, avec les search/filterable fields réels', () => {
+    const rt = runtimeFor(FULL_SCHEMA_PATH, {
+      dashboard: {
+        widgets: [{ type: 'count', model: 'User', label: 'Actifs', query: 'f.isActive=true' }]
+      }
+    });
+    expect(rt.dashboard.widgets[0]).toMatchObject({
+      type: 'count',
+      modelName: 'User',
+      label: 'Actifs',
+      href: '/admin/user?f.isActive=true'
+    });
+  });
+
+  it('un widget count respecte models[].searchFields configuré pour ce modèle', () => {
+    const rt = runtimeFor(FULL_SCHEMA_PATH, {
+      models: { User: { searchFields: ['email'] } },
+      dashboard: {
+        widgets: [{ type: 'count', model: 'User', label: 'Recherche', query: 'q=bob' }]
+      }
+    });
+    const widget = rt.dashboard.widgets[0] as any;
+    expect(widget.query.searchFields).toEqual(['email']);
+  });
+
+  it('résout un widget recent via le runtime, avec le libellé et le tri réels', () => {
+    const rt = runtimeFor(FULL_SCHEMA_PATH, {
+      dashboard: { widgets: [{ type: 'recent', model: 'User', sort: 'email', dir: 'desc' }] }
+    });
+    expect(rt.dashboard.widgets[0]).toEqual({
+      type: 'recent',
+      modelName: 'User',
+      title: 'Latest User',
+      limit: 5,
+      orderBy: { email: 'desc' },
+      href: '/admin/user'
+    });
+  });
+
+  it('un widget recent trié refuse un champ masqué via models[].hidden', () => {
+    // `bio` est un champ normal (String, non sensible par nom) qui figurerait
+    // dans les colonnes triables si `hidden` n'était pas pris en compte ici —
+    // le test précédent triait sur `email`, qui n'est pas masqué, et restait
+    // vert même sans le câblage `hidden`. Trier sur la colonne masquée elle-même
+    // est la seule façon de prouver que `hidden` ferme aussi ce chemin.
+    expect(() =>
+      runtimeFor(FULL_SCHEMA_PATH, {
+        models: { User: { hidden: ['bio'] } },
+        dashboard: { widgets: [{ type: 'recent', model: 'User', sort: 'bio' }] }
+      })
+    ).toThrow(/does not display/);
+  });
+
+  it('un widget count refuse un filtre f.* sur un champ masqué via models[].hidden', () => {
+    expect(() =>
+      runtimeFor(FULL_SCHEMA_PATH, {
+        models: { User: { hidden: ['bio'] } },
+        dashboard: {
+          widgets: [{ type: 'count', model: 'User', label: 'Bio', query: 'f.bio=hello' }]
+        }
+      })
+    ).toThrow(/query rejects/);
+  });
+
+  it('un widget recent respecte le defaultSort configuré pour ce modèle', () => {
+    const rt = runtimeFor(FULL_SCHEMA_PATH, {
+      models: { User: { defaultSort: { field: 'email', dir: 'asc' } } },
+      dashboard: { widgets: [{ type: 'recent', model: 'User' }] }
+    });
+    expect(rt.dashboard.widgets[0]).toMatchObject({ orderBy: { email: 'asc' } });
+  });
+
+  it('un widget recent refuse un tri sur une colonne que la liste n’affiche pas', () => {
+    expect(() =>
+      runtimeFor(FULL_SCHEMA_PATH, {
+        dashboard: { widgets: [{ type: 'recent', model: 'User', sort: 'password' }] }
+      })
+    ).toThrow(/does not display/);
+  });
+
   it('schéma illisible → models vide + warn', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const adapter = {

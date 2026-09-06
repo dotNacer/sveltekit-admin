@@ -21,7 +21,9 @@ export {
   defineModelConfig,
   type ModelFieldMap,
   type ModelConfig,
-  type NavigationConfig
+  type NavigationConfig,
+  type TypedDashboardConfig,
+  type TypedDashboardWidget
 } from './server/config.js';
 export type {
   AdminPlugin,
@@ -30,3 +32,4 @@ export type {
   PluginPageContext,
   PluginPageResult
 } from './server/plugin.js';
+export type { DashboardConfig, DashboardWidget } from './server/dashboard.js';
