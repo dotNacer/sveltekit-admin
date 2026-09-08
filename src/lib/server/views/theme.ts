@@ -334,6 +334,19 @@ export function styles(primaryColor: string): string {
       border-top: 1px solid #e2e8f0;
     }
 
+    /* Dashboard */
+    .ska-dashboard__header {
+      margin-bottom: 1.5rem;
+    }
+
+    .ska-dashboard__header .ska-subtitle {
+      margin-bottom: 0;
+    }
+
+    .ska-dashboard__section + .ska-dashboard__section {
+      margin-top: 2rem;
+    }
+
     /* Stats grid */
     .ska-stats {
       display: grid;
@@ -350,6 +363,17 @@ export function styles(primaryColor: string): string {
       display: flex;
       align-items: center;
       gap: 1rem;
+    }
+
+    .ska-stat--link {
+      text-decoration: none;
+      color: inherit;
+      transition: all 0.15s;
+    }
+
+    .ska-stat--link:hover {
+      border-color: var(--ska-primary);
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
 
     .ska-stat__icon {
@@ -381,19 +405,21 @@ export function styles(primaryColor: string): string {
     }
 
     .ska-model-card {
+      position: relative;
       background: white;
       border: 1px solid #e2e8f0;
       border-radius: 0.5rem;
       padding: 1.25rem;
-      text-decoration: none;
       transition: all 0.15s;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
+      gap: 1rem;
       min-height: 100px;
     }
 
-    .ska-model-card:hover {
+    .ska-model-card:hover,
+    .ska-model-card:focus-within {
       border-color: var(--ska-primary);
       box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
@@ -410,9 +436,71 @@ export function styles(primaryColor: string): string {
     }
 
     .ska-model-card__footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+
+    .ska-model-card__link {
+      color: var(--ska-primary);
+      text-decoration: none;
+    }
+
+    /* Stretched link : toute la carte est cliquable vers la liste… */
+    .ska-model-card__link::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 0.5rem;
+    }
+
+    /* …sauf l'action de création, qui repasse au-dessus de l'overlay. */
+    .ska-model-card__new {
+      position: relative;
+      z-index: 1;
+      color: #475569;
+      text-decoration: none;
+    }
+
+    .ska-model-card__new:hover {
+      color: var(--ska-primary);
+    }
+
+    /* Recent panel */
+    .ska-recent {
+      list-style: none;
+      margin: 0 0 0.75rem;
+      padding: 0;
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 0.5rem;
+    }
+
+    .ska-recent__item + .ska-recent__item {
+      border-top: 1px solid #e2e8f0;
+    }
+
+    .ska-recent__item a {
+      display: block;
+      padding: 0.75rem 1rem;
+      color: #1e293b;
+      text-decoration: none;
+      font-size: 0.875rem;
+    }
+
+    .ska-recent__item a:hover {
+      background: #f8fafc;
+      color: var(--ska-primary);
+    }
+
+    .ska-recent__all {
       color: var(--ska-primary);
       font-size: 0.875rem;
       font-weight: 500;
+      text-decoration: none;
     }
 
     /* Header with actions */
@@ -626,6 +714,9 @@ export function styles(primaryColor: string): string {
     .ska-back:focus-visible,
     .ska-checkbox:focus-visible,
     .ska-logout__btn:focus-visible,
+    .ska-stat--link:focus-visible,
+    .ska-recent__item a:focus-visible,
+    .ska-recent__all:focus-visible,
     .ska-skip:focus-visible {
       outline: 2px solid var(--ska-primary);
       outline-offset: 2px;

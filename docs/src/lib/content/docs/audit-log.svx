@@ -1,87 +1,203 @@
 ---
 title: Audit log
 name: Audit log
-description: Record which administrator created, updated, or deleted a row with an optional audit callback.
+description: Persist redacted administrator write events and build a scoped, read-only viewer.
 ---
 
 sveltekit-admin does not ship an `AuditLog` table or a dedicated log UI. It
-gives you a single opt-in hook, `audit`, called after every **successful**
-create, update, or delete. You decide where the event goes — your own Prisma
-or Drizzle model, a logger, an HTTP sink.
+provides an opt-in `audit` callback after every **successful** create, update,
+or delete. The callback receives a redacted `AuditEvent`; persistence and
+viewing are application concerns.
 
-If `audit` is omitted, nothing changes: no extra reads, no calls.
+Reads (GET), logout, and `_search` are not audited. A POST that fails
+validation or the database write does not call `audit`. If `audit` is omitted,
+there are no extra reads or calls.
 
-## `audit`
+## A production-oriented Prisma model
+
+This model keeps the event envelope queryable while storing snapshots in JSON.
+`actorId` is a string so an application can use either numeric or string user
+IDs; the callback below normalizes the value. Add a tenant key when the same
+database contains more than one tenant.
+
+```text
+model AuditLog {
+  id        String   @id @default(cuid())
+  at        DateTime @default(now())
+  actorId   String?
+  actorName String?
+  action    String
+  model     String
+  recordId  String
+  values    Json?
+  before    Json?
+  after     Json?
+  changes   Json?
+  m2m       Json?
+  tenantId  String?
+
+  @@index([at])
+  @@index([model, recordId])
+  @@index([actorId, at])
+  @@index([tenantId, at])
+}
+```
+
+Use a compound index that matches the viewer's most common filter (for
+example, `[tenantId, at]`). Keep the log append-oriented: avoid exposing the
+JSON snapshots to ordinary application code, and decide whether the database
+should enforce retention, partitioning, or archival before the table grows.
+
+## Persist the callback
+
+The exact callback type is `AuditEvent`. Its `action` discriminant determines
+which fields exist:
+
+| Field | Present on | Meaning |
+| ----- | ---------- | ------- |
+| `event` | every event | The SvelteKit `RequestEvent`; read the actor from `event.locals`. |
+| `at` | every event | Timestamp taken after the write succeeds. |
+| `action` | every event | `'create'`, `'update'`, or `'delete'`. |
+| `model` | every event | Schema model name, such as `User`. |
+| `id` | every event | Primary key; on create it is the adapter-returned generated ID. |
+| `values` | create/update | Redacted submitted scalar payload. |
+| `before` | update/delete | Redacted pre-write snapshot, or `null` if it could not be read. |
+| `after` | create/update | Redacted post-write snapshot. |
+| `changes` | update | `{ from, to }` only for fields that changed; `{}` when `before` is `null`. |
+| `m2m` | create/update when submitted | Relation field to submitted IDs, including `[]` when cleared. |
+
+Put the signed-in administrator in `event.locals` in your auth `handle` (see
+[Authentication](/docs/authentication)). Then persist the event without
+reconstructing or bypassing its redaction:
 
 ```typescript
-createAdminHandler({
+import { createAdminHandler } from 'sveltekit-admin';
+import { prisma } from '$lib/server/prisma';
+
+// Prisma Json does not accept Date or bigint values directly.
+const jsonValue = (value: unknown) =>
+  value === undefined
+    ? undefined
+    : JSON.parse(JSON.stringify(value, (_key, item) =>
+        typeof item === 'bigint' ? item.toString() : item
+      ));
+
+export const handle = createAdminHandler({
   prisma,
   authCheck: (event) => event.locals.session?.user?.role === 'admin',
   audit: async (entry) => {
-    await prisma.auditLog.create({
-      data: {
-        at: entry.at,
-        actorId: entry.event.locals.session?.user?.id,
-        action: entry.action,
-        model: entry.model,
-        recordId: String(entry.id),
-        changes: entry.action === 'update' ? entry.changes : undefined
-      }
-    });
+    // Prevent recursion if AuditLog is left visible in the admin.
+    if (entry.model === 'AuditLog') return;
+
+    const actor = entry.event.locals.session?.user;
+    const data = {
+      at: entry.at,
+      actorId: actor?.id == null ? null : String(actor.id),
+      actorName: actor?.name ?? actor?.email ?? null,
+      tenantId: actor?.tenantId == null ? null : String(actor.tenantId),
+      action: entry.action,
+      model: entry.model,
+      recordId: String(entry.id),
+      values: 'values' in entry ? jsonValue(entry.values) : undefined,
+      before: 'before' in entry ? jsonValue(entry.before) : undefined,
+      after: 'after' in entry ? jsonValue(entry.after) : undefined,
+      changes: 'changes' in entry ? jsonValue(entry.changes) : undefined,
+      m2m: 'm2m' in entry ? jsonValue(entry.m2m) : undefined
+    };
+
+    await prisma.auditLog.create({ data });
   }
 });
 ```
 
-The callback receives a discriminated `AuditEvent`:
+The library strips fields whose names contain `password`, `hash`, `secret`, or
+`token`, as well as fields listed in `models[].hidden`, from `values`,
+`before`, `after`, and `changes`. Do not add raw request data or query the
+original row again in the callback to “fill in” omitted fields: that defeats
+the redaction boundary. Treat `event.locals` as your actor source and store
+only the identity your authorization layer has already established.
 
-| Field | When | Meaning |
-| ----- | ---- | ------- |
-| `event` | always | The SvelteKit `RequestEvent` — the same object `authCheck` sees. Read the actor from `event.locals`. |
-| `at` | always | Timestamp taken after the write succeeded. |
-| `action` | always | `'create'` \| `'update'` \| `'delete'` |
-| `model` | always | Schema model name (`User`, not `user`). |
-| `id` | always | Primary key of the row. On create this is the value returned by the adapter (the generated id). |
-| `values` | create, update | Redacted scalar payload that was submitted. |
-| `before` | update, delete | Redacted snapshot before the write, or `null` if the row could not be read. |
-| `after` | create, update | Redacted snapshot after the write. |
-| `changes` | update | Per-field `{ from, to }` for values that actually changed. Empty if `before` is `null`. |
-| `m2m` | create/update when submitted | Relation field → submitted ids (including `[]` when the form cleared the relation). |
+The callback is awaited before the 303 redirect, so a successful
+`prisma.auditLog.create` commits before the response. There is no transaction
+between the adapter write and your sink. If the callback throws, the mutation
+still redirects and the handler logs
+`[sveltekit-admin] audit callback failed:`; monitor that error if audit records
+are compliance-critical.
 
-Reads (GET), logout, and `_search` are not audited. A POST that fails
-validation or the database write does not call `audit`.
+## A scoped, read-only viewer in the admin
 
-## Who did it?
-
-The library has no session of its own. Put the signed-in admin on
-`event.locals` in your auth `handle` (see [Authentication](/docs/authentication)),
-then read it from `entry.event.locals` in `audit`.
-
-## Redaction
-
-Fields whose names match `password` / `hash` / `secret` / `token`, and fields
-listed in `models[].hidden`, are stripped from `values`, `before`, `after`,
-and `changes`. A submitted password on a create form never reaches your sink.
-
-## Failures
-
-`audit` is awaited before the 303 redirect so a `prisma.auditLog.create(...)`
-inside it commits first. If the callback **throws**, the mutation still
-redirects — the write is the source of truth, the log is a sidecar. The
-handler logs `[sveltekit-admin] audit callback failed:`.
-
-There is no single transaction wrapping the adapter write and your sink:
-that would require the package to own both stores.
-
-## Viewing logs in the admin
-
-Persist to a model in your schema and it shows up in the admin like any
-other table. `exclude: ['AuditLog']` if you do not want it listed, or mark
-its fields `readonly`. Writing an audit row through the admin UI would
-itself fire `audit` — skip that in the callback:
+Leave `AuditLog` out of `exclude` if you want it to appear as a normal admin
+model. Mark every editable scalar as `readonly`, select only useful list
+columns, and apply both authorization and tenant scoping:
 
 ```typescript
-audit: async (entry) => {
-  if (entry.model === 'AuditLog') return;
-  // ...
-}
+createAdminHandler({
+  prisma,
+  authCheck: (event) => {
+    const user = event.locals.session?.user;
+    return (user?.role === 'admin' || user?.role === 'auditor') && user?.tenantId != null;
+  },
+  models: {
+    AuditLog: {
+      listFields: ['at', 'actorName', 'action', 'model', 'recordId', 'tenantId'],
+      readonly: [
+        'at', 'actorId', 'actorName', 'action', 'model', 'recordId',
+        'values', 'before', 'after', 'changes', 'm2m', 'tenantId'
+      ],
+      scope: (ctx) => ({
+        tenantId: ctx.locals?.session?.user?.tenantId
+      })
+    }
+  },
+  audit: async (entry) => {
+    if (entry.model === 'AuditLog') return;
+    // Persist the redacted entry as shown above.
+  }
+});
 ```
+
+The example intentionally admits only tenant-bound admins/auditors. A global
+administrator needs a separate explicit policy (for example, a dedicated
+cross-tenant viewer); do not silently treat a missing `tenantId` as “all
+tenants.”
+
+`models[].scope` is the authorization boundary for this model: it is composed
+into list, count, detail, edit, delete, and mutation queries. It must return a
+non-empty condition for every request; an empty object is rejected rather than
+being treated as “no scope.” `models[].listWhere` is different: it scopes only
+the list view (including its search, filters, count, and pagination). Do not
+use `listWhere` alone to protect tenant data.
+
+The example's `scope` assumes `tenantId` is present in `event.locals` for every
+authorized request. Adapt the field and locals path to your schema. Never fall
+back to an unscoped query when the tenant is missing. If logs are global,
+replace the tenant scope with an explicit policy rather than accidentally
+making them visible to every authenticated user.
+
+`readonly` prevents field editing, but it does not make a model an immutable,
+append-only store or remove the model's delete action. If administrators must
+never delete audit records, use `exclude: ['AuditLog']` and provide a separate
+viewer with a deny-delete policy, or enforce retention and delete permissions
+outside this package. Excluding the model also means its writes cannot recurse
+through the admin UI; keep the callback guard when other code can write it.
+
+## Retention, indexing, and security checklist
+
+- [ ] Persist only the redacted event fields; never log raw `FormData`, request
+      headers, cookies, tokens, passwords, or a second unredacted ORM snapshot.
+- [ ] Resolve the actor from the authenticated `event.locals`, and store a
+      stable ID plus a display label only if your privacy policy permits it.
+- [ ] Require an explicit tenant scope for tenant-owned logs. Test missing,
+      expired, and cross-tenant sessions; fail closed instead of returning `{}`.
+- [ ] Restrict the viewer with `authCheck`, mark columns `readonly`, and avoid
+      putting large JSON snapshots in `listFields` if the list becomes costly.
+- [ ] Decide whether audit records themselves are sensitive: protect JSON
+      snapshots, database backups, exports, and support tooling accordingly.
+- [ ] Index the time range and the filters the viewer uses (`tenantId`,
+      `model`, `recordId`, or `actorId`); do not index every JSON property by
+      default.
+- [ ] Define retention, archival, and deletion controls before production.
+      Database-level partitioning or an external immutable sink may be more
+      appropriate for compliance workloads.
+- [ ] Monitor callback failures. The business write remains successful when the
+      callback throws, so a failed sidecar must be observable and recoverable.

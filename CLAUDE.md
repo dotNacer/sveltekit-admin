@@ -42,11 +42,11 @@ pnpm exec vitest run -t "some test name"
 
 `tests/integration/setup.ts` (Vitest `globalSetup`) spins up a throwaway SQLite DB via `prisma db push` for `tests/integration/handler.db.test.ts`; unit tests instead use the mock in `tests/fixtures/prismaMock.ts`.
 
-CI (`.github/workflows/ci.yml`) also runs a `changeset-check` job on PRs (`pnpm exec changeset status --since=origin/main`) that fails if publishable source changed without an added `.changeset/*.md`.
+CI (`.github/workflows/ci.yml`) also runs a `changeset-check` job on PRs (`pnpm exec changeset status --since=origin/main`, then `pnpm run lint:changesets`) that fails if publishable source changed without an added `.changeset/*.md`, or if one doesn't follow the tagged format.
 
 ## Versioning & releases
 
-Semantic Versioning, enforced via [Changesets](https://github.com/changesets/changesets) — see `CONTRIBUTING.md` for the exact MAJOR/MINOR/PATCH rules. Any PR that changes published behavior needs `pnpm exec changeset` (or the `writing-changesets` skill) before merge. A pure test/CI/docs/tooling PR needs no *bump*, but still needs a file: an **empty** changeset (`pnpm exec changeset add --empty`), because the `changeset-check` job's `changeset status --since=origin/main` counts any modified file as a package change and fails a PR with no `.changeset/*.md` at all. Releases are fully automated: merging to `main` runs `.github/workflows/release.yml`, which opens/updates a "Version Packages" PR via `changesets/action`; merging *that* PR bumps `package.json`, regenerates `CHANGELOG.md`, tags, and publishes to npm. Nothing is versioned or published by hand.
+Semantic Versioning, enforced via [Changesets](https://github.com/changesets/changesets) — see `CONTRIBUTING.md` for the exact MAJOR/MINOR/PATCH rules. Any PR that changes published behavior needs a hand-written `.changeset/*.md` with a tagged body (`breaking:`/`feat:`/`improvement:`/`fix:`) — see `.claude/skills/writing-changesets/SKILL.md` and run `pnpm run lint:changesets` before pushing. A pure test/CI/docs/tooling PR needs no *bump*, but still needs a file: an **empty** changeset, because the `changeset-check` job's `changeset status --since=origin/main` counts any modified file as a package change and fails a PR with no `.changeset/*.md` at all. Releases are fully automated: merging to `main` runs `.github/workflows/release.yml`, which opens/updates a "Version Packages" PR via `changesets/action`; merging *that* PR bumps `package.json`, regenerates `CHANGELOG.md`, tags, and publishes to npm. Nothing is versioned or published by hand.
 
 ## Request flow (the core mental model)
 

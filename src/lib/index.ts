@@ -16,6 +16,15 @@ export {
 export type { Schema, Model, Field } from './server/types/schema.js';
 export { createPrismaAdapter } from './server/adapters/prisma/index.js';
 export type { DataAdapter, SchemaIntrospector, Filter } from './server/adapters/types.js';
+export {
+  defineAdminConfig,
+  defineModelConfig,
+  type ModelFieldMap,
+  type ModelConfig,
+  type NavigationConfig,
+  type TypedDashboardConfig,
+  type TypedDashboardWidget
+} from './server/config.js';
 export type {
   AdminPlugin,
   AdminPluginPage,
@@ -23,3 +32,4 @@ export type {
   PluginPageContext,
   PluginPageResult
 } from './server/plugin.js';
+export type { DashboardConfig, DashboardWidget } from './server/dashboard.js';

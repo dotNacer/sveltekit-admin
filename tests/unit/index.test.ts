@@ -8,8 +8,8 @@ import { FULL_SCHEMA_PATH } from '../fixtures/prismaMock.js';
  * `AdminPlugin`, `AdminPluginPage`, `AdminPluginRecordAction`, `PluginPageContext`,
  * `PluginPageResult`, `AuditAction`, `AuditEvent`, `PrismaSchema`, `PrismaModel`,
  * `PrismaField`, `Schema`, `Model`, `Field`, `DataAdapter`, `SchemaIntrospector`,
- * `Filter`) n'ont aucune présence
- * à l'exécution : seules les cinq fonctions doivent apparaître ici. Toute addition ou
+ * `Filter`, `DashboardConfig`, `DashboardWidget`) n'ont aucune présence
+ * à l'exécution : les fonctions publiques attendues doivent apparaître ici. Toute addition ou
  * suppression dans `src/lib/index.ts` fait échouer ce test — c'est voulu, la surface
  * publiée est un contrat.
  */
@@ -18,7 +18,9 @@ const RUNTIME_EXPORTS = [
   'defaultAdminCheck',
   'parsePrismaSchema',
   'parseSchemaContent',
-  'createPrismaAdapter'
+  'createPrismaAdapter',
+  'defineAdminConfig',
+  'defineModelConfig'
 ] as const;
 
 const TYPE_ONLY_EXPORTS = [
@@ -38,13 +40,15 @@ const TYPE_ONLY_EXPORTS = [
   'Field',
   'DataAdapter',
   'SchemaIntrospector',
-  'Filter'
+  'Filter',
+  'DashboardConfig',
+  'DashboardWidget'
 ] as const;
 
 afterEach(() => vi.restoreAllMocks());
 
 describe('surface publique du paquet', () => {
-  it('n’exporte à l’exécution que les cinq fonctions attendues', () => {
+  it('n’exporte à l’exécution que les sept fonctions attendues', () => {
     expect(Object.keys(api).sort()).toEqual([...RUNTIME_EXPORTS].sort());
   });
 
@@ -65,6 +69,13 @@ describe('surface publique du paquet', () => {
     expect(
       typeof api.createPrismaAdapter({ prisma: {}, schemaPath: FULL_SCHEMA_PATH }).data.listRecords
     ).toBe('function');
+  });
+
+  it('expose les helpers de configuration typée comme fonctions utilisables', () => {
+    expect(api.defineModelConfig<'id'>({ hidden: ['id'] })).toEqual({ hidden: ['id'] });
+    expect(
+      api.defineAdminConfig<{ User: 'id' }>({ models: { User: { readonly: ['id'] } } })
+    ).toEqual({ models: { User: { readonly: ['id'] } } });
   });
 
   it('createAdminHandler est le wrapper Prisma, pas le core', () => {
