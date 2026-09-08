@@ -72,6 +72,17 @@ createAdminHandler({
 });
 ```
 
+For TypeScript projects, `defineAdminConfig` narrows transform keys to the fields declared in your model map:
+
+```ts
+import { defineAdminConfig } from 'sveltekit-admin';
+
+const config = defineAdminConfig<{ User: 'id' | 'email' | 'password' }>({
+  models: { User: { transform: { password: (raw) => hash(String(raw)) } } }
+  // `passwrod` instead of `password` is rejected by TypeScript/IDE tooling.
+});
+```
+
 The transform runs inside the same request-scoped write path as the rest of validation (before the actual insert/update), so `async` is fully supported. A field is only transformed when it is actually present in the submitted payload — nothing runs for a readonly/hidden/empty-optional field. A transform can never run on a `scope` (tenant) column: that value is imposed by the server, not a user submission. If the transform throws, the write is rejected as a normal validation error naming the field — never a raw driver error.
 
 ## Development

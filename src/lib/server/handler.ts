@@ -35,6 +35,7 @@ import { resolvePluginRegistry, actionsForModel } from './pluginRegistry.js';
 import { createPluginPageContext } from './pluginAccess.js';
 import type { AdminPlugin } from './plugin.js';
 import type { NavigationConfig } from './config.js';
+import type { TransformConfig } from './config.js';
 import { loadDashboard, type DashboardConfig } from './dashboard.js';
 
 export interface AdminHandlerConfig {
@@ -163,7 +164,7 @@ export interface AdminHandlerConfig {
      * Fonctionne identiquement sur Prisma et Drizzle : c'est `handleMutation`
      * (ORM-agnostic) qui l'exécute, pas un adapter.
      */
-    transform?: Record<string, (raw: unknown, ctx: { locals?: any }) => unknown | Promise<unknown>>;
+    transform?: TransformConfig;
     scope?: (ctx: { locals?: any }) => Record<string, unknown> | import('./adapters/types.js').Filter;
     /**
      * Scoping `where` applied to the LIST VIEW ONLY of this model

@@ -12,8 +12,12 @@ export interface ModelConfig {
   singularLabel?: string;
   pluralLabel?: string;
   fieldOrder?: readonly string[];
+  transform?: TransformConfig;
   [key: string]: unknown;
 }
+
+export type TransformFunction = (raw: unknown, ctx: { locals?: any }) => unknown | Promise<unknown>;
+export type TransformConfig = Record<string, TransformFunction>;
 
 export interface NavigationCategoryConfig {
   label: string;
@@ -86,6 +90,16 @@ function validateConfiguredFields(model: Model, config: ModelConfig | undefined)
       if (!fields.has(name)) {
         throw new AdminConfigError(
           `[sveltekit-admin] models.${model.name}.${option} contains unknown field "${name}".`
+        );
+      }
+    }
+  }
+
+  if (config.transform) {
+    for (const name of Object.keys(config.transform)) {
+      if (!fields.has(name)) {
+        throw new AdminConfigError(
+          `[sveltekit-admin] models.${model.name}.transform contains unknown field "${name}".`
         );
       }
     }
@@ -198,14 +212,17 @@ export type TypedDashboardConfig<Models extends ModelFieldMap> = Omit<DashboardC
   widgets?: TypedDashboardWidget<Models>[];
 };
 
+type HandlerModelConfig = NonNullable<import('./handler.js').AdminHandlerConfig['models']>[string];
+
 type TypedModelConfig<Fields extends string> = Omit<
-  ModelConfig,
-  'hidden' | 'readonly' | 'listFields' | 'fieldOrder'
+  HandlerModelConfig,
+  'hidden' | 'readonly' | 'listFields' | 'fieldOrder' | 'transform'
 > & {
   hidden?: Fields[];
   readonly?: Fields[];
   listFields?: Fields[];
   fieldOrder?: readonly Fields[];
+  transform?: Partial<Record<Fields, TransformFunction>>;
 };
 
 /** Keeps every configured field name narrow for IDE/lint feedback. */
