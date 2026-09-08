@@ -57,6 +57,16 @@ The schema object contains your exported tables and relations. Drizzle model nam
 
 Set `authCheck` before deployment. Use `models[].scope` for tenant authorization; `listWhere` is list-only and does not protect direct detail or mutation URLs. Keep CSRF enabled unless an equivalent boundary is deliberately provided. Fields matching `password`, `hash`, `secret`, or `token`, and fields in `hidden`, are kept out of sensitive views and callback payloads.
 
+When using typed configuration, the object form of `scope` checks field names at compile time and at boot:
+
+```ts
+defineAdminConfig<{ User: 'id' | 'email' }>({
+  models: { User: { scope: () => ({ email: 'tenant@example.test' }) } }
+});
+```
+
+The raw `Filter` AST form is also supported, but its `field` names are intentionally not type-checked; use the object form when you want IDE feedback. Boot validation still checks both forms when the scope can run without request locals. If a scope needs `ctx.locals`, validation is deferred to the request path rather than invoking it with a fake session.
+
 Use `models[].transform` to turn a raw submitted value into what actually gets written — the classic case is hashing a password before it reaches the database, since a store like bcrypt/argon2/better-auth will never accept plain text:
 
 ```ts

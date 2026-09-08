@@ -13,6 +13,7 @@ const validConfig = defineAdminConfig<AppModels>({
       readonly: ['id', 'createdAt'],
       listFields: ['email'],
       fieldOrder: ['email', 'createdAt'],
+      scope: () => ({ email: 'tenant@example.test' }),
       transform: { password: async (raw: unknown) => String(raw) }
     }
   },
@@ -51,11 +52,26 @@ defineAdminConfig<AppModels>({
 });
 
 defineModelConfig<AppModels['User']>({
+  scope: () => ({ email: 'tenant@example.test' }),
   transform: {
     password: (raw) => raw,
     // @ts-expect-error — the standalone helper enforces the same field map.
     passwrod: (raw: unknown) => raw
   }
+});
+
+defineAdminConfig<AppModels>({
+  models: {
+    User: {
+      // @ts-expect-error — scope object keys must be known model fields.
+      scope: () => ({ tenantIdd: 1 })
+    }
+  }
+});
+
+defineModelConfig<AppModels['User']>({
+  // @ts-expect-error — the standalone helper enforces scope field names too.
+  scope: () => ({ tenantIdd: 1 })
 });
 
 defineAdminConfig<AppModels>({

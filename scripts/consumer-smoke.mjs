@@ -144,10 +144,12 @@ try {
   check('le lien d’évitement est présent', list.includes('ska-skip'));
 
   const [firstId] = rowIds(list);
+  const editForm = await (await fetch(`${BASE}/admin/user/${firstId}`)).text();
+  const [organizationId] = editForm.match(/<option value="([^"]+)"/).slice(1);
   const written = await fetch(`${BASE}/admin/user/${firstId}`, {
     method: 'POST',
     headers: { Origin: BASE, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: '_action=update&email=smoke@packaged.test&name=Smoke',
+    body: `_action=update&email=smoke@packaged.test&name=Smoke&organizationId=${organizationId}`,
     redirect: 'manual'
   });
   check('une écriture répond par une redirection', written.status === 303, `reçu ${written.status}`);
