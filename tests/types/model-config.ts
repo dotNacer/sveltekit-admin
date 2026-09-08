@@ -1,4 +1,4 @@
-import { createAdminHandler, defineAdminConfig } from '../../src/lib/index.js';
+import { createAdminHandler, defineAdminConfig, defineModelConfig } from '../../src/lib/index.js';
 
 type AppModels = {
   User: 'id' | 'email' | 'password' | 'createdAt';
@@ -12,7 +12,8 @@ const validConfig = defineAdminConfig<AppModels>({
       hidden: ['password'],
       readonly: ['id', 'createdAt'],
       listFields: ['email'],
-      fieldOrder: ['email', 'createdAt']
+      fieldOrder: ['email', 'createdAt'],
+      transform: { password: async (raw: unknown) => String(raw) }
     }
   },
   modelOrder: ['User', 'Post'],
@@ -35,6 +36,25 @@ defineAdminConfig<AppModels>({
       // @ts-expect-error — typo must be caught by TypeScript/IDE tooling.
       hidden: ['passwrod']
     }
+  }
+});
+
+defineAdminConfig<AppModels>({
+  models: {
+    User: {
+      transform: {
+        // @ts-expect-error — transform keys must be known model fields too.
+        passwrod: (raw: unknown) => raw
+      }
+    }
+  }
+});
+
+defineModelConfig<AppModels['User']>({
+  transform: {
+    password: (raw) => raw,
+    // @ts-expect-error — the standalone helper enforces the same field map.
+    passwrod: (raw: unknown) => raw
   }
 });
 

@@ -133,6 +133,12 @@ describe('createAdminRuntime', () => {
     expect(() => runtimeFor(FULL_SCHEMA_PATH, { models: { Ghost: { hidden: ['id'] } } })).toThrow(/unknown model/);
   });
 
+  it('refuse un transform configuré sur un champ inconnu au démarrage', () => {
+    expect(() => runtimeFor(FULL_SCHEMA_PATH, {
+      models: { User: { transform: { passwrod: (raw: unknown) => raw } } }
+    })).toThrow('[sveltekit-admin] models.User.transform contains unknown field "passwrod".');
+  });
+
   it('valide strictement les catégories de navigation', () => {
     for (const categories of [
       [{ label: '', models: ['User'] }],
