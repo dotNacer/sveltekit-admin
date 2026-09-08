@@ -57,6 +57,23 @@ The schema object contains your exported tables and relations. Drizzle model nam
 
 Set `authCheck` before deployment. Use `models[].scope` for tenant authorization; `listWhere` is list-only and does not protect direct detail or mutation URLs. Keep CSRF enabled unless an equivalent boundary is deliberately provided. Fields matching `password`, `hash`, `secret`, or `token`, and fields in `hidden`, are kept out of sensitive views and callback payloads.
 
+Use `models[].transform` to turn a raw submitted value into what actually gets written — the classic case is hashing a password before it reaches the database, since a store like bcrypt/argon2/better-auth will never accept plain text:
+
+```ts
+import { hash } from '@node-rs/argon2';
+
+createAdminHandler({
+  prisma,
+  models: {
+    User: {
+      transform: { password: async (raw) => await hash(String(raw)) }
+    }
+  }
+});
+```
+
+The transform runs inside the same request-scoped write path as the rest of validation (before the actual insert/update), so `async` is fully supported. A field is only transformed when it is actually present in the submitted payload — nothing runs for a readonly/hidden/empty-optional field. A transform can never run on a `scope` (tenant) column: that value is imposed by the server, not a user submission. If the transform throws, the write is rejected as a normal validation error naming the field — never a raw driver error.
+
 ## Development
 
 ```bash

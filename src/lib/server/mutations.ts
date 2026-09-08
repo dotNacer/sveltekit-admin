@@ -394,6 +394,49 @@ export async function handleMutation(
       }
     }
 
+    /**
+     * Write-transform hook (issue #25). Permet par exemple de hasher un mot
+     * de passe entre la valeur soumise et l'écriture : `models.User.transform
+     * = { password: async (raw) => await hash(raw) }`.
+     *
+     * Map par champ plutôt qu'un hook unique `beforeWrite(model, data)` :
+     * plus étroite, plus simple à typer, et alignée sur le reste de la config
+     * `models[...]` (`hidden`, `readonly`… sont déjà des maps par champ). Un
+     * hook unique couvrirait aussi une valeur dérivée de plusieurs champs à
+     * la fois, mais ce cas n'est pas celui que l'issue documente — la map
+     * suffit et se choisit en cas de doute (voir la PR).
+     *
+     * Ne tourne que sur un champ réellement PRÉSENT dans `data` : un champ
+     * sensible optionnel resté vide en a déjà été retiré plus haut, et un
+     * champ absent du formulaire (readonly, masqué) n'a rien à transformer.
+     *
+     * Place AVANT l'imposition du scope, jamais après : une colonne de scope
+     * exclut le transform explicitement ci-dessous (elle n'a de toute façon
+     * aucune raison légitime d'être transformée — c'est une valeur imposée
+     * par le serveur, pas une saisie), et la boucle de scope plus bas
+     * réaffirme malgré tout sa valeur sans condition. Double garde
+     * volontaire : la seconde ne suffirait pas seule, elle appellerait quand
+     * même le transform (un hash inutile, un effet de bord côté développeur)
+     * avant de l'écraser.
+     *
+     * Un transform qui lève est classé comme un refus de validation, jamais
+     * relayé tel quel : même politique que le reste de ce fichier vis-à-vis
+     * du pilote (`classifyWriteError`) — un message de bibliothèque tierce
+     * (bcrypt, argon2…) ne doit pas fuiter sans passage par le système
+     * d'erreurs actionnable, et le champ fautif doit être nommé pour que le
+     * formulaire sache où l'afficher.
+     */
+    const transforms = modelsConfig[model.name]?.transform ?? {};
+    for (const [field, transformFn] of Object.entries(transforms)) {
+      if (!(field in data) || field in scopeValues) continue;
+      try {
+        data[field] = await transformFn(data[field], { locals: event.locals });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        throw new AdminMutationError('validation', `${field}: ${message}`, field);
+      }
+    }
+
     // Imposition du scope, en dernier et volontairement après les boucles
     // ci-dessus : elles réécrivent `data[scalarName]` avec la valeur soumise,
     // et la colonne de tenant est presque toujours un scalaire de relation

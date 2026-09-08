@@ -125,6 +125,45 @@ export interface AdminHandlerConfig {
     pluralLabel?: string;
     /** Fields listed here are rendered first; unlisted fields keep schema order. */
     fieldOrder?: readonly string[];
+    /**
+     * Write-transform hook (issue #25) : transforme une valeur soumise juste
+     * avant l'écriture, par champ — typiquement pour hasher un mot de passe
+     * en clair avant de l'écrire (`{ password: async (raw) => await hash(raw) }`).
+     * Une valeur soumise via un formulaire admin ne peut jamais être acceptée
+     * telle quelle par un store de credentials (bcrypt/argon2/better-auth
+     * refusent tous du texte en clair) — sans ce hook, le seul contournement
+     * était `hidden` + gestion des credentials côté app consommatrice, ce qui
+     * rend la colonne impossible à définir depuis l'admin si elle est requise.
+     *
+     * Exécuté à l'intérieur de la même passe de validation que le reste de
+     * `handleMutation`, donc AVANT l'écriture réelle (Prisma/Drizzle) et avant
+     * l'imposition du scope — voir `mutations.ts` pour le détail de l'ordre.
+     * `async` est supporté (bcrypt/argon2 le sont intrinsèquement) ; rien
+     * n'ouvre de transaction ici, le transform ne fait que produire la valeur
+     * qui sera ensuite écrite par l'appel `createRecord`/`updateRecord` de
+     * l'adapter, dans SA propre transaction quand il y en a une (m2m/guards).
+     *
+     * Ne s'exécute jamais sur un champ absent du payload soumis (readonly,
+     * masqué, optionnel laissé vide puis retiré par la garde des champs
+     * sensibles) ni sur une colonne de scope — le scope est une valeur
+     * imposée par le serveur, jamais une saisie, et `transform` ne doit
+     * jamais pouvoir la réécrire.
+     *
+     * Une exception levée par le transform est classée comme une
+     * `AdminMutationError` de type `validation` portant le nom du champ —
+     * jamais relayée telle quelle, jamais une 500 brute — cohérente avec le
+     * système d'erreurs actionnable déjà en place pour le reste de ce
+     * fichier (`classifyWriteError`).
+     *
+     * Ce hook décide COMMENT écrire une valeur, jamais SI un champ est
+     * sensible : `isSensitiveFieldName`/`isSensitiveStringField`
+     * (introspection/parser.ts) reste l'unique source de vérité pour ça,
+     * et continue de piloter indépendamment l'affichage liste/formulaire.
+     *
+     * Fonctionne identiquement sur Prisma et Drizzle : c'est `handleMutation`
+     * (ORM-agnostic) qui l'exécute, pas un adapter.
+     */
+    transform?: Record<string, (raw: unknown, ctx: { locals?: any }) => unknown | Promise<unknown>>;
     scope?: (ctx: { locals?: any }) => Record<string, unknown> | import('./adapters/types.js').Filter;
     /**
      * Scoping `where` applied to the LIST VIEW ONLY of this model
