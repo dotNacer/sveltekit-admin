@@ -66,6 +66,24 @@ function rowIds(html) {
   return [...html.matchAll(/name="ids" value="([^"]+)"/g)].map((m) => m[1]);
 }
 
+/**
+ * Valeur actuellement sélectionnée d'un <select name="…"> donné.
+ *
+ * Le run précédent prenait la première balise `<option>` de TOUT le
+ * document, qui n'appartient pas forcément au `<select>` visé — une autre
+ * relation, un filtre, ou même l'option non sélectionnée d'un tenant
+ * différent. On isole d'abord le `<select>` par son attribut `name`, puis on
+ * lit l'option marquée `selected` à l'intérieur — c'est la valeur que le
+ * serveur a effectivement rendue pour le tenant courant, celle qu'un vrai
+ * navigateur soumettrait sans y toucher.
+ */
+function selectedOptionValue(html, selectName) {
+  const select = html.match(new RegExp(`<select[^>]*name="${selectName}"[^>]*>([\\s\\S]*?)</select>`));
+  if (!select) return undefined;
+  const selected = select[1].match(/<option value="([^"]+)"[^>]*selected/);
+  return selected?.[1];
+}
+
 const workdir = mkdtempSync(join(tmpdir(), 'ska-consumer-'));
 const appdir = join(workdir, 'app');
 let server;
@@ -112,9 +130,26 @@ try {
 
   step = 'serve';
   console.log('→ démarrage du serveur');
+  // Filet de sécurité : un run précédent qui aurait planté avant le `finally`
+  // (process tué à la dure, machine éteinte en plein run…) peut laisser un
+  // `vite preview` orphelin sur ce port fixe. Le nettoyage normal se fait
+  // dans le `finally` ci-dessous ; ceci couvre le cas où CE run hérite d'un
+  // orphelin laissé par un run antérieur, pas par lui-même. `fuser` renvoie
+  // un statut non nul quand le port est libre — c'est le cas attendu, pas
+  // une erreur à faire remonter.
+  spawnSync('fuser', ['-k', `${PORT}/tcp`], { stdio: 'ignore' });
+  // `detached: true` place `vite preview` (et le processus `npx` qui le lance)
+  // dans son propre groupe de processus : `server.kill()` seul ne tue que
+  // `npx`, pas l'enfant `vite` qu'il a exec'é, qui restait alors lié au port
+  // fixe (4599) bien après la fin du script. Un run ultérieur sur la même
+  // machine pouvait alors dialoguer avec CE serveur orphelin — construit sur
+  // une DB de démo antérieure, dans un état différent du seed frais — plutôt
+  // qu'avec celui tout juste démarré. `process.kill(-pid, …)` cible le groupe
+  // entier, pas seulement `npx`.
   server = spawn('npx', ['vite', 'preview', '--port', String(PORT)], {
     cwd: appdir,
-    stdio: 'ignore'
+    stdio: 'ignore',
+    detached: true
   });
 
   const deadline = Date.now() + 60_000;
@@ -145,7 +180,7 @@ try {
 
   const [firstId] = rowIds(list);
   const editForm = await (await fetch(`${BASE}/admin/user/${firstId}`)).text();
-  const [organizationId] = editForm.match(/<option value="([^"]+)"/).slice(1);
+  const organizationId = selectedOptionValue(editForm, 'organizationId');
   const written = await fetch(`${BASE}/admin/user/${firstId}`, {
     method: 'POST',
     headers: { Origin: BASE, 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -185,7 +220,17 @@ try {
     (resolved.stderr ?? '').trim().split('\n')[0]
   );
 } finally {
-  server?.kill();
+  // Cible le groupe de processus entier (`-pid`), pas seulement `npx` : voir
+  // le commentaire au démarrage du serveur plus haut. `server` peut être
+  // `undefined` si une étape antérieure a levé.
+  if (server?.pid) {
+    try {
+      process.kill(-server.pid, 'SIGKILL');
+    } catch {
+      // Le groupe a déjà disparu (serveur jamais démarré, ou déjà mort) —
+      // rien à nettoyer.
+    }
+  }
   if (!KEEP) rmSync(workdir, { recursive: true, force: true });
   else console.log(`\nrépertoire conservé : ${workdir}`);
 }
