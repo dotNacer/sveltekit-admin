@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.10.0
+
+### Features
+
+- **A `count` widget shows how many rows match a filter and links to the list filtered the same way.** Its `query` is the list view's own query string, so it inherits the operator whitelist and the sensitive-field exclusion; a bad filter is refused at boot, not ignored at render. ([#59](https://github.com/dotNacer/sveltekit-admin/pull/59))
+- **Each dashboard card carries a "+ New" link to the create form**, alongside "Manage →". The card is an `<article>` with an overlay link instead of a nested `<a>`, so keyboard navigation and screen readers get one accessible name per link. No extra request is issued. ([#59](https://github.com/dotNacer/sveltekit-admin/pull/59))
+- **A `recent` widget lists a model's latest rows, each linking to its edit page.** Without `sort` it follows the model's `defaultSort`, then primary key descending. Reads compose `scope` and `listWhere`, and each row is redacted before its label is picked. ([#59](https://github.com/dotNacer/sveltekit-admin/pull/59))
+- **`dashboard.widgets` composes the home page from an ordered array.** `stats` renders the two global cards, `models` a grid you can title and restrict. An unknown type, or a widget pointing at a missing or excluded model, throws at boot. Omitting `dashboard` keeps the previous page. ([#59](https://github.com/dotNacer/sveltekit-admin/pull/59))
+- unify model labels, ordering, navigation categories, and typed model configuration with boot-time validation and IDE checking for configured model and field names. ([#63](https://github.com/dotNacer/sveltekit-admin/pull/63))
+- **A write-transform hook, `models[].transform`.** Change a field's value right before it's written — e.g. hashing a password with bcrypt/argon2. Runs inline, supports async, works on Prisma and Drizzle, never touches a `scope` column; a throw becomes a validation error naming the field. ([#65](https://github.com/dotNacer/sveltekit-admin/pull/65))
+
+### Improvements
+
+- **`models[].scope` now type-checks object-form field names and validates unknown fields at boot for both object and `Filter` forms.** ([#67](https://github.com/dotNacer/sveltekit-admin/pull/67))
+- narrow `models[].transform` keys to known model fields in typed configuration helpers and validate unknown transform fields at boot. ([#66](https://github.com/dotNacer/sveltekit-admin/pull/66))
+
+### Fixes
+
+- Dashboard counts now compose `listWhere` as well as `scope`. A card could announce 40 rows while the list it linked to showed 12. Nothing becomes visible that was not before, but a count can now be lower if you use `listWhere`. ([#59](https://github.com/dotNacer/sveltekit-admin/pull/59))
+
 ## 0.9.0
 
 ### Minor Changes
