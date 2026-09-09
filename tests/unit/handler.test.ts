@@ -354,9 +354,9 @@ describe('actions POST', () => {
   });
 
   it('refuse une édition hors scope sans appeler update', async () => {
-    const prisma = createPrismaMock({ user: [{ id: 1, email: 'other@x.y', tenantId: 'tenant-b' }] });
+    const prisma = createPrismaMock({ user: [{ id: 1, email: 'other@x.y' }] });
     const { handler } = build({
-      models: { User: { scope: () => ({ tenantId: 'tenant-a' }) } }
+      models: { User: { scope: () => ({ id: 2 }) } }
     }, prisma);
     const { event, resolve } = createEvent({ url: '/admin/user/1', body: { _action: 'update', email: 'x@y.z' } });
     const res = await handler({ event, resolve } as any);
@@ -366,9 +366,9 @@ describe('actions POST', () => {
   });
 
   it('refuse une suppression hors scope sans appeler delete', async () => {
-    const prisma = createPrismaMock({ user: [{ id: 1, email: 'other@x.y', tenantId: 'tenant-b' }] });
+    const prisma = createPrismaMock({ user: [{ id: 1, email: 'other@x.y' }] });
     const { handler } = build({
-      models: { User: { scope: () => ({ tenantId: 'tenant-a' }) } }
+      models: { User: { scope: () => ({ id: 2 }) } }
     }, prisma);
     const { event, resolve } = createEvent({ url: '/admin/user/1', body: { _action: 'delete' } });
     const res = await handler({ event, resolve } as any);

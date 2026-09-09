@@ -35,7 +35,7 @@ import { resolvePluginRegistry, actionsForModel } from './pluginRegistry.js';
 import { createPluginPageContext } from './pluginAccess.js';
 import type { AdminPlugin } from './plugin.js';
 import type { NavigationConfig } from './config.js';
-import type { TransformConfig } from './config.js';
+import type { ScopeFunction, TransformConfig } from './config.js';
 import { loadDashboard, type DashboardConfig } from './dashboard.js';
 
 export interface AdminHandlerConfig {
@@ -165,7 +165,7 @@ export interface AdminHandlerConfig {
      * (ORM-agnostic) qui l'exécute, pas un adapter.
      */
     transform?: TransformConfig;
-    scope?: (ctx: { locals?: any }) => Record<string, unknown> | import('./adapters/types.js').Filter;
+    scope?: ScopeFunction;
     /**
      * Scoping `where` applied to the LIST VIEW ONLY of this model
      * (search, sidebar filters, FK filter, pagination count) — composed

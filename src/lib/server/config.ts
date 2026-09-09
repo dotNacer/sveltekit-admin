@@ -2,6 +2,8 @@ import type { Model } from './types/schema.js';
 import type { DashboardConfig } from './dashboard.js';
 import { toLabel } from './views/html.js';
 import { AdminConfigError } from './errors.js';
+import type { Filter } from './adapters/types.js';
+import { isCompositeFilter, isLeafFilter } from './adapters/filter.js';
 
 /** Configuration shared by model presentation, ordering, and navigation. */
 export interface ModelConfig {
@@ -13,11 +15,15 @@ export interface ModelConfig {
   pluralLabel?: string;
   fieldOrder?: readonly string[];
   transform?: TransformConfig;
+  scope?: ScopeFunction;
   [key: string]: unknown;
 }
 
 export type TransformFunction = (raw: unknown, ctx: { locals?: any }) => unknown | Promise<unknown>;
 export type TransformConfig = Record<string, TransformFunction>;
+export type ScopeFunction<Fields extends string = string> = (
+  ctx: { locals?: any }
+) => Partial<Record<Fields, unknown>> | Filter | undefined;
 
 export interface NavigationCategoryConfig {
   label: string;
@@ -103,6 +109,41 @@ function validateConfiguredFields(model: Model, config: ModelConfig | undefined)
         );
       }
     }
+  }
+
+  if (config.scope) {
+    let scope: unknown;
+    try {
+      scope = config.scope({ locals: undefined });
+    } catch {
+      // A legitimate scope may need request locals; defer validation to the
+      // request path when a neutral boot context cannot satisfy it.
+      return;
+    }
+    const validateScope = (node: unknown): void => {
+      if (isCompositeFilter(node)) {
+        for (const clause of node.clauses) validateScope(clause);
+        return;
+      }
+      if (isLeafFilter(node)) {
+        if (!fields.has(node.field)) {
+          throw new AdminConfigError(
+            `[sveltekit-admin] models.${model.name}.scope retourne un champ inconnu "${node.field}".`
+          );
+        }
+        return;
+      }
+      if (node && typeof node === 'object' && !Array.isArray(node)) {
+        for (const name of Object.keys(node)) {
+          if (!fields.has(name)) {
+            throw new AdminConfigError(
+              `[sveltekit-admin] models.${model.name}.scope retourne un champ inconnu "${name}".`
+            );
+          }
+        }
+      }
+    };
+    validateScope(scope);
   }
 }
 
@@ -216,13 +257,14 @@ type HandlerModelConfig = NonNullable<import('./handler.js').AdminHandlerConfig[
 
 type TypedModelConfig<Fields extends string> = Omit<
   HandlerModelConfig,
-  'hidden' | 'readonly' | 'listFields' | 'fieldOrder' | 'transform'
+  'hidden' | 'readonly' | 'listFields' | 'fieldOrder' | 'transform' | 'scope'
 > & {
   hidden?: Fields[];
   readonly?: Fields[];
   listFields?: Fields[];
   fieldOrder?: readonly Fields[];
   transform?: Partial<Record<Fields, TransformFunction>>;
+  scope?: ScopeFunction<Fields>;
 };
 
 /** Keeps every configured field name narrow for IDE/lint feedback. */

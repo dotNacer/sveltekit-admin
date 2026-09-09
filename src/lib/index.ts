@@ -23,7 +23,8 @@ export {
   type ModelConfig,
   type NavigationConfig,
   type TypedDashboardConfig,
-  type TypedDashboardWidget
+  type TypedDashboardWidget,
+  type ScopeFunction
 } from './server/config.js';
 export type {
   AdminPlugin,

@@ -52,7 +52,7 @@ describe('createAdminRuntime', () => {
     });
     expect(() => modelScopeValues(missing, missing.findModel('User')!, { locals: {} })).toThrow(/equality|invalid condition/);
     const contradictory = runtimeFor(FULL_SCHEMA_PATH, {
-      models: { User: { scope: () => ({ op: 'and', clauses: [{ op: 'eq', field: 'tenantId', value: 1 }, { op: 'eq', field: 'tenantId', value: 2 }] }) } }
+      models: { User: { scope: () => ({ op: 'and', clauses: [{ op: 'eq', field: 'id', value: 1 }, { op: 'eq', field: 'id', value: 2 }] }) } }
     });
     expect(() => modelScopeValues(contradictory, contradictory.findModel('User')!, { locals: {} })).toThrow(/equality/);
     const empty = runtimeFor(FULL_SCHEMA_PATH, { models: { User: { scope: () => ({}) } } });
@@ -137,6 +137,40 @@ describe('createAdminRuntime', () => {
     expect(() => runtimeFor(FULL_SCHEMA_PATH, {
       models: { User: { transform: { passwrod: (raw: unknown) => raw } } }
     })).toThrow('[sveltekit-admin] models.User.transform contains unknown field "passwrod".');
+  });
+
+  it('valide les champs de scope objets et Filter au démarrage', () => {
+    expect(() => runtimeFor(FULL_SCHEMA_PATH, {
+      models: { User: { scope: () => ({ tenantIdd: 1 }) } }
+    })).toThrow('[sveltekit-admin] models.User.scope retourne un champ inconnu "tenantIdd".');
+
+    expect(() => runtimeFor(FULL_SCHEMA_PATH, {
+      models: {
+        User: {
+          scope: () => ({
+            op: 'and' as const,
+            clauses: [{ op: 'eq' as const, field: 'tenantIdd', value: 1 }]
+          })
+        }
+      }
+    })).toThrow('[sveltekit-admin] models.User.scope retourne un champ inconnu "tenantIdd".');
+
+    expect(() => runtimeFor(FULL_SCHEMA_PATH, {
+      models: {
+        User: {
+          scope: () => ({
+            op: 'and' as const,
+            clauses: [{ op: 'eq' as const, field: 'email', value: 'tenant@example.test' }]
+          })
+        }
+      }
+    })).not.toThrow();
+  });
+
+  it('ignore la validation de boot si le scope dépend des locals runtime', () => {
+    expect(() => runtimeFor(FULL_SCHEMA_PATH, {
+      models: { User: { scope: (ctx: { locals?: any }) => ({ email: ctx.locals.user.email }) } }
+    })).not.toThrow();
   });
 
   it('valide strictement les catégories de navigation', () => {
